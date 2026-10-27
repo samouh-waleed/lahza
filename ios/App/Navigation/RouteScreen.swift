@@ -11,6 +11,7 @@ struct RouteScreen: View {
         case .ask: AskScreen()
         case .moments: MomentsScreen()
         case .settings: SettingsHomeScreen()
+        case .photoAccess: PhotoAccessSettingsScreen()
         case .appearance: AppearanceSettingsScreen()
         case .privacy: PrivacySettingsScreen()
         case .subscription: SubscriptionSettingsScreen()

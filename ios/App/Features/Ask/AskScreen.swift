@@ -3,8 +3,8 @@ import DDDesign
 import SwiftUI
 
 /// Ask: describe a moment and get back the matching photos. Search is not built yet (template
-/// migration E5–E8), so this is the shell: the field, example prompts, the library status and the
-/// privacy promise. It never fakes results.
+/// migration E5–E8), so this is the shell: the field, example prompts, the library status (photo
+/// access and what Lahza can read) and the privacy promise. It never fakes results.
 struct AskScreen: View {
     @State private var query = ""
     @State private var submitted: String?
@@ -27,15 +27,7 @@ struct AskScreen: View {
                         }
                     }
                 }
-                PaperCard {
-                    HStack(alignment: .top, spacing: DDSpace.md) {
-                        IconBadge("photo.stack", tone: .accent)
-                        VStack(alignment: .leading, spacing: DDSpace.xs) {
-                            Text(AskCopy.libraryTitle).ddText(.headline).foregroundStyle(.dd(.ink))
-                            Text(AskCopy.libraryBody).ddText(.subheadline).foregroundStyle(.dd(.muted))
-                        }
-                    }
-                }
+                LibraryStatusCard()
                 Label(AskCopy.privacy, systemImage: "lock.shield")
                     .ddText(.caption)
                     .foregroundStyle(.dd(.muted))
@@ -67,8 +59,6 @@ nonisolated enum AskCopy {
         "The hotel receipt",
         "My dog at the beach",
     ]
-    static let libraryTitle = "Your library isn't indexed yet"
-    static let libraryBody = "Photo access and on-device indexing arrive in the next milestone. Your photos will never leave your iPhone."
     static let privacy = "Your photos stay on this iPhone."
     static let comingSoonTitle = "Search is coming soon"
     static func comingSoon(_ query: String) -> String {

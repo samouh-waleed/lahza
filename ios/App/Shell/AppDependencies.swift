@@ -1,6 +1,7 @@
 import DDBilling
 import DDCore
 import Foundation
+import LZLibrary
 
 /// Everything the composition root needs from the outside world. `live()` is production;
 /// `testHost()` is inert for the app-hosted unit tests; DEBUG launch arguments
@@ -14,6 +15,9 @@ struct AppDependencies {
     var clock: any AppClock
     var purchases: any PurchasesClient
     var billingEnvironment: BillingEnvironment
+    var photoLibrary: any PhotoLibraryClient
+    /// Shows the system picker for the limited selection and returns when it closes.
+    var presentLimitedLibraryPicker: @MainActor () async -> Void
     /// Start launch from the model's `init` (false for the unit-test host).
     var autoBoot = true
     /// DEBUG: a route opened once launch settles (`-LZRoute`).
@@ -30,18 +34,22 @@ struct AppDependencies {
             kv: UserDefaultsKeyValueStore(defaults: .standard),
             clock: SystemClock(),
             purchases: RevenueCatPurchasesClient(),
-            billingEnvironment: BillingEnvironment(environment)
+            billingEnvironment: BillingEnvironment(environment),
+            photoLibrary: LivePhotoLibraryClient(),
+            presentLimitedLibraryPicker: { await LimitedLibraryPicker.present() }
         )
     }
 
-    /// The app-hosted unit tests' host: nothing boots, nothing touches the network or the real
-    /// defaults.
+    /// The app-hosted unit tests' host: nothing boots, nothing touches the network, the real
+    /// defaults or the photo library.
     static func testHost() -> AppDependencies {
         var dependencies = live()
         dependencies.label = "test-host"
         dependencies.kv = InMemoryKeyValueStore([:])
         dependencies.purchases = FakePurchasesClient()
         dependencies.billingEnvironment = BillingEnvironment(apiKey: "test_host", configuration: .debug)
+        dependencies.photoLibrary = FakePhotoLibraryClient(access: .notDetermined)
+        dependencies.presentLimitedLibraryPicker = {}
         dependencies.autoBoot = false
         return dependencies
     }

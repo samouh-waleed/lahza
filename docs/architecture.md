@@ -29,6 +29,7 @@ All analysis runs on the iPhone, and there is no Lahza server. The only network 
 - Reads albums named after people (e.g. "Ahmed") to learn names.
 - Tracks changes: a change observer while the app runs, and a saved change token checked at launch.
 - Supports limited-library access.
+- Photo access is asked on onboarding's last step. Without it Lahza still runs and points to iPhone Settings (decision 30).
 - Deletes index data for photos the user stops sharing, or when access is revoked.
 
 ### Indexer
@@ -121,8 +122,8 @@ Pipeline:
 | Path | What |
 |---|---|
 | `ios/project.yml` | XcodeGen spec; the Xcode project is generated (`make project`) and not committed |
-| `ios/App/` | The app: `Shell/` (composition root, dependencies, preferences), `Navigation/`, `Chrome/`, `Features/` (Ask, Moments, Onboarding, Settings, Paywall), `Debug/` |
-| `ios/Packages/LahzaKit/` | Swift package: `DDCore` (brand, environment, storage, clock, log), `DDBilling` (RevenueCat, entitlement, paywall model), `DDDesign` (tokens, type, components, motion) |
+| `ios/App/` | The app: `Shell/` (composition root, dependencies, preferences), `Navigation/`, `Chrome/`, `Features/` (Ask, Moments, Library, Onboarding, Settings, Paywall), `Debug/` |
+| `ios/Packages/LahzaKit/` | Swift package: `DDCore` (brand, environment, storage, clock, log), `DDBilling` (RevenueCat, entitlement, paywall model), `DDDesign` (tokens, type, components, motion), `LZLibrary` (photo access: PhotoKit client, fake, access store). New modules use the `LZ` prefix; the `DD` ones get renamed later |
 | `ios/Config/` | xcconfig files; secrets go only in the git-ignored `Local.xcconfig` |
 | `ios/Tests/` | App-hosted tests |
 
