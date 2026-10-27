@@ -43,9 +43,12 @@ run: build          ## Install and launch on the simulator
 devices:            ## Connected iPhones (name, iOS version, UDID)
 	xcrun xctrace list devices 2>&1 | sed -n '/== Devices ==/,/== Simulators ==/p' | grep -v '==' | grep -v -i 'mac'
 
-device: project     ## Build, sign (automatic, with the Apple ID added in Xcode), install and launch on an iPhone
+# Signs with the profile Xcode saved locally: Xcode 27's command line can't read the Apple ID added in Xcode,
+# so -allowProvisioningUpdates fails with "No Accounts". A free (Personal Team) profile lasts 7 days; when it
+# expires, press Run once in Xcode with the iPhone selected to renew it, then use this again.
+device: project     ## Build, sign (with Xcode's saved profile), install and launch on an iPhone
 	@test -n "$(DEVICE_ID)" || { echo 'Set DEVICE_ID to the iPhone UDID from: make devices'; exit 1; }
-	set -o pipefail && xcodebuild -project Lahza.xcodeproj -scheme Lahza -configuration Debug -destination 'id=$(DEVICE_ID)' -derivedDataPath $(DERIVED) -allowProvisioningUpdates build | xcbeautify --quiet
+	set -o pipefail && xcodebuild -project Lahza.xcodeproj -scheme Lahza -configuration Debug -destination 'id=$(DEVICE_ID)' -derivedDataPath $(DERIVED) build | xcbeautify --quiet
 	xcrun devicectl device install app --device $(DEVICE_ID) "$(DERIVED)/Build/Products/Debug-iphoneos/Lahza.app"
 	xcrun devicectl device process launch --terminate-existing --device $(DEVICE_ID) $(APP_ID)
 
