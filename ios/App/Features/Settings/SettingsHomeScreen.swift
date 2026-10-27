@@ -5,6 +5,10 @@ import SwiftUI
 
 struct SettingsHomeScreen: View {
     @Environment(AppModel.self) private var model
+    #if DEBUG
+    /// Persists `LZFakeStore`, which ``DebugLaunch`` reads at the next launch (launch arguments win).
+    @AppStorage("LZFakeStore") private var sampleStorePrices = false
+    #endif
 
     var body: some View {
         ScrollView {
@@ -25,6 +29,13 @@ struct SettingsHomeScreen: View {
                     row("Privacy", "hand.raised", .privacy)
                     row("Acknowledgements", "doc.text", .acknowledgements)
                 }
+                #if DEBUG
+                group("DEVELOPER") {
+                    DDToggleRow("Sample store prices", subtitle: "Fake store, nothing is charged. Restart Lahza to apply.",
+                                systemImage: "hammer", isOn: $sampleStorePrices)
+                        .accessibilityIdentifier("developer-sample-prices")
+                }
+                #endif
                 if let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String {
                     Text("\(Brand.name) · Version \(version)").ddText(.caption).foregroundStyle(.dd(.muted))
                 }
