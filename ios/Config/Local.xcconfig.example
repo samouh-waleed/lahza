@@ -1,0 +1,5 @@
+// Copy to Local.xcconfig (git-ignored) and fill in. Never commit real values.
+// Your Apple Developer team ID (only needed for a real iPhone and TestFlight, not the Simulator).
+LAHZA_DEVELOPMENT_TEAM =
+// Public RevenueCat Apple SDK key, e.g. appl_xxxxxxxxxxxxxxxxxxxxxxxxxxx (or a test_ key for the RevenueCat Test Store in Debug).
+LZ_RC_API_KEY =

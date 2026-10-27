@@ -1,0 +1,109 @@
+# Lahza native app. Generate the Xcode project with `make project` (xcodegen generate).
+# Edit this file, not Lahza.xcodeproj (generated and git-ignored).
+name: Lahza
+options:
+  bundleIdPrefix: com.waleedsamouh.lahza
+  deploymentTarget:
+    iOS: "26.0"
+  createIntermediateGroups: true
+  developmentLanguage: en
+  xcodeVersion: "27.1"
+configFiles:
+  Debug: Config/Debug.xcconfig
+  Release: Config/Release.xcconfig
+settings:
+  base:
+    # Your Apple Developer team ID goes in the git-ignored Config/Local.xcconfig (empty is fine for the Simulator).
+    DEVELOPMENT_TEAM: "$(LAHZA_DEVELOPMENT_TEAM)"
+    CODE_SIGN_STYLE: Automatic
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    SWIFT_VERSION: "6.0"
+    SWIFT_APPROACHABLE_CONCURRENCY: YES
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+    DEAD_CODE_STRIPPING: YES
+    LOCALIZATION_PREFERS_STRING_CATALOGS: YES
+    TARGETED_DEVICE_FAMILY: "1"
+packages:
+  LahzaKit:
+    path: Packages/LahzaKit
+targets:
+  Lahza:
+    type: application
+    platform: iOS
+    sources:
+      - path: App
+      - path: Resources
+        buildPhase: resources
+    dependencies:
+      - package: LahzaKit
+        products: [DDCore, DDBilling, DDDesign]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.waleedsamouh.lahza
+        PRODUCT_NAME: Lahza
+        SWIFT_DEFAULT_ACTOR_ISOLATION: MainActor
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        SUPPORTS_MACCATALYST: NO
+        SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD: NO
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleDisplayName: Lahza
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        ITSAppUsesNonExemptEncryption: false
+        LSRequiresIPhoneOS: true
+        CADisableMinimumFrameDurationOnPhone: true
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        UILaunchScreen:
+          UIColorName: LaunchBackground
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+        # Photo library access (requested in onboarding once indexing exists, template-migration E1).
+        NSPhotoLibraryUsageDescription: Lahza searches your photos on this iPhone so you can find moments by describing them. Your photos never leave your device.
+        PHPhotoLibraryPreventAutomaticLimitedAccessAlert: true
+        UIAppFonts:
+          - InstrumentSerif-Regular.ttf
+          - InstrumentSerif-Italic.ttf
+          - Newsreader-Regular.ttf
+          - Newsreader-Medium.ttf
+        LZWebURL: $(LZ_WEB_URL)
+        LZRevenueCatAPIKey: $(LZ_RC_API_KEY)
+        LZRevenueCatEntitlement: $(LZ_RC_ENTITLEMENT)
+        LZRevenueCatOffering: $(LZ_RC_OFFERING)
+        LZRevenueCatTestStore: $(LZ_RC_TEST_STORE)
+
+  LahzaTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources: [Tests/LahzaTests]
+    dependencies:
+      - target: Lahza
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.waleedsamouh.lahza.tests
+        TEST_HOST: $(BUILT_PRODUCTS_DIR)/Lahza.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Lahza
+        BUNDLE_LOADER: $(TEST_HOST)
+        GENERATE_INFOPLIST_FILE: YES
+        SWIFT_DEFAULT_ACTOR_ISOLATION: MainActor
+
+schemes:
+  Lahza:
+    build:
+      targets:
+        Lahza: all
+        LahzaTests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - name: LahzaTests
+    profile:
+      config: Release
+    analyze:
+      config: Debug
+    archive:
+      config: Release

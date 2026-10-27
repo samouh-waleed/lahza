@@ -43,3 +43,5 @@ A short log of settled decisions, newest last. Proposed design rules that still 
 | 25 | Model delivered by Apple-hosted Background Assets | No server of our own |
 | 26 | Storage: SQLite (GRDB) + FTS5 + a flat vector file | Proven, fast, full-text search built in |
 | 27 | No cloud AI in the MVP | Privacy story, no running cost |
+| 28 | Start the app from a private iOS template (used with permission): keep its design system, navigation shell, settings and RevenueCat paywall; remove its accounts, ads, backend sync, widgets and product content | Fast start on a proven structure; the removed parts conflict with decisions 2, 10 and 27 |
+| 29 | Keep RevenueCat for purchases, with its anonymous app user (no accounts) | Founder: keep the template's payment setup. RevenueCat sees an anonymous ID and purchase status only |

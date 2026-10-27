@@ -16,9 +16,10 @@ flowchart LR
   P -. thumbnails .-> R
   I -. place names .-> M[Apple Maps]
   Q -. place search .-> M
+  B[Paywall] -. purchases .-> RC[App Store + RevenueCat]
 ```
 
-All analysis runs on the iPhone, and there is no Lahza server. The only network calls are place-name lookups to Apple Maps and the one-time model download from Apple.
+All analysis runs on the iPhone, and there is no Lahza server. The only network calls are place-name lookups to Apple Maps, purchases through the App Store and RevenueCat, and the one-time model download from Apple.
 
 ## Components
 
@@ -101,14 +102,28 @@ Pipeline:
 
 - Photos, embeddings and any face data never leave the device. There is no account, no backend and no analytics on content.
 - Place-name lookups send photo-cluster coordinates and typed place names to Apple Maps, not to Lahza.
+- At launch Lahza checks the Plus status with RevenueCat (which manages App Store purchases); RevenueCat receives an anonymous ID and the purchase status, never photos.
 - The only data users can choose to send is opt-in result feedback.
 - Index files are protected at rest, excluded from backups, and deletable from Settings.
 - Third-party licenses (the model's Apache NOTICE, the GeoNames place list's CC-BY) are credited on an Acknowledgements screen.
 
 ## Stack
 
-- UI framework: from the founder's iOS template (to be shared)
-- SQLite (GRDB) + FTS5 + a flat vector file, searched with Accelerate
-- SigLIP 2 B/16, English-trimmed, 8-bit, delivered with Background Assets
-- Foundation Models + rule-based parser
-- Minimum iOS 26, with iOS 27 extras where available
+- SwiftUI, Swift 6, iOS 26+, iPhone only
+- The app started from a private iOS template (used with permission): its design system, navigation shell, settings and RevenueCat paywall were kept; its accounts, ads, backend sync and content were removed
+- RevenueCat for purchases (anonymous app user, entitlement checked on the device)
+- SQLite (GRDB) + FTS5 + a flat vector file, searched with Accelerate (when indexing lands)
+- SigLIP 2 B/16, English-trimmed, 8-bit, delivered with Background Assets (when indexing lands)
+- Foundation Models + rule-based parser (when search lands)
+
+## Project layout and build
+
+| Path | What |
+|---|---|
+| `ios/project.yml` | XcodeGen spec; the Xcode project is generated (`make project`) and not committed |
+| `ios/App/` | The app: `Shell/` (composition root, dependencies, preferences), `Navigation/`, `Chrome/`, `Features/` (Ask, Moments, Onboarding, Settings, Paywall), `Debug/` |
+| `ios/Packages/LahzaKit/` | Swift package: `DDCore` (brand, environment, storage, clock, log), `DDBilling` (RevenueCat, entitlement, paywall model), `DDDesign` (tokens, type, components, motion) |
+| `ios/Config/` | xcconfig files; secrets go only in the git-ignored `Local.xcconfig` |
+| `ios/Tests/` | App-hosted tests |
+
+Everything runs from the command line (`cd ios`): `make run` builds and launches in the Simulator, `make test` runs the package tests on the Mac and the app tests on the Simulator. The Xcode IDE is never needed, only the installed toolchain.

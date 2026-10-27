@@ -37,7 +37,7 @@ Natural-language search on its own is **not** a differentiator. Most of our user
 1. **"At this place" is precise.** A named park, pitch or saved place ("my pitch") becomes a tight area around where you actually took photos, and that area is combined with the activity in a single question.
 2. **All the matches, grouped as moments.** Results are complete outings ("Sat 14 Jun · Al-Nakheel Park · 37 photos · 2 videos"), not a top-10 grid.
 3. **Every result says why it matched** ("Soccer · Inside Al-Nakheel Park"), and one tap fixes a mistake.
-4. **Private.** Photos and everything learned from them stay on the phone. The only things that leave are place-name lookups sent to Apple Maps, and there is no Lahza server. (Google requires uploading.)
+4. **Private.** Photos and everything learned from them stay on the phone. The only things that leave are place-name lookups sent to Apple Maps and purchases handled by the App Store and RevenueCat; there is no Lahza server. (Google requires uploading.)
 
 ## Who it's for
 
