@@ -51,3 +51,10 @@ A short log of settled decisions, newest last. Proposed design rules that still 
 | # | Decision | Why |
 |---|---|---|
 | 30 | Photo access is asked on onboarding's last step: one Continue button goes straight to the iOS prompt (no skip, no "not now"). Lahza stays usable without access and points to iPhone Settings afterwards. | App Review 5.1.1 (explain first, then the system prompt, no gating), and respecting the person's choice |
+
+## Search (2026-10-28)
+
+| # | Decision | Why |
+|---|---|---|
+| 31 | Bundle GeoNames' cities15000 list (places of 15,000+ people, about 1.6 MB) for offline city, country and time zone, credited under its CC BY 4.0 licence | PhotoKit has no capture time zone, and Apple Maps is online and rate-limited. With it, located photos get a city, country and zone on the device, offline |
+| 32 | The full-library unlock is a one-time purchase: no subscription and no trial (refines #17) | Founder decision. The paywall and RevenueCat products are reworked before the App Store |

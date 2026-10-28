@@ -10,8 +10,19 @@ APP_ID := com.waleedsamouh.lahza
 JOBS ?= 4
 # A connected iPhone's UDID (from `make devices`), for `make device`.
 DEVICE_ID ?=
+# The folder holding GeoNames' cities15000.txt and admin1CodesASCII.txt, and the dump's date, for `make gazetteer`.
+GEONAMES ?=
+GEONAMES_DATE ?= 20261028
+# The simulator the seed and photo targets act on, by UDID: the first available device named exactly $(SIM).
+LPAREN := (
+SIM_UDID ?= $(shell xcrun simctl list devices available | awk -v p='    $(SIM) $(LPAREN)' \
+	'index($$0, p) == 1 { u = substr($$0, length(p) + 1, 36); if (u ~ /^[0-9A-F]+-[0-9A-F]+-[0-9A-F]+-[0-9A-F]+-[0-9A-F]+$$/) { print u; exit } }')
+# Its photo and video files, which hold only its 6 sample photos until something is added.
+SIM_MEDIA = $(HOME)/Library/Developer/CoreSimulator/Devices/$(SIM_UDID)/data/Media/DCIM
+SIM_SAMPLES := 6
+SEED_DIR := .build/seed
 
-.PHONY: help project build test test-kit test-app run devices device clean
+.PHONY: help project build test test-kit test-app run devices device gazetteer seed-photos sim-reset grant-photos probe-photos clean
 
 help:
 	@echo 'make project   regenerate Lahza.xcodeproj from project.yml'
@@ -20,6 +31,11 @@ help:
 	@echo 'make test      kit tests on the Mac + app tests on the simulator'
 	@echo 'make devices   list connected iPhones and their UDIDs'
 	@echo 'make device DEVICE_ID=<udid>   build, sign, install and launch on your iPhone'
+	@echo 'make gazetteer GEONAMES=<dir>  rebuild the offline place list from a GeoNames dump (Tools/gazetteer/README.md)'
+	@echo 'make seed-photos   add the 557-item hero seed library to the simulator'"'"'s Photos (once; FORCE=1 adds it again)'
+	@echo 'make grant-photos  give Lahza full photo access on the simulator'
+	@echo 'make probe-photos  check what PhotoKit kept of the seed library and print its PROBE facts (seeded simulator, after grant-photos)'
+	@echo 'make sim-reset CONFIRM=1   DESTRUCTIVE: erases the simulator (every app, photo and setting on it)'
 
 project:            ## Regenerate Lahza.xcodeproj from project.yml
 	xcodegen generate --spec project.yml --quiet
@@ -51,6 +67,44 @@ device: project     ## Build, sign (with Xcode's saved profile), install and lau
 	set -o pipefail && xcodebuild -project Lahza.xcodeproj -scheme Lahza -configuration Debug -destination 'id=$(DEVICE_ID)' -derivedDataPath $(DERIVED) build | xcbeautify --quiet
 	xcrun devicectl device install app --device $(DEVICE_ID) "$(DERIVED)/Build/Products/Debug-iphoneos/Lahza.app"
 	xcrun devicectl device process launch --terminate-existing --device $(DEVICE_ID) $(APP_ID)
+
+gazetteer:          ## Rebuild LZGeo's cities15000.lzgz from a GeoNames dump (Tools/gazetteer/README.md)
+	@test -n "$(GEONAMES)" || { echo 'Set GEONAMES to the folder with cities15000.txt and admin1CodesASCII.txt'; exit 1; }
+	swift run --package-path $(KIT) lz-gazetteer \
+		--cities "$(GEONAMES)/cities15000.txt" --admin1 "$(GEONAMES)/admin1CodesASCII.txt" \
+		--aliases Tools/gazetteer/aliases-en.tsv --source-date $(GEONAMES_DATE) \
+		--out $(KIT)/Sources/LZGeo/Resources/cities15000.lzgz
+
+seed-photos:        ## Render the hero seed library and add it to the simulator's Photos (refuses a second run without FORCE=1)
+	@test -n "$(SIM_UDID)" || { echo 'No available simulator named "$(SIM)".'; exit 1; }
+	@held=$$(find "$(SIM_MEDIA)" -type f ! -path '*/.*' 2>/dev/null | wc -l | tr -d ' '); \
+	if [ "$$held" -gt $(SIM_SAMPLES) ] && [ "$(FORCE)" != 1 ]; then \
+		echo "$(SIM) ($(SIM_UDID)) already holds $$held photos and videos (the seed library, or part of it). FORCE=1 adds the seed library again (duplicates); make sim-reset CONFIRM=1 starts clean."; \
+		exit 1; fi
+	rm -rf $(SEED_DIR)/hero
+	swift run --package-path $(KIT) lz-seed render --scenario hero --out $(SEED_DIR)/hero
+	xcrun simctl bootstatus $(SIM_UDID) -b > /dev/null
+	find $(SEED_DIR)/hero/media -type f | sort | xargs -n 100 xcrun simctl addmedia $(SIM_UDID)
+	@echo "Added $$(ls $(SEED_DIR)/hero/media | wc -l | tr -d ' ') seed photos and videos to $(SIM) ($(SIM_UDID)). Next: make grant-photos"
+	rm -rf $(SEED_DIR)/hero/media
+
+sim-reset:          ## ERASES the simulator: every app, photo and setting on it. Needs CONFIRM=1
+	@test "$(CONFIRM)" = 1 || { echo 'sim-reset ERASES $(SIM) ($(SIM_UDID)): every app, photo and setting on it. Run: make sim-reset CONFIRM=1'; exit 1; }
+	@test -n "$(SIM_UDID)" || { echo 'No available simulator named "$(SIM)".'; exit 1; }
+	@echo 'Erasing $(SIM) ($(SIM_UDID))'
+	xcrun simctl shutdown $(SIM_UDID) 2>/dev/null || true
+	xcrun simctl erase $(SIM_UDID)
+
+grant-photos:       ## Give Lahza full photo access on the simulator, without the prompt
+	@test -n "$(SIM_UDID)" || { echo 'No available simulator named "$(SIM)".'; exit 1; }
+	xcrun simctl bootstatus $(SIM_UDID) -b > /dev/null
+	xcrun simctl privacy $(SIM_UDID) grant photos $(APP_ID)
+
+probe-photos: project  ## PhotoKitProbeTests on the seeded simulator: what the import kept (SeedCapabilities), then its PROBE lines
+	@mkdir -p .build
+	set -o pipefail && TEST_RUNNER_LZ_SEEDED_LIBRARY=1 $(XCB) test -only-testing:LahzaTests/PhotoKitProbeTests -collect-test-diagnostics never \
+		| tee .build/probe-photos.log | xcbeautify --quiet --is-ci --preserve-unbeautified | grep -v -e IDESchemeActionSDKRecord -e IDETestOperationsObserverDebug; \
+		status=$$?; grep '^PROBE ' .build/probe-photos.log; exit $$status
 
 clean:
 	rm -rf .build $(KIT)/.build

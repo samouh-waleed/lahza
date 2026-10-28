@@ -1,10 +1,12 @@
 import Foundation
+import LZGeo
 
-/// What the library census knows about one photo or video: PhotoKit's metadata as plain values.
+/// What Lahza knows about one photo or video: PhotoKit's metadata as plain values.
 ///
-/// Facts live in memory for one census run and are then dropped. The type is deliberately not
-/// `Codable`: per-asset facts are never stored, logged or reported, and only ``LibraryCensus``'s
-/// aggregates leave it. The coordinate is kept only to count located photos and split moments.
+/// The census keeps facts in memory for one run and reports only ``LibraryCensus``'s aggregates.
+/// From search v0 the on-device index stores them (a rebuildable cache, purged when photo access
+/// is revoked). Per-asset facts are never logged or reported, and the type is deliberately not
+/// `Codable`, so nothing serialises them by accident.
 public struct AssetFacts: Sendable, Hashable {
     public enum Kind: String, Sendable, Codable, CaseIterable {
         case photo, video, other
@@ -46,9 +48,9 @@ public struct AssetFacts: Sendable, Hashable {
     public var modificationDate: Date?
     /// When the asset joined the library, as the device that added it recorded (PhotoKit, iOS 26+).
     public var addedDate: Date?
-    /// Where it was taken. In memory only, never reported.
+    /// Where it was taken. Never logged or reported.
     public var coordinate: Coordinate?
-    /// The location's horizontal accuracy in metres (nil or negative: unknown). In memory only.
+    /// The location's horizontal accuracy in metres (nil or negative: unknown). Never reported.
     public var horizontalAccuracy: Double?
     public var isFavorite: Bool
     /// Part of a burst (PhotoKit's burst identifier is set).
@@ -92,30 +94,4 @@ public struct AssetFacts: Sendable, Hashable {
 
     /// The longer side in pixels.
     public var longSide: Int { max(pixelWidth, pixelHeight) }
-}
-
-/// A position in degrees. Platform-neutral, so the census logic runs on the Mac.
-public struct Coordinate: Sendable, Hashable {
-    public var latitude: Double
-    public var longitude: Double
-
-    public init(latitude: Double, longitude: Double) {
-        self.latitude = latitude
-        self.longitude = longitude
-    }
-
-    /// In range and not exactly (0, 0), which some apps write when they have no position.
-    public var isValid: Bool {
-        (-90...90).contains(latitude) && (-180...180).contains(longitude) && !(latitude == 0 && longitude == 0)
-    }
-
-    /// The great-circle distance in metres (haversine; plenty for a 1 km rule).
-    public func distance(to other: Coordinate) -> Double {
-        let radius = 6_371_000.0
-        let lat1 = latitude * .pi / 180, lat2 = other.latitude * .pi / 180
-        let dLat = lat2 - lat1
-        let dLon = (other.longitude - longitude) * .pi / 180
-        let a = sin(dLat / 2) * sin(dLat / 2) + cos(lat1) * cos(lat2) * sin(dLon / 2) * sin(dLon / 2)
-        return 2 * radius * asin(min(1, sqrt(a)))
-    }
 }

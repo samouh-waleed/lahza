@@ -1,0 +1,178 @@
+import CoreGraphics
+import Foundation
+import Synchronization
+#if os(iOS)
+import Photos
+import UIKit
+#endif
+
+/// What an image request gave back.
+public enum AssetImage: Sendable {
+    case image(CGImage)
+    /// The data is only in iCloud, and Lahza never downloads it.
+    case inCloud
+    /// No such asset (deleted, hidden, no access) or no image.
+    case missing
+}
+
+/// Thumbnails and screen-size images of library assets, by local identifier, from what the iPhone
+/// holds: network access is always off. ``LiveAssetImageProvider`` asks PhotoKit;
+/// ``FakeAssetImageProvider`` draws placeholders.
+public protocol AssetImageProvider: Sendable {
+    /// A thumbnail whose short side is about `side` pixels (aspect fill).
+    func thumbnail(for localID: String, side: Int) async -> AssetImage
+    /// An image whose long side is at most `maxPixel` pixels (aspect fit).
+    func displayImage(for localID: String, maxPixel: Int) async -> AssetImage
+    /// Starts preparing thumbnails of `ids` at `side` (a grid about to scroll into view).
+    func startCaching(_ ids: [String], side: Int)
+    func stopCaching(_ ids: [String], side: Int)
+    func stopAll()
+}
+
+/// An ``AssetImageProvider`` that draws a gradient with the asset's date (when known), or the seed
+/// artwork for seed library ids in DEBUG builds. Ids can be scripted as missing or only in iCloud,
+/// and caching calls are recorded.
+public final class FakeAssetImageProvider: AssetImageProvider {
+    private let dates: [String: Date]
+    private let missing: Set<String>
+    private let inCloud: Set<String>
+    private let cached = Mutex<Set<String>>([])
+
+    public init(dates: [String: Date] = [:], missing: Set<String> = [], inCloud: Set<String> = []) {
+        self.dates = dates
+        self.missing = missing
+        self.inCloud = inCloud
+    }
+
+    /// Ids being cached now.
+    public var cachedIDs: Set<String> { cached.withLock { $0 } }
+
+    public func thumbnail(for localID: String, side: Int) async -> AssetImage {
+        render(localID) { width, height in
+            let scale = Double(side) / Double(max(1, min(width, height)))
+            return (Int((Double(width) * scale).rounded()), Int((Double(height) * scale).rounded()))
+        }
+    }
+
+    public func displayImage(for localID: String, maxPixel: Int) async -> AssetImage {
+        render(localID) { width, height in
+            let scale = min(1, Double(maxPixel) / Double(max(1, max(width, height))))
+            return (Int((Double(width) * scale).rounded()), Int((Double(height) * scale).rounded()))
+        }
+    }
+
+    public func startCaching(_ ids: [String], side: Int) {
+        cached.withLock { $0.formUnion(ids) }
+    }
+
+    public func stopCaching(_ ids: [String], side: Int) {
+        cached.withLock { $0.subtract(ids) }
+    }
+
+    public func stopAll() {
+        cached.withLock { $0.removeAll() }
+    }
+
+    /// Draws `localID` at the size `fit` picks from its full size.
+    private func render(_ localID: String, fit: (Int, Int) -> (Int, Int)) -> AssetImage {
+        if missing.contains(localID) { return .missing }
+        if inCloud.contains(localID) { return .inCloud }
+        #if DEBUG
+        if let item = SeedScenario.hero.item(id: localID) {
+            let (width, height) = fit(item.pixelWidth, item.pixelHeight)
+            return SeedArtwork.image(for: item, width: width, height: height).map(AssetImage.image) ?? .missing
+        }
+        #endif
+        let title = dates[localID].map { $0.formatted(.dateTime.day().month(.abbreviated).year()) } ?? "Photo"
+        let artwork = PlaceholderArtwork(title: title, lines: [], hue: PlaceholderArtwork.hue(for: localID))
+        let (width, height) = fit(4032, 3024)
+        return artwork.image(width: width, height: height).map(AssetImage.image) ?? .missing
+    }
+}
+
+#if os(iOS)
+/// ``AssetImageProvider`` over PhotoKit's caching image manager, with ``LibraryFetchRules``.
+/// Network access is off, so an image only in iCloud comes back ``AssetImage/inCloud``.
+public final class LiveAssetImageProvider: AssetImageProvider {
+    private let manager = Mutex(PHCachingImageManager())
+
+    public init() {}
+
+    public func thumbnail(for localID: String, side: Int) async -> AssetImage {
+        await request(localID, size: CGSize(width: side, height: side), mode: .aspectFill)
+    }
+
+    public func displayImage(for localID: String, maxPixel: Int) async -> AssetImage {
+        await request(localID, size: CGSize(width: maxPixel, height: maxPixel), mode: .aspectFit)
+    }
+
+    public func startCaching(_ ids: [String], side: Int) {
+        let assets = Self.assets(ids)
+        guard !assets.isEmpty else { return }
+        manager.withLock {
+            $0.startCachingImages(for: assets, targetSize: CGSize(width: side, height: side), contentMode: .aspectFill, options: Self.options())
+        }
+    }
+
+    public func stopCaching(_ ids: [String], side: Int) {
+        let assets = Self.assets(ids)
+        guard !assets.isEmpty else { return }
+        manager.withLock {
+            $0.stopCachingImages(for: assets, targetSize: CGSize(width: side, height: side), contentMode: .aspectFill, options: Self.options())
+        }
+    }
+
+    public func stopAll() {
+        manager.withLock { $0.stopCachingImagesForAllAssets() }
+    }
+
+    private func request(_ localID: String, size: CGSize, mode: PHImageContentMode) async -> AssetImage {
+        guard let asset = Self.assets([localID]).first else { return .missing }
+        return await withCheckedContinuation { continuation in
+            let once = ResumeOnce(continuation)
+            manager.withLock {
+                // High-quality delivery answers once, with the best local image or none.
+                _ = $0.requestImage(for: asset, targetSize: size, contentMode: mode, options: Self.options()) { image, info in
+                    if let cgImage = image?.cgImage {
+                        once.resume(.image(cgImage))
+                    } else {
+                        once.resume((info?[PHImageResultIsInCloudKey] as? NSNumber)?.boolValue == true ? .inCloud : .missing)
+                    }
+                }
+            }
+        }
+    }
+
+    /// The readable assets among `ids`, in no particular order.
+    private static func assets(_ ids: [String]) -> [PHAsset] {
+        guard !ids.isEmpty else { return [] }
+        var assets: [PHAsset] = []
+        PHAsset.fetchAssets(withLocalIdentifiers: ids, options: LibraryFetchRules.options()).enumerateObjects { asset, _, _ in
+            if LibraryFetchRules.admits(asset) { assets.append(asset) }
+        }
+        return assets
+    }
+
+    private static func options() -> PHImageRequestOptions {
+        let options = PHImageRequestOptions()
+        options.isNetworkAccessAllowed = false
+        options.deliveryMode = .highQualityFormat
+        options.resizeMode = .fast
+        options.version = .current
+        return options
+    }
+
+    /// Resumes a continuation at most once, whatever PhotoKit does.
+    private final class ResumeOnce: Sendable {
+        private let continuation: Mutex<CheckedContinuation<AssetImage, Never>?>
+
+        init(_ continuation: CheckedContinuation<AssetImage, Never>) {
+            self.continuation = Mutex(continuation)
+        }
+
+        func resume(_ image: AssetImage) {
+            continuation.withLock { $0.take() }?.resume(returning: image)
+        }
+    }
+}
+#endif

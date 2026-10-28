@@ -20,6 +20,24 @@ public struct SystemClock: AppClock {
     public func sleep(for duration: Duration) async throws { try await Task.sleep(for: duration) }
 }
 
+/// Real time shifted by a fixed offset: ``now`` starts at a pinned instant and then runs, and sleeps
+/// really sleep. For DEBUG launches that pin "now" (`-LZNow`), where ``FixedClock`` would never fire
+/// a debounce, a budget refill or a retry on its own.
+public struct OffsetClock: AppClock {
+    /// Seconds added to the base clock's time.
+    public let offset: TimeInterval
+    private let base: any AppClock
+
+    /// `offset` = `pinnedNow` − `base.now` at this moment.
+    public init(pinnedNow: Date, base: any AppClock = SystemClock()) {
+        self.base = base
+        offset = pinnedNow.timeIntervalSince(base.now)
+    }
+
+    public var now: Date { base.now.addingTimeInterval(offset) }
+    public func sleep(for duration: Duration) async throws { try await base.sleep(for: duration) }
+}
+
 /// A manually driven clock for tests. Time stands still until the test moves it.
 ///
 /// ``sleep(for:)`` suspends until ``advance(by:)-(Duration)`` (or ``set(_:)``) moves ``now`` to or

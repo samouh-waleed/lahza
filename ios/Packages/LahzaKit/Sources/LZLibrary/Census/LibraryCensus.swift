@@ -1,4 +1,5 @@
 import Foundation
+import LZGeo
 
 /// Where a census's facts came from and when it ran.
 public struct CensusContext: Sendable {
@@ -43,20 +44,16 @@ public struct CensusTimings: Sendable, Hashable {
 public enum LibraryCensus {
     // MARK: Rules
 
-    /// The long sides (pixels) messaging apps commonly resize photos to: WhatsApp 1600 (standard
-    /// quality); Telegram 1280 and 2560 (high quality); Signal and Messenger 2048. A guess to
-    /// calibrate: the report shows how the shape rule agrees with filename hints and lists the most
-    /// common long sides among photos without GPS.
-    public static let messagingLongSides: Set<Int> = [1280, 1600, 2048, 2560]
-    /// "Creation ≈ added" (P0's likelyReceived): a received photo is saved as it arrives, so the
-    /// library adds it within minutes of its creation date. PhotoKit's added date exists from iOS 26.
-    public static let receivedAddedWithin: TimeInterval = 10 * 60
-    /// P0b: a new moment after a gap of more than 90 minutes…
-    public static let momentGap: TimeInterval = 90 * 60
+    /// The shape rule's messaging sizes (``AssetClassifier/messagingLongSides``).
+    public static let messagingLongSides = AssetClassifier.messagingLongSides
+    /// "Creation ≈ added" (``AssetClassifier/receivedAddedWithin``).
+    public static let receivedAddedWithin = AssetClassifier.receivedAddedWithin
+    /// P0b (``MomentSegmenter``): a new moment after a gap of more than 90 minutes…
+    public static let momentGap = TimeInterval(MomentSegmenter.gap)
     /// …or a jump of more than 1 km between located items…
-    public static let momentJump: Double = 1_000
+    public static let momentJump = MomentSegmenter.jump
     /// …and never across 04:00, when the day breaks.
-    public static let dayBreakHour = 4
+    public static let dayBreakHour = Int(LocalTime.dayBreak / 3600)
     /// S2 pass mark: usable local thumbnails, percent of the sample.
     public static let usableThumbnailPercent = 85
     /// S2: camera photos located, percent. Below it the place signal is weak, and the place visual
@@ -110,38 +107,6 @@ public enum LibraryCensus {
         return String(format: "%04d-%02d-%02d", parts.year ?? 0, parts.month ?? 0, parts.day ?? 0)
     }
 
-    // MARK: Classification
-
-    /// A screenshot by PhotoKit's subtype, or a photo named like one.
-    static func isScreenCapture(_ facts: AssetFacts) -> Bool {
-        facts.subtypes.contains(.screenshot) || facts.filenameHint == .screenshot
-    }
-
-    /// Whether the added date is within ``receivedAddedWithin`` of the creation date (nil when
-    /// either is unknown).
-    static func addedNearCreation(_ facts: AssetFacts) -> Bool? {
-        guard let created = facts.creationDate, let added = facts.addedDate else { return nil }
-        return abs(added.timeIntervalSince(created)) <= receivedAddedWithin
-    }
-
-    /// The shape rule, P0's likelyReceived without filenames: a photo with no GPS that is not a
-    /// screen capture, at a messaging app's size, added about when it was created (an unknown date
-    /// doesn't rule it out).
-    static func matchesReceivedShape(_ facts: AssetFacts) -> Bool {
-        facts.kind == .photo && !facts.isLocated && !isScreenCapture(facts)
-            && messagingLongSides.contains(facts.longSide) && addedNearCreation(facts) != false
-    }
-
-    /// Named like a messaging app, or (photos) matching the shape rule.
-    static func isLikelyReceived(_ facts: AssetFacts) -> Bool {
-        facts.filenameHint?.isMessaging == true || matchesReceivedShape(facts)
-    }
-
-    /// A photo that is neither a screen capture nor likely received: the place signal's target.
-    static func isCameraPhoto(_ facts: AssetFacts) -> Bool {
-        facts.kind == .photo && !isScreenCapture(facts) && !isLikelyReceived(facts)
-    }
-
     // MARK: Sections
 
     static func library(_ facts: [AssetFacts]) -> CensusReport.Library {
@@ -166,7 +131,7 @@ public enum LibraryCensus {
                 case .png?: library.png += 1
                 default: library.otherFormats += 1
                 }
-                if isCameraPhoto(item) { library.cameraPhotos += 1 }
+                if AssetClassifier.isCameraPhoto(item) { library.cameraPhotos += 1 }
             }
         }
         return library
@@ -178,7 +143,7 @@ public enum LibraryCensus {
             switch item.kind {
             case .photo:
                 location.photos += 1
-                if isCameraPhoto(item) {
+                if AssetClassifier.isCameraPhoto(item) {
                     location.cameraPhotos += 1
                     if item.isLocated { location.cameraPhotosLocated += 1 }
                 }
@@ -217,7 +182,7 @@ public enum LibraryCensus {
             switch item.kind {
             case .photo:
                 let named = item.filenameHint?.isMessaging == true
-                let shape = matchesReceivedShape(item)
+                let shape = AssetClassifier.matchesReceivedShape(item)
                 if named || shape { received.likelyPhotos += 1 }
                 if named {
                     received.namedMessagingPhotos += 1
@@ -227,7 +192,7 @@ public enum LibraryCensus {
                     received.shapeMatches += 1
                     if item.filenameHint == .camera { received.shapeMatchesNamedCamera += 1 }
                 }
-                guard !item.isLocated, !isScreenCapture(item), item.longSide > 0 else { continue }
+                guard !item.isLocated, !AssetClassifier.isScreenCapture(item), item.longSide > 0 else { continue }
                 sides[item.longSide, default: 0] += 1
                 if messagingLongSides.contains(item.longSide) { received.unlocatedAtMessagingSize += 1 }
             case .video:
@@ -297,7 +262,7 @@ public enum LibraryCensus {
                           width: item.pixelWidth, height: item.pixelHeight)
             var group = groups[key] ?? (count: 0, received: true)
             group.count += 1
-            group.received = group.received && isLikelyReceived(item)
+            group.received = group.received && AssetClassifier.isLikelyReceived(item)
             groups[key] = group
         }
         let found = groups.values.filter { $0.count > 1 }
@@ -324,59 +289,40 @@ public enum LibraryCensus {
         return video
     }
 
-    /// P0b's rough moments over every dated photo and video, in time order: a new moment starts
-    /// after a gap of more than 90 minutes, when the day breaks at 04:00 local time, or after a
-    /// jump of more than 1 km from the moment's last located item (items without GPS never split).
+    /// P0b's rough moments over every dated photo and video, by ``MomentSegmenter``'s rule: a new
+    /// moment starts after a gap of more than 90 minutes, when the day breaks at 04:00 local time, or
+    /// after a jump of more than 1 km from the moment's last located item (items without GPS never split).
     ///
-    /// "Local" is `calendar`'s time zone: PhotoKit has no public capture time zone.
+    /// "Local" is `calendar`'s time zone for every item: PhotoKit has no public capture time zone.
     static func moments(_ facts: [AssetFacts], calendar: Calendar) -> CensusReport.Moments {
+        let zone = calendar.timeZone
         let items = facts
             .compactMap { item -> (date: Date, place: Coordinate?)? in
                 guard item.kind != .other, let date = item.creationDate else { return nil }
                 return (date, item.isLocated ? item.coordinate : nil)
             }
             .sorted { $0.date < $1.date }
+            .map { item in
+                MomentSegmenter.Item(utc: Int64(item.date.timeIntervalSince1970.rounded(.down)),
+                                     day: LocalTime.momentDay(wallSeconds: LocalTime.wallSeconds(item.date, in: zone)),
+                                     coordinate: item.place)
+            }
         var moments = CensusReport.Moments()
         guard !items.isEmpty else { return moments }
         moments.items = items.count
 
-        // The moment day from the wall clock, so the break stays at 04:00 on daylight-saving days
-        // (subtracting 4 hours of absolute time would move it to 03:00 or 05:00).
-        func day(_ date: Date) -> Int {
-            let ordinal = calendar.ordinality(of: .day, in: .era, for: date) ?? 0
-            return calendar.component(.hour, from: date) < dayBreakHour ? ordinal - 1 : ordinal
-        }
-
         var sizes: [Int] = []
-        var size = 0
-        var lastDate = items[0].date
-        var lastDay = day(lastDate)
-        var lastPlace: Coordinate?
-        for item in items {
-            let itemDay = day(item.date)
-            if size > 0 {
-                var split = true
-                if item.date.timeIntervalSince(lastDate) > momentGap {
-                    moments.splitsByGap += 1
-                } else if itemDay != lastDay {
-                    moments.splitsByDayBreak += 1
-                } else if let place = item.place, let lastPlace, place.distance(to: lastPlace) > momentJump {
-                    moments.splitsByJump += 1
-                } else {
-                    split = false
-                }
-                if split {
-                    sizes.append(size)
-                    size = 0
-                    lastPlace = nil
-                }
+        var start = 0
+        for boundary in MomentSegmenter.boundaries(items) {
+            switch boundary.reason {
+            case .gap: moments.splitsByGap += 1
+            case .dayBreak: moments.splitsByDayBreak += 1
+            case .jump: moments.splitsByJump += 1
             }
-            size += 1
-            lastDate = item.date
-            lastDay = itemDay
-            if let place = item.place { lastPlace = place }
+            sizes.append(boundary.index - start)
+            start = boundary.index
         }
-        sizes.append(size)
+        sizes.append(items.count - start)
 
         moments.count = sizes.count
         moments.singleItem = sizes.filter { $0 == 1 }.count

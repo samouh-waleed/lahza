@@ -12,6 +12,9 @@ let package = Package(
         .library(name: "LZBilling", targets: ["LZBilling"]),
         .library(name: "LZDesign", targets: ["LZDesign"]),
         .library(name: "LZLibrary", targets: ["LZLibrary"]),
+        .library(name: "LZGeo", targets: ["LZGeo"]),
+        .executable(name: "lz-gazetteer", targets: ["LZGazetteerTool"]),
+        .executable(name: "lz-seed", targets: ["LZSeedTool"]),
     ],
     dependencies: [
         .package(url: "https://github.com/RevenueCat/purchases-ios-spm.git", from: "5.91.0"),
@@ -27,13 +30,23 @@ let package = Package(
             dependencies: ["LZCore"],
             swiftSettings: [.defaultIsolation(MainActor.self)]
         ),
-        // Photo library access: the PhotoKit client (live and fake) and the access store; the library census for
-        // Phase 0 spike S2 (facts, summariser, sources live and fake, runner), whose screen exists only in DEBUG builds.
-        .target(name: "LZLibrary", dependencies: ["LZCore"]),
+        // Foundation-only geography and time: Coordinate, GeoHash, LocalTime, MomentSegmenter, PlaceNames,
+        // CountryNames, the offline GeoNames gazetteer (format, reader, writer), PlaceCategory radii and the Apple
+        // Maps client protocol (fake, and the live MapKit adapter on iOS).
+        .target(name: "LZGeo", resources: [.copy("Resources/cities15000.lzgz")]),
+        // Photo library access: the PhotoKit client (live and fake), the access store, the fetch rules, the library
+        // reader and image provider (live and fake); the library census for Phase 0 spike S2, whose screen exists only
+        // in DEBUG builds; and the DEBUG seed scenario (library, artwork, fake Apple Maps, import capabilities).
+        .target(name: "LZLibrary", dependencies: ["LZCore", "LZGeo"]),
+        // macOS host tools, never linked into the app: the gazetteer resource builder (`make gazetteer`) and the
+        // seed library renderer (`make seed-photos`, debug builds only).
+        .executableTarget(name: "LZGazetteerTool", dependencies: ["LZGeo"]),
+        .executableTarget(name: "LZSeedTool", dependencies: ["LZGeo", "LZLibrary"]),
 
         .testTarget(name: "LZCoreTests", dependencies: ["LZCore"]),
         .testTarget(name: "LZBillingTests", dependencies: ["LZBilling"]),
         .testTarget(name: "LZDesignTests", dependencies: ["LZDesign"]),
-        .testTarget(name: "LZLibraryTests", dependencies: ["LZLibrary"]),
+        .testTarget(name: "LZLibraryTests", dependencies: ["LZLibrary", "LZGeo"]),
+        .testTarget(name: "LZGeoTests", dependencies: ["LZGeo"]),
     ]
 )
