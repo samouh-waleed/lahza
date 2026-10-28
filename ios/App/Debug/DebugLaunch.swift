@@ -20,7 +20,8 @@ import LZLibrary
 ///
 /// `-LZPhotos` takes `notDetermined`, `limited`, `full`, `denied` or `restricted`. The fake library
 /// never touches PhotoKit: its prompt answers full, it holds 12,480 photos and videos (36 when
-/// limited), and Choose photos adds 12 more.
+/// limited), and Choose photos adds 12 more. The library census (Settings › Developer) then reads a
+/// synthetic library of the same size.
 struct DebugLaunch {
     var freshInstall = false
     var skipOnboarding = false
@@ -85,6 +86,9 @@ struct DebugLaunch {
                 library.setCount(library.count(for: .limited) + 12, for: .limited)
                 library.emitChange()
             }
+            #if DEBUG
+            dependencies.censusSource = FakeCensusSource(library: library)
+            #endif
             labels.append("photos-\(photos.rawValue)")
         }
         if let route { dependencies.initialRoute = route }

@@ -45,6 +45,8 @@ public final class FakePhotoLibraryClient: PhotoLibraryClient {
     public var changeSubscriberCount: Int { state.withLock { $0.continuations.count } }
     /// The readable count scripted for `access`.
     public func count(for access: PhotoAccess) -> Int { state.withLock { $0.counts[access] ?? 0 } }
+    /// The current access, without recording a call (the fake census library reads it).
+    public var access: PhotoAccess { state.withLock { $0.access } }
 
     /// Changes access without a prompt, as iPhone Settings would.
     public func setAccess(_ access: PhotoAccess) {

@@ -73,6 +73,13 @@ nonisolated enum Route: Hashable, Sendable {
     case subscription
     case acknowledgements
 
+    // MARK: Developer (DEBUG builds only: Release has no such case, so no way in)
+
+    #if DEBUG
+    /// Settings › Developer › Library census (Phase 0 spike S2).
+    case libraryCensus
+    #endif
+
     // MARK: Modals
 
     /// Lahza Plus plans (full screen).
@@ -90,6 +97,9 @@ nonisolated enum Route: Hashable, Sendable {
         case .ask: .ask
         case .moments: .moments
         case .settings, .photoAccess, .appearance, .privacy, .subscription, .acknowledgements: .settings
+        #if DEBUG
+        case .libraryCensus: .settings
+        #endif
         case .paywall, .onboarding, .notFound: nil
         }
     }
@@ -98,6 +108,9 @@ nonisolated enum Route: Hashable, Sendable {
         switch self {
         case .ask, .moments, .settings: .tabRoot
         case .photoAccess, .appearance, .privacy, .subscription, .acknowledgements: .push
+        #if DEBUG
+        case .libraryCensus: .push
+        #endif
         case .paywall, .onboarding: .fullScreen
         case .notFound: .sheet(.medium)
         }
@@ -114,6 +127,15 @@ nonisolated enum Route: Hashable, Sendable {
     /// Sheets that prefer page sizing on iPad (none yet; the app is iPhone only).
     var prefersPageSizing: Bool { false }
 
+    /// Routes that exist only in DEBUG builds (developer tools).
+    static var developerRoutes: [Route] {
+        #if DEBUG
+        return [.libraryCensus]
+        #else
+        return []
+        #endif
+    }
+
     /// The name `-LZRoute` uses (DEBUG).
     var debugName: String {
         switch self {
@@ -125,6 +147,9 @@ nonisolated enum Route: Hashable, Sendable {
         case .privacy: "privacy"
         case .subscription: "subscription"
         case .acknowledgements: "acknowledgements"
+        #if DEBUG
+        case .libraryCensus: "library-census"
+        #endif
         case .paywall: "paywall"
         case .onboarding: "onboarding"
         case .notFound: "not-found"
@@ -133,6 +158,7 @@ nonisolated enum Route: Hashable, Sendable {
 
     init?(debugName: String) {
         let all: [Route] = [.ask, .moments, .settings, .photoAccess, .appearance, .privacy, .subscription, .acknowledgements, .paywall, .onboarding]
+            + Route.developerRoutes
         guard let match = all.first(where: { $0.debugName == debugName.lowercased() }) else { return nil }
         self = match
     }

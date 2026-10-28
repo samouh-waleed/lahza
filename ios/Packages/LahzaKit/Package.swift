@@ -27,7 +27,8 @@ let package = Package(
             dependencies: ["DDCore"],
             swiftSettings: [.defaultIsolation(MainActor.self)]
         ),
-        // Photo library access: the PhotoKit client (live and fake) and the access store.
+        // Photo library access: the PhotoKit client (live and fake) and the access store; the library census for
+        // Phase 0 spike S2 (facts, summariser, sources live and fake, runner), whose screen exists only in DEBUG builds.
         .target(name: "LZLibrary", dependencies: ["DDCore"]),
 
         .testTarget(name: "DDCoreTests", dependencies: ["DDCore"]),

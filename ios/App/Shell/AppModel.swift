@@ -29,6 +29,11 @@ nonisolated enum RootScreen: Hashable, Sendable {
     @ObservationIgnored let purchases: PurchasesService
     let entitlement: EntitlementStore
     let photoAccess: PhotoAccessStore
+    #if DEBUG
+    /// DEBUG: Settings › Developer › Library census (Phase 0 spike S2). It lives here so a run
+    /// carries on when its screen is left.
+    @ObservationIgnored let censusRunner: CensusRunner
+    #endif
 
     private(set) var isReady = false
     private(set) var onboardingCompleted: Bool
@@ -47,6 +52,9 @@ nonisolated enum RootScreen: Hashable, Sendable {
         purchases = dependencies.makePurchasesService()
         entitlement = EntitlementStore(kv: dependencies.kv, entitlementIdentifier: dependencies.billingEnvironment.entitlementIdentifier)
         photoAccess = PhotoAccessStore(client: dependencies.photoLibrary)
+        #if DEBUG
+        censusRunner = CensusRunner(source: dependencies.censusSource)
+        #endif
         onboardingCompleted = preferences.onboardingCompleted
         appearance = preferences.appearance
         if dependencies.autoBoot { start() }
@@ -139,6 +147,9 @@ nonisolated enum RootScreen: Hashable, Sendable {
         switch phase {
         case .background:
             leftForBackground = true
+            #if DEBUG
+            censusRunner.appLeftForeground()
+            #endif
         case .active where leftForBackground:
             // People change photo access in iPhone Settings; Lahza is not told, so it re-reads on
             // return. Brief blips (the iOS prompt, Control Center) never leave the app, and launch

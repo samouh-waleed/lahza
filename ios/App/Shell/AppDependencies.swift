@@ -18,6 +18,11 @@ struct AppDependencies {
     var photoLibrary: any PhotoLibraryClient
     /// Shows the system picker for the limited selection and returns when it closes.
     var presentLimitedLibraryPicker: @MainActor () async -> Void
+    #if DEBUG
+    /// DEBUG: what Settings › Developer › Library census reads (PhotoKit; the fake library under
+    /// `-LZPhotos` and in tests).
+    var censusSource: any CensusSource = LiveCensusSource()
+    #endif
     /// Start launch from the model's `init` (false for the unit-test host).
     var autoBoot = true
     /// DEBUG: a route opened once launch settles (`-LZRoute`).
@@ -48,8 +53,12 @@ struct AppDependencies {
         dependencies.kv = InMemoryKeyValueStore([:])
         dependencies.purchases = FakePurchasesClient()
         dependencies.billingEnvironment = BillingEnvironment(apiKey: "test_host", configuration: .debug)
-        dependencies.photoLibrary = FakePhotoLibraryClient(access: .notDetermined)
+        let photos = FakePhotoLibraryClient(access: .notDetermined)
+        dependencies.photoLibrary = photos
         dependencies.presentLimitedLibraryPicker = {}
+        #if DEBUG
+        dependencies.censusSource = FakeCensusSource(library: photos, pace: .zero)
+        #endif
         dependencies.autoBoot = false
         return dependencies
     }
