@@ -67,11 +67,6 @@ public final class SequentialUUIDGenerator: UUIDGenerator {
 
 /// SHA-256 helpers (CryptoKit).
 public enum SHA256Hex {
-    /// Lowercase hex SHA-256 of the UTF-8 bytes of `text`.
-    public static func hash(_ text: String) -> String {
-        hash(Data(text.utf8))
-    }
-
     /// Lowercase hex SHA-256 of `data`.
     public static func hash(_ data: Data) -> String {
         hex(SHA256.hash(data: data))
@@ -88,9 +83,6 @@ public enum SHA256Hex {
         return String(decoding: out, as: UTF8.self)
     }
 }
-
-/// `sha256Hex(text)`: lowercase hex SHA-256 of the UTF-8 bytes.
-public func sha256Hex(_ text: String) -> String { SHA256Hex.hash(text) }
 
 /// `sha256Hex(data)`: lowercase hex SHA-256.
 public func sha256Hex(_ data: Data) -> String { SHA256Hex.hash(data) }
@@ -112,12 +104,35 @@ public func activityId(owner: String, collection: String, kind: String, key: Str
 /// The compact JSON array that ``activityId(owner:collection:kind:key:)`` hashes, e.g.
 /// `["device","photos","moment","2024-06-01"]`.
 ///
-/// `JSONEncoder` with slashes left unescaped: `"` and `\` are escaped, control characters use
-/// `\b` `\f` `\n` `\r` `\t` or `\u00xx`, and everything else (including non-ASCII) is written as
-/// UTF-8. The bytes must stay stable, since they decide every id.
+/// Written by hand so the bytes are fixed by construction rather than by `JSONEncoder`'s
+/// undocumented escaping: `"` and `\` are escaped, control characters use `\b` `\f` `\n` `\r`
+/// `\t` or `\u00xx` (lowercase hex), and everything else (`/`, U+007F, U+2028, all non-ASCII) is
+/// written as raw UTF-8. The bytes must never change, since they decide every id.
 func naturalKeyJSON(_ parts: [String]) -> Data {
-    let encoder = JSONEncoder()
-    encoder.outputFormatting = .withoutEscapingSlashes
-    // An array of strings always encodes; the empty fallback only satisfies the type checker.
-    return (try? encoder.encode(parts)) ?? Data()
+    let hexDigits = Array("0123456789abcdef".utf8)
+    var out = Data([UInt8(ascii: "[")])
+    for (index, part) in parts.enumerated() {
+        if index > 0 { out.append(UInt8(ascii: ",")) }
+        out.append(UInt8(ascii: "\""))
+        // Every byte below 0x80 in UTF-8 is a whole ASCII character, so escaping byte by byte is safe.
+        for byte in part.utf8 {
+            switch byte {
+            case UInt8(ascii: "\""): out.append(contentsOf: #"\""#.utf8)
+            case UInt8(ascii: "\\"): out.append(contentsOf: #"\\"#.utf8)
+            case 0x08: out.append(contentsOf: #"\b"#.utf8)
+            case 0x0C: out.append(contentsOf: #"\f"#.utf8)
+            case 0x0A: out.append(contentsOf: #"\n"#.utf8)
+            case 0x0D: out.append(contentsOf: #"\r"#.utf8)
+            case 0x09: out.append(contentsOf: #"\t"#.utf8)
+            case ..<0x20:
+                out.append(contentsOf: #"\u00"#.utf8)
+                out.append(hexDigits[Int(byte >> 4)])
+                out.append(hexDigits[Int(byte & 0x0F)])
+            default: out.append(byte)
+            }
+        }
+        out.append(UInt8(ascii: "\""))
+    }
+    out.append(UInt8(ascii: "]"))
+    return out
 }

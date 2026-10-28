@@ -25,7 +25,9 @@ struct IdentifierTests {
         func text(_ parts: [String]) -> String { String(decoding: naturalKeyJSON(parts), as: UTF8.self) }
         #expect(text(["device", "photos", "moment", "2024-06-01"]) == #"["device","photos","moment","2024-06-01"]"#)
         #expect(text(["c/d", "q\"", "b\\", "\u{E9}\u{1F600}", "\u{2028}"]) == "[\"c/d\",\"q\\\"\",\"b\\\\\",\"\u{E9}\u{1F600}\",\"\u{2028}\"]")
-        #expect(text(["\u{8}\u{C}\n\r\t", "\u{1}\u{1F}"]) == #"["\b\f\n\r\t","\u0001\u001f"]"#)
+        #expect(text(["\u{8}\u{C}\n\r\t", "\u{0}\u{1}\u{1F}"]) == #"["\b\f\n\r\t","\u0000\u0001\u001f"]"#)
+        #expect(text(["\u{7F}", "\u{FEFF}", " "]) == "[\"\u{7F}\",\"\u{FEFF}\",\" \"]")
+        #expect(text([]) == "[]")
         #expect(sha256Hex(naturalKeyJSON(["device", "photos", "moment", "2024-06-01"])) == "90030dfda8d607465493aa03bbf72780e4f819ed8092ba7a4ef423232e4705c5")
     }
 }
