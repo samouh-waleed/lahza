@@ -22,13 +22,14 @@ SIM_MEDIA = $(HOME)/Library/Developer/CoreSimulator/Devices/$(SIM_UDID)/data/Med
 SIM_SAMPLES := 6
 SEED_DIR := .build/seed
 
-.PHONY: help project build test test-kit test-app run devices device gazetteer seed-photos sim-reset grant-photos probe-photos clean
+.PHONY: help project build test test-kit test-app perf-kit run devices device gazetteer seed-photos sim-reset grant-photos probe-photos clean
 
 help:
 	@echo 'make project   regenerate Lahza.xcodeproj from project.yml'
 	@echo 'make build     build for the simulator ($(SIM))'
 	@echo 'make run       build, install and launch on the simulator'
 	@echo 'make test      kit tests on the Mac + app tests on the simulator'
+	@echo 'make perf-kit  the opt-in performance tests (100k-asset index build), in release on the Mac'
 	@echo 'make devices   list connected iPhones and their UDIDs'
 	@echo 'make device DEVICE_ID=<udid>   build, sign, install and launch on your iPhone'
 	@echo 'make gazetteer GEONAMES=<dir>  rebuild the offline place list from a GeoNames dump (Tools/gazetteer/README.md)'
@@ -50,6 +51,9 @@ test-app: project   ## App-hosted tests on the simulator
 	set -o pipefail && $(XCB) test | xcbeautify --quiet
 
 test: test-kit test-app
+
+perf-kit:           ## Opt-in performance tests on the Mac, in release (adds a release build to the package's .build)
+	LZ_PERF=1 swift test --package-path $(KIT) -c release --jobs $(JOBS) --filter Performance
 
 run: build          ## Install and launch on the simulator
 	xcrun simctl boot "$(SIM)" 2>/dev/null || true
