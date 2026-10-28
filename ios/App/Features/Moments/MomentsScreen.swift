@@ -203,12 +203,11 @@ private struct MomentsList: View {
         if store.trips.isEmpty {
             EmptyState(MomentCopy.noTripsTitle, message: MomentCopy.noTripsBody, systemImage: "airplane")
         } else {
-            VStack(spacing: LZSpace.lg) {
-                ForEach(store.trips) { trip in
-                    TripCard(trip: trip) { model.open(.trip(TripRef(startDay: trip.startDay, origin: .moments))) }
-                }
+            // Straight in the lazy stack, so only the cards near the screen are built and load their covers.
+            ForEach(store.trips) { trip in
+                TripCard(trip: trip) { model.open(.trip(TripRef(startDay: trip.startDay, origin: .moments))) }
+                    .padding(.top, trip.id == store.trips.first?.id ? LZSpace.sm : LZSpace.lg)
             }
-            .padding(.top, LZSpace.sm)
         }
     }
 }

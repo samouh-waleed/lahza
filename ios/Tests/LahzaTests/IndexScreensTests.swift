@@ -57,6 +57,9 @@ import Testing
         #expect(AskCopy.placeNamesFootnote(PlaceNameProgress(named: 12, eligible: 47, state: .running)) == "Naming places with Apple Maps · 12 of 47")
         #expect(AskCopy.placeNamesFootnote(PlaceNameProgress(named: 47, eligible: 47, state: .done)) == nil)
         #expect(AskCopy.placeNamesFootnote(PlaceNameProgress(state: .off)) == nil)
+        #expect(AskCopy.placeNamesFootnote(PlaceNameProgress(state: .waitingForNetwork)) == "Apple Maps place names are waiting for internet",
+                "on Ask, say what waits")
+        #expect(AskCopy.located(LibrarySummary(assets: 10_000, located: 9_996)) == "99% have a location", "never 100% before all")
     }
 
     // MARK: Moments
@@ -135,6 +138,10 @@ import Testing
 
     @Test func settingsAndPrivacyWords() {
         #expect(IndexCopy.value(IndexStatus(phase: .reading(done: 42, total: 100))) == "Reading 42%")
+        #expect(IndexCopy.value(IndexStatus(phase: .reading(done: 996, total: 1_000))) == "Reading 99%", "100% only when done")
+        #expect(IndexCopy.percent(1, of: 1_000) == "1%")
+        #expect(IndexCopy.percent(0, of: 1_000) == "0%")
+        #expect(IndexCopy.percent(563, of: 563) == "100%")
         #expect(IndexCopy.value(IndexStatus(phase: .ready)) == "Up to date")
         #expect(IndexCopy.value(IndexStatus(phase: .off(.noAccess))) == "Off")
         #expect(IndexCopy.namedValue(PlaceNameProgress(named: 340, eligible: 612)) == "340 of 612")

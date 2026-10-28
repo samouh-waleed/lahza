@@ -142,7 +142,7 @@ nonisolated enum IndexCopy {
     static let deleteTitle = "Delete search index?"
     static let deleteMessage = "Lahza forgets the dates, places, moments and saved places it learned, and stops searching until you build it again. Your photos aren’t touched."
     static let appleMapsFooter = "Sends the approximate location of photo clusters, and places you type, to Apple Maps to get names like parks. Photos are never sent."
-    static let footer = "The index lives only on this iPhone, isn’t backed up, and is rebuilt from your library if deleted."
+    static let footer = "The index lives only on this iPhone, isn’t backed up, and can be rebuilt from your library at any time."
     static let unavailableDetail = "Lahza tries again the next time it opens."
 
     /// Settings' row value.
@@ -222,8 +222,12 @@ nonisolated enum IndexCopy {
         "Updated \(date.formatted(.relative(presentation: .named)))"
     }
 
+    /// A whole percentage that reads 100% only when all is done, and 0% only when none is.
     static func percent(_ part: Int, of whole: Int) -> String {
         guard whole > 0 else { return "0%" }
-        return (Double(part) / Double(whole)).formatted(.percent.precision(.fractionLength(0)))
+        var share = (Double(part) / Double(whole) * 100).rounded()
+        if part < whole { share = min(share, 99) }
+        if part > 0 { share = max(share, 1) }
+        return (share / 100).formatted(.percent.precision(.fractionLength(0)))
     }
 }

@@ -4,7 +4,7 @@ SHELL := /bin/bash
 SIM ?= iPhone 18 Pro
 DEST := platform=iOS Simulator,name=$(SIM)
 DERIVED := .build/DerivedData
-XCB := xcodebuild -project Lahza.xcodeproj -scheme Lahza -destination '$(DEST)' -derivedDataPath $(DERIVED)
+XCB := xcodebuild -project Lahza.xcodeproj -scheme Lahza -destination '$(DEST)' -derivedDataPath $(DERIVED) -onlyUsePackageVersionsFromResolvedFile
 KIT := Packages/LahzaKit
 APP_ID := com.waleedsamouh.lahza
 JOBS ?= 4
@@ -40,6 +40,9 @@ help:
 
 project:            ## Regenerate Lahza.xcodeproj from project.yml
 	xcodegen generate --spec project.yml --quiet
+	@# Xcode reads package pins only from the project's own resolved file: the kit's, used as is (XCB), so the app links what `swift test` tested.
+	@mkdir -p Lahza.xcodeproj/project.xcworkspace/xcshareddata/swiftpm
+	@cp $(KIT)/Package.resolved Lahza.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
 
 build: project      ## Build the app for the simulator
 	set -o pipefail && $(XCB) build | xcbeautify --quiet
@@ -69,7 +72,7 @@ devices:            ## Connected iPhones (name, iOS version, UDID)
 # expires, press Run once in Xcode with the iPhone selected to renew it, then use this again.
 device: project     ## Build, sign (with Xcode's saved profile), install and launch on an iPhone
 	@test -n "$(DEVICE_ID)" || { echo 'Set DEVICE_ID to the iPhone UDID from: make devices'; exit 1; }
-	set -o pipefail && xcodebuild -project Lahza.xcodeproj -scheme Lahza -configuration Debug -destination 'id=$(DEVICE_ID)' -derivedDataPath $(DERIVED) build | xcbeautify --quiet
+	set -o pipefail && xcodebuild -project Lahza.xcodeproj -scheme Lahza -configuration Debug -destination 'id=$(DEVICE_ID)' -derivedDataPath $(DERIVED) -onlyUsePackageVersionsFromResolvedFile build | xcbeautify --quiet
 	xcrun devicectl device install app --device $(DEVICE_ID) "$(DERIVED)/Build/Products/Debug-iphoneos/Lahza.app"
 	xcrun devicectl device process launch --terminate-existing --device $(DEVICE_ID) $(APP_ID)
 

@@ -18,10 +18,14 @@ struct AskScreen: View {
         let state = AskState(access: access, status: status)
         ScrollView {
             if state == .deleted {
-                EmptyState(AskCopy.deletedTitle, message: AskCopy.deletedBody, systemImage: "magnifyingglass",
-                           actionTitle: IndexCopy.buildIndex) { model.index.buildAgain() }
-                    .lzPage()
-                    .accessibilityIdentifier("ask-deleted")
+                VStack(alignment: .leading, spacing: LZSpace.lg) {
+                    // The field stays, so a search typed here says why nothing happens.
+                    if submitted != nil { Notice(.info, message: AskCopy.needsIndex) }
+                    EmptyState(AskCopy.deletedTitle, message: AskCopy.deletedBody, systemImage: "magnifyingglass",
+                               actionTitle: IndexCopy.buildIndex) { model.index.buildAgain() }
+                }
+                .lzPage()
+                .accessibilityIdentifier("ask-deleted")
             } else {
                 VStack(alignment: .leading, spacing: LZSpace.xl) {
                     VStack(alignment: .leading, spacing: LZSpace.sm) {
@@ -125,6 +129,7 @@ nonisolated enum AskCopy {
     static let privacy = "Your photos stay on this iPhone."
     static let comingSoonTitle = "Search is coming soon"
     static let needsAccess = "Lahza needs photo access to search."
+    static let needsIndex = "Build the search index to search your photos."
     static let deletedTitle = "Search index deleted"
     static let deletedBody = "Build it again to search."
 
@@ -156,7 +161,8 @@ nonisolated enum AskCopy {
     // MARK: Summary card
 
     static let summaryEyebrow = "YOUR LIBRARY"
-    static let capability = "Searches places, dates and photo types. Searching what’s in photos comes later."
+    /// Future tense until search ships (PR 3), where it becomes "Searches places, dates and photo types…".
+    static let capability = "Search will cover places, dates and photo types. Searching what’s in photos comes later."
 
     /// "photos & videos" after the count ("shared" under limited access).
     static func assetsNoun(_ count: Int, isLimited: Bool) -> String {
@@ -185,10 +191,12 @@ nonisolated enum AskCopy {
         return "\(IndexCopy.percent(summary.located, of: summary.assets)) have a location"
     }
 
-    /// The Apple Maps line under the card while naming runs or waits; nil once it is done, idle or off.
+    /// The Apple Maps line under the card while naming runs or waits; nil once it is done, idle or off. It says
+    /// what waits for the internet, since only place names do.
     static func placeNamesFootnote(_ progress: PlaceNameProgress) -> String? {
         switch progress.state {
-        case .running, .waitingForNetwork, .throttled: IndexCopy.placeNames(progress)
+        case .waitingForNetwork: "Apple Maps place names are waiting for internet"
+        case .running, .throttled: IndexCopy.placeNames(progress)
         case .idle, .done, .off, .backgrounded: nil
         }
     }
