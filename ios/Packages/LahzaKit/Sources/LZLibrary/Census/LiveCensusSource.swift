@@ -4,11 +4,9 @@ import LZGeo
 import Photos
 import Synchronization
 import UIKit
-import UniformTypeIdentifiers
 
-/// ``CensusSource`` over PhotoKit, with the access client's fetch rules: the Hidden album stays out,
-/// the user library (which holds the iCloud Shared Library) is in, and Shared Albums are not the
-/// library. It needs limited or full access and never prompts; with limited access it counts only
+/// ``CensusSource`` over PhotoKit, with ``LibraryFetchRules``: the Hidden album stays out, the user
+/// library (which holds the iCloud Shared Library) is in, and Shared Albums are not the library. It needs limited or full access and never prompts; with limited access it counts only
 /// what the person shared. Every stage runs off the main actor, in batches inside autorelease pools
 /// so memory stays flat on a large library, and checks for cancellation between batches.
 ///
@@ -26,7 +24,7 @@ public final class LiveCensusSource: CensusSource {
         let access = PhotoAccess(PHPhotoLibrary.authorizationStatus(for: .readWrite))
         guard access.canRead else { throw CensusError.noAccess }
         // One fetch for every kind, so the later stages revisit the same assets in the same order.
-        let assets = PHAsset.fetchAssets(with: Self.fetchOptions())
+        let assets = PHAsset.fetchAssets(with: LibraryFetchRules.options())
         // Counted from the same moment as `assets`, before the long walk, so photos that arrive
         // meanwhile (a capture, an iCloud sync) don't pass for frames inside stacks.
         let extraBurstFrames = Self.extraBurstFrames(shownPhotos: assets.countOfAssets(with: .image))
@@ -93,19 +91,9 @@ public final class LiveCensusSource: CensusSource {
 
     // MARK: PhotoKit
 
-    /// The access client's rules: no Hidden album, the user library only (it holds the iCloud
-    /// Shared Library), burst frames shown as the library shows them.
-    private static func fetchOptions(allBurstFrames: Bool = false) -> PHFetchOptions {
-        let options = PHFetchOptions()
-        options.includeHiddenAssets = false
-        options.includeAssetSourceTypes = [.typeUserLibrary]
-        options.includeAllBurstAssets = allBurstFrames
-        return options
-    }
-
     /// Frames inside burst stacks that the library keeps out of view: a count, nothing read.
     private static func extraBurstFrames(shownPhotos: Int) -> Int {
-        max(0, PHAsset.fetchAssets(with: .image, options: fetchOptions(allBurstFrames: true)).count - shownPhotos)
+        max(0, PHAsset.fetchAssets(with: .image, options: LibraryFetchRules.options(allBurstFrames: true)).count - shownPhotos)
     }
 
     /// The original file's name (the photo or video resource, not an edit or a paired video).
@@ -160,69 +148,6 @@ public final class LiveCensusSource: CensusSource {
 
         func resume(returning answer: ThumbnailAnswer) {
             continuation.withLock { $0.take() }?.resume(returning: answer)
-        }
-    }
-}
-
-extension AssetFacts {
-    /// The facts PhotoKit holds for `asset` (metadata only; no image data is read).
-    init(_ asset: PHAsset) {
-        let kind: Kind = switch asset.mediaType {
-        case .image: .photo
-        case .video: .video
-        default: .other
-        }
-        let types = asset.mediaSubtypes
-        var subtypes: Subtypes = []
-        if types.contains(.photoScreenshot) { subtypes.insert(.screenshot) }
-        if types.contains(.photoLive) { subtypes.insert(.livePhoto) }
-        if types.contains(.photoPanorama) { subtypes.insert(.panorama) }
-        if types.contains(.photoHDR) { subtypes.insert(.hdr) }
-        if types.contains(.photoDepthEffect) { subtypes.insert(.depthEffect) }
-        if types.contains(.videoScreenRecording) { subtypes.insert(.screenRecording) }
-        if types.contains(.videoHighFrameRate) { subtypes.insert(.sloMo) }
-        if types.contains(.videoTimelapse) { subtypes.insert(.timeLapse) }
-        let source: Source = switch asset.sourceType {
-        case .typeUserLibrary: .userLibrary
-        case .typeCloudShared: .cloudShared
-        case .typeiTunesSynced: .synced
-        default: .unknown
-        }
-        let location = asset.location
-        self.init(
-            kind: kind,
-            subtypes: subtypes,
-            format: kind == .photo ? ImageFormat(asset.contentType) : nil,
-            creationDate: asset.creationDate,
-            modificationDate: asset.modificationDate,
-            addedDate: asset.addedDate,
-            coordinate: location.map { Coordinate(latitude: $0.coordinate.latitude, longitude: $0.coordinate.longitude) },
-            horizontalAccuracy: location?.horizontalAccuracy,
-            isFavorite: asset.isFavorite,
-            hasBurstIdentifier: asset.burstIdentifier != nil,
-            representsBurst: asset.representsBurst,
-            duration: asset.duration,
-            pixelWidth: asset.pixelWidth,
-            pixelHeight: asset.pixelHeight,
-            source: source
-        )
-    }
-}
-
-extension AssetFacts.ImageFormat {
-    init(_ type: UTType) {
-        if type.conforms(to: .heif) || type.conforms(to: .heic) {
-            self = .heif
-        } else if type.conforms(to: .jpeg) {
-            self = .jpeg
-        } else if type.conforms(to: .png) {
-            self = .png
-        } else if type.conforms(to: .gif) {
-            self = .gif
-        } else if type.conforms(to: .rawImage) {
-            self = .raw
-        } else {
-            self = .other
         }
     }
 }

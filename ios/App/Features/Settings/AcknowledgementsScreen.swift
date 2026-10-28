@@ -3,7 +3,7 @@ import SwiftUI
 
 /// Third-party software, fonts and data, with their full licence texts (bundled in the app, as the
 /// licences require). New entries land as the matching features do: SigLIP 2 (Apache-2.0, with its
-/// NOTICE), GRDB (MIT) and GeoNames (CC-BY 4.0).
+/// NOTICE) and GRDB (MIT).
 struct AcknowledgementsScreen: View {
     private struct Entry: Identifiable {
         let name: String
@@ -22,6 +22,12 @@ struct AcknowledgementsScreen: View {
         Entry(name: "Newsreader", licence: "SIL Open Font License 1.1", url: "https://fonts.google.com/specimen/Newsreader", file: "OFL-Newsreader"),
     ]
 
+    /// The offline place list (LZGeo's gazetteer).
+    private let data = [
+        Entry(name: "GeoNames", licence: "Place names · Creative Commons Attribution 4.0 (CC BY 4.0)", url: "https://www.geonames.org",
+              file: "GeoNames-CC-BY-4.0"),
+    ]
+
     var body: some View {
         List {
             Section {
@@ -29,6 +35,7 @@ struct AcknowledgementsScreen: View {
             }
             Section("Software") { ForEach(software) { row($0) } }
             Section("Fonts") { ForEach(fonts) { row($0) } }
+            Section("Data") { ForEach(data) { row($0) } }
         }
         .settingsForm("Acknowledgements")
         .accessibilityIdentifier("acknowledgements")

@@ -1,3 +1,4 @@
+import Foundation
 import LZGeo
 import Testing
 
@@ -10,5 +11,10 @@ import Testing
         #expect(park.city?.name == "Riyadh")
         #expect(park.timeZone == "Asia/Riyadh")
         #expect(gazetteer.cities(named: "mecca", limit: 1).first?.name == "Makkah")
+    }
+
+    @Test func theGeoNamesCreditShipsWithTheApp() throws {
+        let url = try #require(Bundle.main.url(forResource: "GeoNames-CC-BY-4.0", withExtension: "txt"))
+        #expect(try String(contentsOf: url, encoding: .utf8).contains("creativecommons.org/licenses/by/4.0"))
     }
 }

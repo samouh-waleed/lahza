@@ -123,9 +123,11 @@ Pipeline:
 |---|---|
 | `ios/project.yml` | XcodeGen spec; the Xcode project is generated (`make project`) and not committed |
 | `ios/App/` | The app: `Shell/` (composition root, dependencies, preferences), `Navigation/`, `Chrome/`, `Features/` (Ask, Moments, Library, Onboarding, Settings, Paywall), `Debug/` (launch arguments, developer screens) |
-| `ios/Packages/LahzaKit/` | Swift package: `LZCore` (brand, environment, storage, clock, log), `LZBilling` (RevenueCat, entitlement, paywall model), `LZDesign` (tokens, type, components, motion), `LZLibrary` (photo access: PhotoKit client, fake, access store; the library census for spike S2, whose screen is DEBUG-only), `LZGeo` (coordinates, local time and the moment rule, the offline GeoNames gazetteer, place-name folding, the Apple Maps client). Modules use the `LZ` prefix |
+| `ios/Packages/LahzaKit/` | Swift package: `LZCore` (brand, environment, storage, clock, log), `LZBilling` (RevenueCat, entitlement, paywall model), `LZDesign` (tokens, type, components, motion), `LZLibrary` (photo access: PhotoKit client, fake, access store, the shared fetch rules; the library reader and image provider the index uses, live and fake; the library census for spike S2, whose screen is DEBUG-only; the DEBUG seed library), `LZGeo` (coordinates, local time and the moment rule, the offline GeoNames gazetteer, place-name folding, the Apple Maps client). Modules use the `LZ` prefix |
 | `ios/Tools/gazetteer/` | Source, licence and curated aliases of the bundled GeoNames place list; `make gazetteer` rebuilds it with the `lz-gazetteer` package tool |
 | `ios/Config/` | xcconfig files; secrets go only in the git-ignored `Local.xcconfig` |
 | `ios/Tests/` | App-hosted tests |
 
 Everything runs from the command line (`cd ios`): `make run` builds and launches in the Simulator, `make test` runs the package tests on the Mac and the app tests on the Simulator. The Xcode IDE is never needed, only the installed toolchain.
+
+For demos and search tests, `make seed-photos` fills the Simulator's Photos with the synthetic *hero* library: 557 photos and videos drawn on the Mac by the `lz-seed` package tool, with real-looking dates, GPS and Ramadan/Eid days. Kit tests read the same scenario through a fake library reader. `make grant-photos` gives Lahza access, `make probe-photos` checks what the import kept, and `make sim-reset CONFIRM=1` erases the Simulator.

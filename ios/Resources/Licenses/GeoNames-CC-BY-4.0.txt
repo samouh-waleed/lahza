@@ -1,0 +1,12 @@
+GeoNames place data
+Source: GeoNames, https://www.geonames.org (export dump of 2026-10-28: cities15000 and admin1CodesASCII)
+
+Licensed under the Creative Commons Attribution 4.0 International License (CC BY 4.0).
+Licence text: https://creativecommons.org/licenses/by/4.0/legalcode
+
+Changes made for Lahza: historical, abandoned and destroyed places (PPLH, PPLQ, PPLW) are dropped; each place
+keeps its name, position, population, feature class, country, region and time zone; English alternate names
+are selected (places of 100,000+ people and capitals, up to 8 each) and curated English names are added;
+everything is re-encoded in Lahza's binary place-list format.
+
+The data is provided as is, without warranties of any kind.

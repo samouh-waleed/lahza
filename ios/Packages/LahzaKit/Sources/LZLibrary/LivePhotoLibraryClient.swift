@@ -34,11 +34,9 @@ public final class LivePhotoLibraryClient: PhotoLibraryClient {
         let access = Self.status()
         guard access.canRead else { return 0 }
         observer.registerIfReadable(access)
-        let options = PHFetchOptions()
         // Hidden stays out (decision 14). The iCloud Shared Library is part of the user library, so
         // it is counted; Shared Albums are not the library and stay out.
-        options.includeHiddenAssets = false
-        options.includeAssetSourceTypes = [.typeUserLibrary]
+        let options = LibraryFetchRules.options()
         return PHAsset.fetchAssets(with: .image, options: options).count
             + PHAsset.fetchAssets(with: .video, options: options).count
     }

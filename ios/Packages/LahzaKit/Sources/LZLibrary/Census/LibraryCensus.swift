@@ -44,14 +44,10 @@ public struct CensusTimings: Sendable, Hashable {
 public enum LibraryCensus {
     // MARK: Rules
 
-    /// The long sides (pixels) messaging apps commonly resize photos to: WhatsApp 1600 (standard
-    /// quality); Telegram 1280 and 2560 (high quality); Signal and Messenger 2048. A guess to
-    /// calibrate: the report shows how the shape rule agrees with filename hints and lists the most
-    /// common long sides among photos without GPS.
-    public static let messagingLongSides: Set<Int> = [1280, 1600, 2048, 2560]
-    /// "Creation ≈ added" (P0's likelyReceived): a received photo is saved as it arrives, so the
-    /// library adds it within minutes of its creation date. PhotoKit's added date exists from iOS 26.
-    public static let receivedAddedWithin: TimeInterval = 10 * 60
+    /// The shape rule's messaging sizes (``AssetClassifier/messagingLongSides``).
+    public static let messagingLongSides = AssetClassifier.messagingLongSides
+    /// "Creation ≈ added" (``AssetClassifier/receivedAddedWithin``).
+    public static let receivedAddedWithin = AssetClassifier.receivedAddedWithin
     /// P0b (``MomentSegmenter``): a new moment after a gap of more than 90 minutes…
     public static let momentGap = TimeInterval(MomentSegmenter.gap)
     /// …or a jump of more than 1 km between located items…
@@ -111,38 +107,6 @@ public enum LibraryCensus {
         return String(format: "%04d-%02d-%02d", parts.year ?? 0, parts.month ?? 0, parts.day ?? 0)
     }
 
-    // MARK: Classification
-
-    /// A screenshot by PhotoKit's subtype, or a photo named like one.
-    static func isScreenCapture(_ facts: AssetFacts) -> Bool {
-        facts.subtypes.contains(.screenshot) || facts.filenameHint == .screenshot
-    }
-
-    /// Whether the added date is within ``receivedAddedWithin`` of the creation date (nil when
-    /// either is unknown).
-    static func addedNearCreation(_ facts: AssetFacts) -> Bool? {
-        guard let created = facts.creationDate, let added = facts.addedDate else { return nil }
-        return abs(added.timeIntervalSince(created)) <= receivedAddedWithin
-    }
-
-    /// The shape rule, P0's likelyReceived without filenames: a photo with no GPS that is not a
-    /// screen capture, at a messaging app's size, added about when it was created (an unknown date
-    /// doesn't rule it out).
-    static func matchesReceivedShape(_ facts: AssetFacts) -> Bool {
-        facts.kind == .photo && !facts.isLocated && !isScreenCapture(facts)
-            && messagingLongSides.contains(facts.longSide) && addedNearCreation(facts) != false
-    }
-
-    /// Named like a messaging app, or (photos) matching the shape rule.
-    static func isLikelyReceived(_ facts: AssetFacts) -> Bool {
-        facts.filenameHint?.isMessaging == true || matchesReceivedShape(facts)
-    }
-
-    /// A photo that is neither a screen capture nor likely received: the place signal's target.
-    static func isCameraPhoto(_ facts: AssetFacts) -> Bool {
-        facts.kind == .photo && !isScreenCapture(facts) && !isLikelyReceived(facts)
-    }
-
     // MARK: Sections
 
     static func library(_ facts: [AssetFacts]) -> CensusReport.Library {
@@ -167,7 +131,7 @@ public enum LibraryCensus {
                 case .png?: library.png += 1
                 default: library.otherFormats += 1
                 }
-                if isCameraPhoto(item) { library.cameraPhotos += 1 }
+                if AssetClassifier.isCameraPhoto(item) { library.cameraPhotos += 1 }
             }
         }
         return library
@@ -179,7 +143,7 @@ public enum LibraryCensus {
             switch item.kind {
             case .photo:
                 location.photos += 1
-                if isCameraPhoto(item) {
+                if AssetClassifier.isCameraPhoto(item) {
                     location.cameraPhotos += 1
                     if item.isLocated { location.cameraPhotosLocated += 1 }
                 }
@@ -218,7 +182,7 @@ public enum LibraryCensus {
             switch item.kind {
             case .photo:
                 let named = item.filenameHint?.isMessaging == true
-                let shape = matchesReceivedShape(item)
+                let shape = AssetClassifier.matchesReceivedShape(item)
                 if named || shape { received.likelyPhotos += 1 }
                 if named {
                     received.namedMessagingPhotos += 1
@@ -228,7 +192,7 @@ public enum LibraryCensus {
                     received.shapeMatches += 1
                     if item.filenameHint == .camera { received.shapeMatchesNamedCamera += 1 }
                 }
-                guard !item.isLocated, !isScreenCapture(item), item.longSide > 0 else { continue }
+                guard !item.isLocated, !AssetClassifier.isScreenCapture(item), item.longSide > 0 else { continue }
                 sides[item.longSide, default: 0] += 1
                 if messagingLongSides.contains(item.longSide) { received.unlocatedAtMessagingSize += 1 }
             case .video:
@@ -298,7 +262,7 @@ public enum LibraryCensus {
                           width: item.pixelWidth, height: item.pixelHeight)
             var group = groups[key] ?? (count: 0, received: true)
             group.count += 1
-            group.received = group.received && isLikelyReceived(item)
+            group.received = group.received && AssetClassifier.isLikelyReceived(item)
             groups[key] = group
         }
         let found = groups.values.filter { $0.count > 1 }

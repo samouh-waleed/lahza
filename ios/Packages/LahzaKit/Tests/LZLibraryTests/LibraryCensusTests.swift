@@ -115,20 +115,20 @@ import Testing
 
     @Test func theShapeRuleNeedsNoGPSAMessagingSizeAndAFreshAddedDate() {
         let base = photo(width: 1600, height: 1200)
-        #expect(LibraryCensus.matchesReceivedShape(base))
-        #expect(LibraryCensus.matchesReceivedShape(with(base) { $0.pixelWidth = 1200; $0.pixelHeight = 1600 }))
-        #expect(LibraryCensus.matchesReceivedShape(with(base) { $0.addedDate = nil }), "an unknown added date doesn't rule it out")
-        #expect(!LibraryCensus.matchesReceivedShape(with(base) { $0.coordinate = home }))
-        #expect(!LibraryCensus.matchesReceivedShape(with(base) { $0.subtypes = .screenshot }))
-        #expect(!LibraryCensus.matchesReceivedShape(with(base) { $0.filenameHint = .screenshot }))
-        #expect(!LibraryCensus.matchesReceivedShape(with(base) { $0.pixelWidth = 4032; $0.pixelHeight = 3024 }))
-        #expect(!LibraryCensus.matchesReceivedShape(with(base) { $0.addedDate = $0.creationDate?.addingTimeInterval(3 * 86_400) }))
-        #expect(!LibraryCensus.matchesReceivedShape(with(base) { $0.kind = .video }))
+        #expect(AssetClassifier.matchesReceivedShape(base))
+        #expect(AssetClassifier.matchesReceivedShape(with(base) { $0.pixelWidth = 1200; $0.pixelHeight = 1600 }))
+        #expect(AssetClassifier.matchesReceivedShape(with(base) { $0.addedDate = nil }), "an unknown added date doesn't rule it out")
+        #expect(!AssetClassifier.matchesReceivedShape(with(base) { $0.coordinate = home }))
+        #expect(!AssetClassifier.matchesReceivedShape(with(base) { $0.subtypes = .screenshot }))
+        #expect(!AssetClassifier.matchesReceivedShape(with(base) { $0.filenameHint = .screenshot }))
+        #expect(!AssetClassifier.matchesReceivedShape(with(base) { $0.pixelWidth = 4032; $0.pixelHeight = 3024 }))
+        #expect(!AssetClassifier.matchesReceivedShape(with(base) { $0.addedDate = $0.creationDate?.addingTimeInterval(3 * 86_400) }))
+        #expect(!AssetClassifier.matchesReceivedShape(with(base) { $0.kind = .video }))
         // A messaging name is enough, GPS or not.
         let named = photo(at: home, hint: .whatsapp)
-        #expect(!LibraryCensus.matchesReceivedShape(named))
-        #expect(LibraryCensus.isLikelyReceived(named))
-        #expect(!LibraryCensus.isCameraPhoto(named))
+        #expect(!AssetClassifier.matchesReceivedShape(named))
+        #expect(AssetClassifier.isLikelyReceived(named))
+        #expect(!AssetClassifier.isCameraPhoto(named))
     }
 
     @Test func receivedCountsCompareNamesWithTheShapeRule() {
