@@ -12,6 +12,8 @@ let package = Package(
         .library(name: "LZBilling", targets: ["LZBilling"]),
         .library(name: "LZDesign", targets: ["LZDesign"]),
         .library(name: "LZLibrary", targets: ["LZLibrary"]),
+        .library(name: "LZGeo", targets: ["LZGeo"]),
+        .executable(name: "lz-gazetteer", targets: ["LZGazetteerTool"]),
     ],
     dependencies: [
         .package(url: "https://github.com/RevenueCat/purchases-ios-spm.git", from: "5.91.0"),
@@ -27,13 +29,20 @@ let package = Package(
             dependencies: ["LZCore"],
             swiftSettings: [.defaultIsolation(MainActor.self)]
         ),
+        // Foundation-only geography and time: Coordinate, GeoHash, LocalTime, MomentSegmenter, PlaceNames,
+        // CountryNames, the offline GeoNames gazetteer (format, reader, writer), PlaceCategory radii and the Apple
+        // Maps client protocol (fake, and the live MapKit adapter on iOS).
+        .target(name: "LZGeo", resources: [.copy("Resources/cities15000.lzgz")]),
         // Photo library access: the PhotoKit client (live and fake) and the access store; the library census for
         // Phase 0 spike S2 (facts, summariser, sources live and fake, runner), whose screen exists only in DEBUG builds.
-        .target(name: "LZLibrary", dependencies: ["LZCore"]),
+        .target(name: "LZLibrary", dependencies: ["LZCore", "LZGeo"]),
+        // macOS host tool that builds the gazetteer resource (`make gazetteer`); never linked into the app.
+        .executableTarget(name: "LZGazetteerTool", dependencies: ["LZGeo"]),
 
         .testTarget(name: "LZCoreTests", dependencies: ["LZCore"]),
         .testTarget(name: "LZBillingTests", dependencies: ["LZBilling"]),
         .testTarget(name: "LZDesignTests", dependencies: ["LZDesign"]),
-        .testTarget(name: "LZLibraryTests", dependencies: ["LZLibrary"]),
+        .testTarget(name: "LZLibraryTests", dependencies: ["LZLibrary", "LZGeo"]),
+        .testTarget(name: "LZGeoTests", dependencies: ["LZGeo"]),
     ]
 )

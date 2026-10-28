@@ -1,4 +1,5 @@
 import Foundation
+import LZGeo
 
 /// A ``CensusSource`` over a synthetic library, for tests, previews and the DEBUG `-LZPhotos`
 /// launch argument. It never touches PhotoKit.

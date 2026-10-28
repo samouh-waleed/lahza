@@ -1,0 +1,106 @@
+# Curated English names for GeoNames places, added by lz-gazetteer to the names the gazetteer answers to.
+# Format: geonameid<TAB>alias|alias<TAB>GeoNames display name (checked by the tool, so a wrong id fails the build).
+# Use it for exonyms and short forms people type that GeoNames' alternate names miss or the automatic filter drops.
+# Saudi Arabia
+104515	Mecca|Makkah al-Mukarramah	Makkah
+109223	Medina|Al Madinah|Madinah al-Munawwarah	Madinah
+110312	Diriyah|Dir'iyah|Ad Diriyah	Ad Dir‘īyah
+108410	Ar Riyadh	Riyadh
+105343	Jiddah|Jedda	Jeddah
+110336	Ad Dammam	Dammam
+109323	Al Khobar|Al Khubar	Khobar
+107968	Taif	Ta’if
+107304	Buraidah	Buraydah
+108841	AlUla|Al Ula	Al-`Ula
+106281	Hail	Ha'il
+109571	Hofuf|Al Hofuf|Al Ahsa	Al Hufūf
+109435	Jubail	Al Jubayl
+100425	Yanbu al Bahr	Yanbu
+105299	Jazan|Gizan	Jizan
+101628	Tabouk	Tabuk
+105072	Khamis Mushayt	Khamis Mushait
+# Gulf, Middle East and North Africa
+291074	Ras al-Khaimah|RAK	Ras Al Khaimah
+292913	Al Ain	Al Ain City
+292878	Al Fujairah	Fujairah
+285787	Kuwait	Kuwait City
+71137	Sana'a	Sanaa
+293397	Tel Aviv-Yafo|Jaffa	Tel Aviv
+146268	Lefkosia	Nicosia
+418863	Esfahan|Ispahan	Isfahan
+349340	Sharm	Sharm el-Sheikh
+2542997	Marrakech	Marrakesh
+2548885	Fez	Fes
+2530335	Tanger|Tangiers	Tangier
+# Greece
+261745	Heraklion|Iraklion|Iraklio	Irákleion
+734077	Salonica|Salonika	Thessaloníki
+400666	Rodos	Rhodes
+260114	Hania|Khania	Chaniá
+255683	Patras	Pátra
+255274	Pireas	Piraeus
+# Europe
+3169070	Roma	Rome
+3176959	Firenze	Florence
+3164603	Venezia	Venice
+3173435	Milano	Milan
+3172394	Napoli	Naples
+3165524	Torino	Turin
+2867714	Muenchen|Munchen	Munich
+2886242	Cologne	Köln
+2861650	Nurnberg	Nuremberg
+2910831	Hanover	Hannover
+2761369	Wien	Vienna
+3067696	Praha	Prague
+756135	Warszawa	Warsaw
+3094802	Cracow	Kraków
+2267057	Lisboa	Lisbon
+2735943	Oporto	Porto
+2510911	Seville	Sevilla
+3104324	Saragossa	Zaragoza
+3119841	La Coruna|Corunna	A Coruña
+2800866	Bruxelles	Brussels
+2803138	Antwerpen	Antwerp
+2800931	Bruges	Brugge
+2797656	Ghent	Gent
+2747373	Den Haag	The Hague
+2660646	Geneve|Genf	Geneva
+2657896	Zurich	Zürich
+2618425	Kobenhavn	Copenhagen
+2711537	Goteborg	Gothenburg
+2995469	Marseilles	Marseille
+2996944	Lyons	Lyon
+524901	Moskva	Moscow
+498817	St Petersburg	Saint Petersburg
+703448	Kiev	Kyiv
+698740	Odessa	Odesa
+706483	Kharkov	Kharkiv
+683506	Bucuresti	Bucharest
+792680	Beograd	Belgrade
+# Asia
+1275339	Bombay	Mumbai
+1264527	Madras	Chennai
+1275004	Calcutta	Kolkata
+1277333	Bangalore	Bengaluru
+1259229	Poona	Pune
+1253405	Benares|Banaras	Varanasi
+1254163	Trivandrum	Thiruvananthapuram
+1273874	Cochin	Kochi
+1253573	Baroda	Vadodara
+1283240	Katmandu	Kathmandu
+1185241	Dacca	Dhaka
+1816670	Peking	Beijing
+1799962	Nanking	Nanjing
+1790630	Xian	Xi’an
+1566083	Saigon|HCMC	Ho Chi Minh City
+1298824	Rangoon	Yangon
+1735161	KL	Kuala Lumpur
+1819729	HK	Hong Kong
+1526384	Alma-Ata	Almaty
+# Americas
+5128581	New York|NYC	New York City
+5368361	LA	Los Angeles
+5391959	SF	San Francisco
+4140963	Washington DC|Washington D.C.|DC	Washington
+3530597	Ciudad de Mexico|CDMX	Mexico City
+3451190	Rio	Rio de Janeiro

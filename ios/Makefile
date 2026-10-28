@@ -10,8 +10,11 @@ APP_ID := com.waleedsamouh.lahza
 JOBS ?= 4
 # A connected iPhone's UDID (from `make devices`), for `make device`.
 DEVICE_ID ?=
+# The folder holding GeoNames' cities15000.txt and admin1CodesASCII.txt, and the dump's date, for `make gazetteer`.
+GEONAMES ?=
+GEONAMES_DATE ?= 20261028
 
-.PHONY: help project build test test-kit test-app run devices device clean
+.PHONY: help project build test test-kit test-app run devices device gazetteer clean
 
 help:
 	@echo 'make project   regenerate Lahza.xcodeproj from project.yml'
@@ -20,6 +23,7 @@ help:
 	@echo 'make test      kit tests on the Mac + app tests on the simulator'
 	@echo 'make devices   list connected iPhones and their UDIDs'
 	@echo 'make device DEVICE_ID=<udid>   build, sign, install and launch on your iPhone'
+	@echo 'make gazetteer GEONAMES=<dir>  rebuild the offline place list from a GeoNames dump (Tools/gazetteer/README.md)'
 
 project:            ## Regenerate Lahza.xcodeproj from project.yml
 	xcodegen generate --spec project.yml --quiet
@@ -51,6 +55,13 @@ device: project     ## Build, sign (with Xcode's saved profile), install and lau
 	set -o pipefail && xcodebuild -project Lahza.xcodeproj -scheme Lahza -configuration Debug -destination 'id=$(DEVICE_ID)' -derivedDataPath $(DERIVED) build | xcbeautify --quiet
 	xcrun devicectl device install app --device $(DEVICE_ID) "$(DERIVED)/Build/Products/Debug-iphoneos/Lahza.app"
 	xcrun devicectl device process launch --terminate-existing --device $(DEVICE_ID) $(APP_ID)
+
+gazetteer:          ## Rebuild LZGeo's cities15000.lzgz from a GeoNames dump (Tools/gazetteer/README.md)
+	@test -n "$(GEONAMES)" || { echo 'Set GEONAMES to the folder with cities15000.txt and admin1CodesASCII.txt'; exit 1; }
+	swift run --package-path $(KIT) lz-gazetteer \
+		--cities "$(GEONAMES)/cities15000.txt" --admin1 "$(GEONAMES)/admin1CodesASCII.txt" \
+		--aliases Tools/gazetteer/aliases-en.tsv --source-date $(GEONAMES_DATE) \
+		--out $(KIT)/Sources/LZGeo/Resources/cities15000.lzgz
 
 clean:
 	rm -rf .build $(KIT)/.build

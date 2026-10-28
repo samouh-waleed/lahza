@@ -163,6 +163,37 @@ struct ClockAndLogTests {
         #expect(ContinuousClock.now - start >= .milliseconds(5))
     }
 
+    @Test("OffsetClock starts at the pinned instant, then runs and sleeps with its base clock")
+    func offsetClock() async throws {
+        let base = FixedClock(Date(epochMilliseconds: 1_000))
+        let pinned = Date(epochMilliseconds: 1_790_238_600_000)
+        let clock = OffsetClock(pinnedNow: pinned, base: base)
+        #expect(clock.now == pinned)
+        #expect(clock.offset == 1_790_238_599)
+        await base.advance(by: .seconds(90))
+        #expect(clock.now.epochMilliseconds == 1_790_238_690_000)
+
+        // Sleeps go to the base clock, so they fire when it does (unlike a pinned FixedClock, which never moves).
+        let woke = Locked(false)
+        let sleeper = Task {
+            try await clock.sleep(for: .milliseconds(800))
+            woke.withLock { $0 = true }
+        }
+        #expect(await base.waitForSleepers(1))
+        await base.advance(by: .milliseconds(800))
+        try await sleeper.value
+        #expect(woke.withLock { $0 })
+        #expect(clock.now.epochMilliseconds == 1_790_238_690_800)
+
+        // Over the system clock it keeps real time and really sleeps.
+        let live = OffsetClock(pinnedNow: pinned)
+        #expect(abs(live.now.timeIntervalSince(pinned)) < 1)
+        let start = ContinuousClock.now
+        try await live.sleep(for: .milliseconds(5))
+        #expect(ContinuousClock.now - start >= .milliseconds(5))
+        #expect(live.now > pinned)
+    }
+
     @Test("Log writes without trapping at every level and privacy")
     func log() {
         let log = Log("tests")

@@ -1,4 +1,5 @@
 import Foundation
+import LZGeo
 
 /// Where a census's facts came from and when it ran.
 public struct CensusContext: Sendable {
@@ -51,12 +52,12 @@ public enum LibraryCensus {
     /// "Creation ≈ added" (P0's likelyReceived): a received photo is saved as it arrives, so the
     /// library adds it within minutes of its creation date. PhotoKit's added date exists from iOS 26.
     public static let receivedAddedWithin: TimeInterval = 10 * 60
-    /// P0b: a new moment after a gap of more than 90 minutes…
-    public static let momentGap: TimeInterval = 90 * 60
+    /// P0b (``MomentSegmenter``): a new moment after a gap of more than 90 minutes…
+    public static let momentGap = TimeInterval(MomentSegmenter.gap)
     /// …or a jump of more than 1 km between located items…
-    public static let momentJump: Double = 1_000
+    public static let momentJump = MomentSegmenter.jump
     /// …and never across 04:00, when the day breaks.
-    public static let dayBreakHour = 4
+    public static let dayBreakHour = Int(LocalTime.dayBreak / 3600)
     /// S2 pass mark: usable local thumbnails, percent of the sample.
     public static let usableThumbnailPercent = 85
     /// S2: camera photos located, percent. Below it the place signal is weak, and the place visual
@@ -324,59 +325,40 @@ public enum LibraryCensus {
         return video
     }
 
-    /// P0b's rough moments over every dated photo and video, in time order: a new moment starts
-    /// after a gap of more than 90 minutes, when the day breaks at 04:00 local time, or after a
-    /// jump of more than 1 km from the moment's last located item (items without GPS never split).
+    /// P0b's rough moments over every dated photo and video, by ``MomentSegmenter``'s rule: a new
+    /// moment starts after a gap of more than 90 minutes, when the day breaks at 04:00 local time, or
+    /// after a jump of more than 1 km from the moment's last located item (items without GPS never split).
     ///
-    /// "Local" is `calendar`'s time zone: PhotoKit has no public capture time zone.
+    /// "Local" is `calendar`'s time zone for every item: PhotoKit has no public capture time zone.
     static func moments(_ facts: [AssetFacts], calendar: Calendar) -> CensusReport.Moments {
+        let zone = calendar.timeZone
         let items = facts
             .compactMap { item -> (date: Date, place: Coordinate?)? in
                 guard item.kind != .other, let date = item.creationDate else { return nil }
                 return (date, item.isLocated ? item.coordinate : nil)
             }
             .sorted { $0.date < $1.date }
+            .map { item in
+                MomentSegmenter.Item(utc: Int64(item.date.timeIntervalSince1970.rounded(.down)),
+                                     day: LocalTime.momentDay(wallSeconds: LocalTime.wallSeconds(item.date, in: zone)),
+                                     coordinate: item.place)
+            }
         var moments = CensusReport.Moments()
         guard !items.isEmpty else { return moments }
         moments.items = items.count
 
-        // The moment day from the wall clock, so the break stays at 04:00 on daylight-saving days
-        // (subtracting 4 hours of absolute time would move it to 03:00 or 05:00).
-        func day(_ date: Date) -> Int {
-            let ordinal = calendar.ordinality(of: .day, in: .era, for: date) ?? 0
-            return calendar.component(.hour, from: date) < dayBreakHour ? ordinal - 1 : ordinal
-        }
-
         var sizes: [Int] = []
-        var size = 0
-        var lastDate = items[0].date
-        var lastDay = day(lastDate)
-        var lastPlace: Coordinate?
-        for item in items {
-            let itemDay = day(item.date)
-            if size > 0 {
-                var split = true
-                if item.date.timeIntervalSince(lastDate) > momentGap {
-                    moments.splitsByGap += 1
-                } else if itemDay != lastDay {
-                    moments.splitsByDayBreak += 1
-                } else if let place = item.place, let lastPlace, place.distance(to: lastPlace) > momentJump {
-                    moments.splitsByJump += 1
-                } else {
-                    split = false
-                }
-                if split {
-                    sizes.append(size)
-                    size = 0
-                    lastPlace = nil
-                }
+        var start = 0
+        for boundary in MomentSegmenter.boundaries(items) {
+            switch boundary.reason {
+            case .gap: moments.splitsByGap += 1
+            case .dayBreak: moments.splitsByDayBreak += 1
+            case .jump: moments.splitsByJump += 1
             }
-            size += 1
-            lastDate = item.date
-            lastDay = itemDay
-            if let place = item.place { lastPlace = place }
+            sizes.append(boundary.index - start)
+            start = boundary.index
         }
-        sizes.append(size)
+        sizes.append(items.count - start)
 
         moments.count = sizes.count
         moments.singleItem = sizes.filter { $0 == 1 }.count
