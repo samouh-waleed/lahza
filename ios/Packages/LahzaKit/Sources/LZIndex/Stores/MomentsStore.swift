@@ -48,6 +48,8 @@ import Observation
     @ObservationIgnored private var months: [Int: Int] = [:]
     @ObservationIgnored private var loadedVersion: Int64 = -1
     @ObservationIgnored private var loadedGeneration = -1
+    /// Counts reloads, so an older one that finishes last can't replace a newer one's rows.
+    @ObservationIgnored private var reloads = 0
 
     public init(index: IndexStore) {
         self.index = index
@@ -56,25 +58,29 @@ import Observation
     /// Every moment loaded so far, newest first.
     public var moments: [MomentRow] { rows }
 
-    /// Loads the first page, unless what is loaded is current.
+    /// Loads the first page, unless what is loaded is current; after an index change, as many moments as are
+    /// loaded.
     public func load() async {
         guard let reader = index.reader else { return clear() }
         guard reader.generation != loadedGeneration || index.version != loadedVersion else { return }
-        await reload(limit: Self.pageSize)
+        await reload(limit: reader.generation == loadedGeneration ? max(Self.pageSize, rows.count) : Self.pageSize)
     }
 
     /// The next page.
     public func loadMore() async {
         guard hasMore, !isLoading, let reader = index.reader, let last = rows.last else { return }
+        let ticket = reloads
         isLoading = true
         defer { isLoading = false }
         do {
             let page = try await reader.moments(after: last.key, limit: Self.pageSize)
+            // A reload while this page was read replaced the rows it follows.
+            guard ticket == reloads else { return }
             rows += page
             hasMore = page.count == Self.pageSize
             rebuildSections()
         } catch {
-            clear()
+            failed(ticket, error)
         }
     }
 
@@ -117,14 +123,17 @@ import Observation
     private func reload(limit: Int) async {
         guard let reader = index.reader else { return clear() }
         let version = index.version
+        reloads += 1
+        let ticket = reloads
         isLoading = true
-        defer { isLoading = false }
+        defer { if ticket == reloads { isLoading = false } }
         do {
             async let page = reader.moments(after: nil, limit: limit)
             async let monthCounts = reader.momentMonths()
             async let tripRows = reader.trips()
             async let home = reader.homeBase(year: nil)
             let (loaded, counts, loadedTrips, homeBase) = try await (page, monthCounts, tripRows, home)
+            guard ticket == reloads else { return }
             rows = loaded
             hasMore = loaded.count == limit
             months = Dictionary(counts.map { ($0.id, $0.moments) }, uniquingKeysWith: +)
@@ -137,8 +146,15 @@ import Observation
             hasLoaded = true
             rebuildSections()
         } catch {
-            clear()
+            failed(ticket, error)
         }
+    }
+
+    /// A read failed: a closed index shows nothing. A cancelled read (its screen went away) or one a newer reload
+    /// overtook leaves the rows as they are.
+    private func failed(_ ticket: Int, _ error: any Error) {
+        guard ticket == reloads, !Task.isCancelled, !(error is CancellationError) else { return }
+        clear()
     }
 
     private func rebuildSections() {

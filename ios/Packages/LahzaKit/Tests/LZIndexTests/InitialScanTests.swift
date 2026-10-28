@@ -157,6 +157,7 @@ import Testing
         #expect(resumed.phase == .idle)
         #expect(resumed.firstBuildDone)
         #expect(resumed.libraryToken == token)
+        #expect(resumed.done == resumed.total, "\(point): what the resume read again counts once")
     }
 
     @Test func aPausedScanResumesFromItsFrontier() async throws {
@@ -179,6 +180,30 @@ import Testing
         recorder.cancel()
         #expect(await indexer.stats.resumedScans == 1)
         #expect(await indexer.stats.writes.inserted == 561)
+        #expect(try await Fixture.meta(database).done == 561)
+        #expect(try await Fixture.assetRows(database) == Fixture.assetRows(Fixture.cleanBuild(of: reader)))
+    }
+
+    @Test func aPausedRebuildResumesInsteadOfStartingOver() async throws {
+        let reader = FakeLibraryReader(.seed(.hero))
+        let database = try IndexDatabase.open(.inMemory)
+        let indexer = Fixture.indexer(database, reader, settings: IndexerSettings(batchSize: 50, progressInterval: .zero, pacePerBatch: .milliseconds(15)))
+        await Fixture.sync(indexer)
+        let recorder = StatusRecorder(indexer.status)
+        await indexer.enqueue(.rebuild)
+        try await waitUntil { recorder.values.contains { if case .reading(let done, _) = $0.phase { done >= 100 } else { false } } }
+        await indexer.pause()
+        let readBeforePause = try await Fixture.count(database, "asset")
+        #expect(readBeforePause >= 100 && readBeforePause < 561)
+
+        // Leaving Lahza and coming back mid-rebuild keeps what it read.
+        await indexer.resume()
+        await indexer.settled()
+        recorder.cancel()
+        #expect(await indexer.stats.fullScans == [.firstRun: 1, .rebuild: 1])
+        #expect(await indexer.stats.resumedScans == 1)
+        #expect(await indexer.stats.writes.inserted == 561 * 2, "no asset read twice")
+        #expect(try await Fixture.meta(database).phase == .idle)
         #expect(try await Fixture.assetRows(database) == Fixture.assetRows(Fixture.cleanBuild(of: reader)))
     }
 

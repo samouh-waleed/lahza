@@ -28,6 +28,8 @@ struct AssetWriter {
     let db: Database
     var derivation: AssetDerivation
     private(set) var counts = WriteCounts()
+    /// Upserted records whose row this scan generation had already stamped (a resumed scan re-reads its frontier).
+    private(set) var repeated = 0
     private var dirtyDays = Set<Int32>()
 
     init(_ db: Database, geo: GeoCache, deviceZone: String) throws {
@@ -57,6 +59,7 @@ struct AssetWriter {
         let existing = try existingRows(records.map(\.localID))
         for record in records {
             if let old = existing[record.localID] {
+                if old.generation == generation { repeated += 1 }
                 if old.fingerprint == record.fingerprint {
                     counts.unchanged += 1
                     if old.generation != generation {
@@ -83,14 +86,40 @@ struct AssetWriter {
     }
 
     /// Derives an existing asset's zone, wall time, day and cell again (a new device zone or gazetteer), leaving
-    /// its facts and borrowed position alone.
-    mutating func rederive(id: Int64, created: Int64?, coordinate: Coordinate?, oldDay: Int32?) throws {
-        let derived = try derivation.derive(created: created, coordinate: coordinate, db)
+    /// its facts and borrowed position alone. A changed value marks its day dirty (both days when it moves), since
+    /// its moment's times, zone and places come from it.
+    mutating func rederive(_ old: Rederivable) throws {
+        let derived = try derivation.derive(created: old.created, coordinate: old.coordinate, db)
+        guard derived.zone != old.zone || derived.zoneSource.rawValue != old.zoneSource || derived.wallSeconds != old.wall
+            || derived.day != old.day || derived.cell != old.cell else { return }
         try db.cachedStatement(sql: "UPDATE asset SET tz = ?, tz_src = ?, wall_s = ?, day = ?, cell = ? WHERE id = ?")
-            .execute(arguments: [derived.zone, derived.zoneSource.rawValue, derived.wallSeconds, derived.day, derived.cell, id])
-        if derived.day != oldDay {
-            markDirty(oldDay)
-            markDirty(derived.day)
+            .execute(arguments: [derived.zone, derived.zoneSource.rawValue, derived.wallSeconds, derived.day, derived.cell, old.id])
+        markDirty(old.day)
+        markDirty(derived.day)
+    }
+
+    /// An asset's derived columns, as ``rederive(_:)`` reads them.
+    struct Rederivable {
+        static let columns = "id, created_utc, lat, lon, tz, tz_src, wall_s, day, cell"
+
+        var id: Int64
+        var created: Int64?
+        var coordinate: Coordinate?
+        var zone: Int64?
+        var zoneSource: Int
+        var wall: Int64?
+        var day: Int32?
+        var cell: String?
+
+        init(_ row: Row) {
+            id = row["id"]
+            created = row["created_utc"]
+            coordinate = (row["lat"] as Double?).flatMap { lat in (row["lon"] as Double?).map { Coordinate(latitude: lat, longitude: $0) } }
+            zone = row["tz"]
+            zoneSource = row["tz_src"]
+            wall = row["wall_s"]
+            day = row["day"]
+            cell = row["cell"]
         }
     }
 
@@ -116,8 +145,10 @@ struct AssetWriter {
         counts.deleted += db.changesCount
     }
 
-    /// Writes the touched days to `dirty_day`. Call once, before the transaction commits.
+    /// Writes the touched days to `dirty_day`, and marks the library-wide structure steps due when a row changed
+    /// (an undated asset touches no day). Call once, before the transaction commits.
     mutating func finish() throws {
+        if counts.changed > 0 || !dirtyDays.isEmpty { try Meta.markStructureDue(db) }
         let statement = try db.cachedStatement(sql: "INSERT OR IGNORE INTO dirty_day (day) VALUES (?)")
         for day in dirtyDays { try statement.execute(arguments: [day]) }
         dirtyDays.removeAll()

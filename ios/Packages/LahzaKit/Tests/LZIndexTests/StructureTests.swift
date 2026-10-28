@@ -330,6 +330,8 @@ import Testing
         try await database.write { db in
             try db.execute(sql: "INSERT INTO saved_place (name, name_folded, lat, lon, radius_m, is_home, created_utc, updated_utc) VALUES ('Home', 'home', ?, ?, 150, 1, 0, 0)",
                            arguments: [Self.oia.latitude, Self.oia.longitude])
+            // As every write the library-wide steps read does (PR 3's saved places too).
+            try Meta.markStructureDue(db)
         }
         await Fixture.sync(indexer, .restructure)
         homes = try await IndexQueries.homes(database)
@@ -399,6 +401,132 @@ import Testing
         #expect(counts["cc:GR"] == expected.greece)
         #expect(counts["cc:GR"] == SeedScenario.hero.items(.greece).filter(\.isLocated).count)
         #expect(counts["home"] == SeedScenario.hero.items(.home).count + SeedScenario.hero.items(.summer2026).count)
+    }
+
+    // MARK: Incremental changes
+
+    @Test func twoMomentsInTheSameSecondSurviveTheFirstGrowingOrGoing() async throws {
+        // Two cameras 3 km apart in the same second: the second moment starts a second later to keep (day, start) unique.
+        let second = Self.utc(2025, 4, 5, 17)
+        let (database, indexer, reader) = try await build([
+            Fixture.photo("x", second, at: Fixture.nakheel), Fixture.photo("y", second, at: Self.east(of: Fixture.nakheel, 3_000)),
+        ])
+        var starts = try await IndexReader(database: database).moments(after: nil, limit: 5).map(\.key.startUTC)
+        #expect(starts.sorted() == [second, second + 1])
+
+        // An earlier photo joins the first moment: the second no longer needs the extra second and takes the first's old start.
+        reader.insert([Fixture.photo("x0", second - 60, at: Fixture.nakheel)])
+        await Fixture.sync(indexer, .sync(.foreground))
+        #expect(await indexer.currentStatus().phase == .ready)
+        starts = try await IndexReader(database: database).moments(after: nil, limit: 5).map(\.key.startUTC)
+        #expect(starts.sorted() == [second - 60, second])
+        #expect(try await Fixture.dirtyDays(database).isEmpty)
+        #expect(try await Fixture.structure(database) == Fixture.structure(Fixture.cleanBuild(of: reader, structured: true)))
+
+        reader.delete(["x0", "x"])
+        await Fixture.sync(indexer, .sync(.foreground))
+        #expect(await indexer.currentStatus().phase == .ready)
+        #expect(try await Fixture.structure(database) == Fixture.structure(Fixture.cleanBuild(of: reader, structured: true)))
+    }
+
+    @Test func aBorrowedZoneThatKeepsTheDayRebuildsTheMoment() async throws {
+        // 06:00 UTC without GPS and nothing within 12 h: the device zone, 09:00 in Riyadh on 11 March.
+        let gpsless = Self.utc(2025, 3, 11, 6, in: .gmt)
+        let (database, indexer, reader) = try await build([Fixture.photo("g", gpsless)])
+        // A London photo 8 h earlier, on 10 March: the photo borrows London's zone, 06:00 and still 11 March.
+        reader.insert([Fixture.photo("london", gpsless - 8 * 3_600, at: Coordinate(latitude: 51.5073, longitude: -0.1657))])
+        await Fixture.sync(indexer, .sync(.foreground))
+        let rows = try await derived(database)
+        #expect(rows["g"]?.zone == "Europe/London")
+        #expect(rows["g"]?.day == LocalTime.day(year: 2025, month: 3, day: 11))
+        #expect(try await Fixture.structure(database) == Fixture.structure(Fixture.cleanBuild(of: reader, structured: true)))
+    }
+
+    @Test func aNewDeviceZoneThatKeepsTheDayRebuildsTheMoment() async throws {
+        let dubai = TimeZone(identifier: "Asia/Dubai")!
+        let reader = FakeLibraryReader(.explicit([Fixture.photo("g", Self.utc(2025, 3, 11, 12))]))
+        let database = try IndexDatabase.open(.inMemory)
+        await Fixture.sync(Fixture.structured(database, reader))
+        // 15:00 in Riyadh, 16:00 in Dubai: the same day, another time and zone.
+        await Fixture.sync(Fixture.structured(database, reader, zone: { dubai }))
+        let moment = try #require(try await IndexReader(database: database).moments(after: nil, limit: 1).first)
+        #expect(moment.timeZone == "Asia/Dubai")
+        #expect(try await Fixture.structure(database) == Fixture.structure(Fixture.cleanBuild(of: reader, structured: true, zone: { dubai })))
+    }
+
+    @Test func undatedPhotosWithGPSArePlacedToo() async throws {
+        let (database, indexer, reader) = try await build([
+            Fixture.photo("dated", Self.utc(2025, 5, 1, 12), at: Fixture.athens), Fixture.photo("undated", nil, at: Fixture.nakheel),
+        ])
+        let rows = try await derived(database)
+        #expect(rows["undated"]?.day == nil)
+        #expect(rows["undated"]?.city == "Riyadh")
+        #expect(rows["undated"]?.country == "SA")
+        #expect(try await IndexReader(database: database).summary().countries == 2)
+
+        reader.insert([Fixture.photo("undated-sydney", nil, at: Fixture.sydney)])
+        await Fixture.sync(indexer, .sync(.foreground))
+        #expect(try await IndexReader(database: database).summary().countries == 3)
+        #expect(try await Fixture.structure(database) == Fixture.structure(Fixture.cleanBuild(of: reader, structured: true)))
+    }
+
+    @Test func aSyncThatChangedNothingSkipsTheLibraryWideSteps() async throws {
+        let park = GeoHash.encode(Fixture.nakheel, precision: 7)
+        let (database, indexer, reader) = try await build([Fixture.photo("p0", Self.utc(2025, 6, 1, 17), at: Fixture.nakheel)])
+        func photos() async throws -> Int? {
+            try await database.read { db in try Int.fetchOne(db, sql: "SELECT photo_count FROM cell WHERE cell = ?", arguments: [park]) }
+        }
+        func tamper() async throws {
+            try await database.write { db in try db.execute(sql: "UPDATE cell SET photo_count = 99 WHERE cell = ?", arguments: [park]) }
+        }
+        #expect(try await Fixture.meta(database).phase == .idle)
+        #expect(try await database.read { db in try Meta.int(db, .structureDue) } == nil, "cleared by the final run")
+
+        try await tamper()
+        await Fixture.sync(indexer, .sync(.foreground))
+        #expect(try await photos() == 99, "nothing changed, so cells weren't recomputed")
+
+        // A run stopped before its last step leaves it due.
+        try await database.write { db in try Meta.markStructureDue(db) }
+        await Fixture.sync(indexer, .sync(.foreground))
+        #expect(try await photos() == 1)
+
+        // So does a new photo.
+        try await tamper()
+        reader.insert([Fixture.photo("p1", Self.utc(2025, 6, 2, 17), at: Fixture.nakheel)])
+        await Fixture.sync(indexer, .sync(.foreground))
+        #expect(try await photos() == 2)
+    }
+
+    @Test func aCityCentreMomentIsNamedForTheCityRatherThanANeighbouringLocality() async throws {
+        // At the Acropolis the gazetteer's locality is Dhafní, a separate town 2.4 km south; Athens' point is nearer.
+        let (database, _, _) = try await build((0..<4).map { Fixture.photo("a\($0)", Self.utc(2025, 7, 3, 10, $0 * 5, in: Self.athens), at: Fixture.athens) })
+        let rows = try await derived(database)
+        #expect(rows["a0"]?.city == "Athens")
+        #expect(rows["a0"]?.locality == "Dhafní", "the asset keeps its locality")
+        #expect(rows["a0"]?.momentLabel == "Athens")
+
+        // Nearer its locality than its city's point, a moment keeps the locality's name.
+        let towerBridge = try #require(SeedScenario.hero.items(.london).first { $0.title == "Tower Bridge" })
+        let hero = try await derived(build(SeedScenario.hero.libraryAssets).0)
+        let party = try #require(hero[towerBridge.id])
+        #expect(party.locality != nil)
+        #expect(party.momentLabel == party.locality)
+    }
+
+    @Test func aPlaceFirstUsedAsALocalityBecomesACityInTheSameTransaction() async throws {
+        let database = try IndexDatabase.open(.inMemory)
+        let kind = try await database.write { db -> Int? in
+            var rows = PlaceRows(db)
+            let locality = PlaceSpec(key: "gn:1", kind: .locality, name: "Town", names: ["Town"], source: .gazetteer)
+            var city = locality
+            city.kind = .city
+            let first = try rows.id(locality)
+            #expect(try rows.id(city) == first)
+            #expect(try rows.id(locality) == first)
+            return try Int.fetchOne(db, sql: "SELECT kind FROM place WHERE id = ?", arguments: [first])
+        }
+        #expect(kind == PlaceKind.city.rawValue)
     }
 
     // MARK: Incremental equals a clean build

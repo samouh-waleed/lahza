@@ -131,11 +131,13 @@ enum Fixture {
     }
 
     /// A fresh index of `reader`'s library as it is now (the reference for "equals a clean build").
-    static func cleanBuild(of reader: FakeLibraryReader, settings: IndexerSettings = .init(), structured: Bool = false) async throws -> IndexDatabase {
+    static func cleanBuild(of reader: FakeLibraryReader, settings: IndexerSettings = .init(), structured: Bool = false,
+                           zone: @escaping @Sendable () -> TimeZone = { Fixture.riyadh }) async throws -> IndexDatabase {
         let database = try IndexDatabase.open(.inMemory)
         let visible = try await reader.assets(withIDs: reader.allAssets.map(\.id))
         let snapshot = FakeLibraryReader(.explicit(visible), access: .full)
-        await sync(structured ? Fixture.structured(database, snapshot, settings: settings) : indexer(database, snapshot, settings: settings))
+        await sync(structured ? Fixture.structured(database, snapshot, settings: settings, zone: zone)
+                   : indexer(database, snapshot, settings: settings, zone: zone))
         return database
     }
 

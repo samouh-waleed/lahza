@@ -5,7 +5,7 @@ internal import GRDB
 
 /// P2's tunables (search spec §4.6; placeholders to tune on a device).
 public struct PlaceNamePolicy: Sendable {
-    /// Metres around a cell's centroid Apple Maps is asked about.
+    /// Metres around a cell's centre Apple Maps is asked about.
     public var searchRadius: Double
     /// A cell within this many metres of a named cell takes its answer without a request.
     public var reuseDistance: Double
@@ -38,10 +38,11 @@ public struct PlaceNamePolicy: Sendable {
 
 /// P2: names photo cells with Apple Maps (search spec §4.5–4.6). One points-of-interest request per eligible
 /// ~150 m cell, asking only for **area** categories (parks, beaches, stadiums, landmarks…), plus a reverse
-/// geocode where the gazetteer has no city. Only the cell's centroid is sent, never a photo's position.
+/// geocode where the gazetteer has no city. Only the cell's centre is sent: the middle of its geohash box, the
+/// same for any photos in it, never a photo's position or the photos' mean (a one-photo cell's mean is the photo).
 ///
-/// The best area for a cell is the one whose radius covers its centroid most tightly (distance ÷ radius; a tie
-/// goes to the larger radius). Answers are cached per cell and reused by cells within 150 m, so a rebuild never
+/// The best area for a cell is the one whose radius covers its photos' centroid most tightly (distance ÷ radius;
+/// a tie goes to the larger radius); the centroid stays on the iPhone. Answers are cached per cell and reused by cells within 150 m, so a rebuild never
 /// asks Apple again. The queue writes only its own columns (`cell`'s naming columns, Apple Maps places, the
 /// cache) and the days to restructure, then asks the indexer to recompute labels (`notify`), so it never races
 /// the indexer's rows.
@@ -184,7 +185,10 @@ public actor PlaceNameQueue {
 
     private struct Candidate: Sendable {
         var cell: String
+        /// The members' mean position: on the iPhone only (the choice of area, reuse).
         var centroid: Coordinate
+        /// What Apple Maps is asked about: the cell's centre.
+        var requestPoint: Coordinate
         var photos: Int
         var days: Int
         var last: Int64?
@@ -195,6 +199,7 @@ public actor PlaceNameQueue {
         init(_ row: Row) {
             cell = row["cell"]
             centroid = Coordinate(latitude: row["lat"], longitude: row["lon"])
+            requestPoint = GeoHash.center(cell)
             photos = row["photo_count"]
             days = row["day_count"]
             last = row["last_utc"]
@@ -268,14 +273,14 @@ public actor PlaceNameQueue {
 
         let places: [MapPlace]
         switch await request({ [maps, policy, candidate] in
-            try await maps.pointsOfInterest(near: candidate.centroid, radius: policy.searchRadius, categories: PlaceCategory.areas)
+            try await maps.pointsOfInterest(near: candidate.requestPoint, radius: policy.searchRadius, categories: PlaceCategory.areas)
         }) {
         case .success(let found): places = found
         case .failure(let failure): return await fail(candidate, failure)
         }
         var address: MapAddress?
         if candidate.needsLocality {
-            switch await request({ [maps, candidate] in try await maps.reverseGeocode(candidate.centroid).map { [$0] } ?? [] }) {
+            switch await request({ [maps, candidate] in try await maps.reverseGeocode(candidate.requestPoint).map { [$0] } ?? [] }) {
             case .success(let found): address = found.first
             case .failure(let failure): return await fail(candidate, failure)
             }
@@ -415,6 +420,7 @@ public actor PlaceNameQueue {
             }
             try db.execute(sql: "INSERT OR IGNORE INTO dirty_day SELECT DISTINCT day FROM asset WHERE cell = ? AND day IS NOT NULL",
                            arguments: [candidate.cell])
+            try Meta.markStructureDue(db)
             return true
         }
         return written ? .written : .skipped
@@ -438,6 +444,7 @@ public actor PlaceNameQueue {
                 DELETE FROM poi_cache;
                 """)
             try Meta.set(db, .mapsBackoffUntil, nil)
+            try Meta.markStructureDue(db)
         }
         await budget.reportSuccess()
         await refreshCounts()

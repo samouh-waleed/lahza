@@ -100,6 +100,52 @@ import Testing
         }
     }
 
+    @Test func aDamagedIndexIsRepairedOnItsOwnOncePerLaunch() async throws {
+        try await Fixture.withTemporaryDirectory { url in
+            let reader = FakeLibraryReader(.explicit(Self.library))
+            let store = IndexStore(dependencies(reader, location: .directory(url)))
+            store.start()
+            await store.settled()
+            let first = try #require(store.reader).generation
+
+            // A job hits SQLITE_CORRUPT and fails.
+            func damage() async throws {
+                let database = try IndexDatabase.open(.directory(url))
+                database.noteCorruption()
+                await database.close()
+                reader.makeUnavailable()
+            }
+            try await damage()
+            #expect(await eventually { store.reader.map { $0.generation != first } ?? false }, "reopened to rebuild")
+            await store.settled()
+            #expect(store.status.phase == .ready)
+            #expect(store.status.summary?.assets == 30)
+            let second = try #require(store.reader).generation
+
+            // Damaged again in the same launch: it stays failed rather than rebuild and rescan in a loop.
+            try await damage()
+            #expect(await eventually { if case .failed = store.status.phase { true } else { false } })
+            try await Task.sleep(for: .milliseconds(100))
+            await store.settled()
+            #expect(store.reader?.generation == second)
+        }
+    }
+
+    @Test func aFileLeftByAnInterruptedDeleteIsRemovedAtTheNextLaunch() async throws {
+        try await Fixture.withTemporaryDirectory { url in
+            let kv = InMemoryKeyValueStore()
+            await (try IndexDatabase.open(.directory(url))).close()
+            kv.setString("1", forKey: IndexStore.pausedKey)
+            #expect(IndexDatabase.exists(.directory(url)))
+
+            let store = IndexStore(dependencies(FakeLibraryReader(.explicit(Self.library)), location: .directory(url), kv: kv))
+            store.start()
+            await store.settled()
+            #expect(store.status.phase == .off(.deletedByUser))
+            #expect(!IndexDatabase.exists(.directory(url)))
+        }
+    }
+
     @Test func deleteIndexStaysOffUntilBuildAgain() async throws {
         let kv = InMemoryKeyValueStore()
         let store = IndexStore(dependencies(FakeLibraryReader(.explicit(Self.library)), kv: kv))
@@ -175,10 +221,11 @@ import Testing
         reader.insert([Fixture.photo("new", StructureTests.utc(2026, 10, 2, 9), at: Fixture.athens)])
         photos.emitChange()
         photos.emitChange()
-        while store.status.summary?.assets != 31 {
+        for _ in 0..<200 where store.status.summary?.assets != 31 {
             try await Task.sleep(for: .milliseconds(10))
             await store.settled()
         }
+        #expect(store.status.summary?.assets == 31)
         #expect(store.status.summary?.countries == 2)
     }
 
@@ -219,6 +266,18 @@ import Testing
         await moments.indexChanged()
         #expect(moments.moments.count == 450, "the new moment is outside the page window kept")
         #expect(moments.moments.first?.key.day == LocalTime.day(year: 2025, month: 1, day: 1) + 449)
+
+        // So does a screen that loads after a change (a trip's detail does), whichever reload finishes last.
+        let version = store.version
+        store.setSceneActive(false)
+        store.setSceneActive(true)
+        await store.settled()
+        #expect(store.version > version)
+        async let changed: Void = moments.indexChanged()
+        await moments.load()
+        await changed
+        #expect(moments.moments.count == 450)
+        #expect(moments.moments.first?.key.day == LocalTime.day(year: 2026, month: 4, day: 1))
         await store.deleteIndex()
         await moments.indexChanged()
         #expect(moments.moments.isEmpty)

@@ -45,6 +45,8 @@ public actor LibraryIndexer {
     /// The device zone the running job derives GPS-less assets with.
     private var deviceZone = TimeZone.current.identifier
     private var scan = ScanProgress()
+    /// The running rebuild has emptied the derived tables: from then on, an interruption resumes rather than restarts it.
+    private var rebuildCleared = false
     /// Counters since this indexer started (logs, the inspector, tests).
     private(set) var stats = IndexerStats()
 
@@ -192,7 +194,8 @@ public actor LibraryIndexer {
             } catch {
                 if stopped || Task.isCancelled { break }
                 if case IndexerInterruption.paused = error {
-                    pending.formUnion(work.jobs)
+                    // A rebuild that has emptied the tables continues as a sync, which resumes its scan.
+                    pending.formUnion(rebuildCleared ? [.sync(.manual)] : work.jobs)
                     break
                 }
                 if case LibraryReaderError.noAccess = error {
@@ -217,6 +220,7 @@ public actor LibraryIndexer {
     // MARK: Jobs
 
     private func perform(_ work: Work) async throws {
+        rebuildCleared = false
         let started = ContinuousClock.now
         let before = stats.writes
         guard reader.access().canRead else { throw LibraryReaderError.noAccess }
@@ -227,6 +231,7 @@ public actor LibraryIndexer {
         switch work {
         case .rebuild:
             try await clearDerivedTables()
+            rebuildCleared = true
             scanned = try await fullScan(.rebuild)
         case .sync(let reasons):
             scanned = try await sync(reasons)
@@ -373,17 +378,18 @@ public actor LibraryIndexer {
         let records = batch.compactMap { AssetRecord($0, now: now) }
         // Rounded up: re-reading the frontier's second is a harmless upsert; rounding down could skip assets.
         let frontier = dated ? batch.compactMap(\.facts.creationDate).min().map { Int64($0.timeIntervalSince1970.rounded(.up)) } : nil
-        let done = scan.done + batch.count
-        let generation = scan.generation
+        let generation = scan.generation, before = scan.done
         let point: IndexFaults.Point = dated ? .scanBatch(scan.datedBatches) : .undatedBatch(scan.undatedBatches)
-        let counts = try await database.write { [geo, deviceZone, faults] db in
+        let (counts, done) = try await database.write { [geo, deviceZone, faults] db in
             var writer = try AssetWriter(db, geo: geo, deviceZone: deviceZone)
             try writer.upsert(records, generation: generation)
             try writer.finish()
+            // What a resumed scan reads again was counted before it stopped.
+            let done = before + batch.count - writer.repeated
             if let frontier { try Meta.set(db, .scanFrontier, frontier) }
             try Meta.set(db, .scanDone, done)
             try faults?.beforeCommit(point)
-            return writer.counts
+            return (writer.counts, done)
         }
         stats.writes += counts
         scan.done = done
@@ -520,21 +526,19 @@ public actor LibraryIndexer {
         return check.dirtied || check.zoneChanged || check.rederiveLocated
     }
 
-    /// Derives the zone, wall time, day and cell of the matching assets again, in batches, marking moved days.
+    /// Derives the zone, wall time, day and cell of the matching assets again, in batches, marking changed days.
     private func rederive(where condition: String) async throws {
         var after: Int64 = 0
         while true {
             try checkInterruption()
             let last = try await database.write { [after, geo, deviceZone, settings] db -> Int64? in
-                let rows = try Row.fetchAll(db, sql: "SELECT id, created_utc, lat, lon, day FROM asset WHERE \(condition) AND id > ? ORDER BY id LIMIT ?",
-                                            arguments: [after, max(1, settings.batchSize) * 4])
+                let rows = try Row.fetchAll(db, sql: """
+                    SELECT \(AssetWriter.Rederivable.columns) FROM asset WHERE \(condition) AND id > ? ORDER BY id LIMIT ?
+                    """, arguments: [after, max(1, settings.batchSize) * 4]).map(AssetWriter.Rederivable.init)
                 var writer = try AssetWriter(db, geo: geo, deviceZone: deviceZone)
-                for row in rows {
-                    let coordinate: Coordinate? = (row["lat"] as Double?).flatMap { lat in (row["lon"] as Double?).map { Coordinate(latitude: lat, longitude: $0) } }
-                    try writer.rederive(id: row["id"], created: row["created_utc"], coordinate: coordinate, oldDay: row["day"])
-                }
+                for row in rows { try writer.rederive(row) }
                 try writer.finish()
-                return rows.last?["id"]
+                return rows.last?.id
             }
             guard let last else { return }
             after = last
@@ -552,6 +556,8 @@ public actor LibraryIndexer {
             let scanKeys: [MetaKey] = [.libraryToken, .pendingToken, .scanPhase, .scanFrontier, .scanTotal, .scanDone, .scanReason,
                                        .accessScope, .firstBuildDone, .lastFullScan, .rederiveLocated]
             for key in scanKeys { try Meta.set(db, key, nil) }
+            // Place counts must be redone even if the library turns out empty.
+            try Meta.markStructureDue(db)
             try Meta.bumpVersion(db)
         }
     }

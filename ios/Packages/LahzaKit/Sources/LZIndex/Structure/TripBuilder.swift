@@ -144,19 +144,17 @@ enum TripBuilder {
             changed = true
         }
 
-        // Members: every asset and moment of a trip's days points at it; nothing else points anywhere.
-        let ids = kept.map(\.id)
-        let marks = ids.map { _ in "?" }.joined(separator: ", ")
+        // Members: every asset and moment of a trip's days points at it; nothing else points anywhere. One pass clears
+        // what no longer lies in its trip's days (or whose trip is gone), then each trip's days are set by the day index.
         for table in ["asset", "moment"] {
-            let stale = ids.isEmpty ? "trip_id IS NOT NULL" : "trip_id IS NOT NULL AND trip_id NOT IN (\(marks))"
-            try db.execute(sql: "UPDATE \(table) SET trip_id = NULL WHERE \(stale)", arguments: StatementArguments(ids))
+            try db.execute(sql: """
+                UPDATE \(table) SET trip_id = NULL WHERE trip_id IS NOT NULL
+                  AND NOT EXISTS (SELECT 1 FROM trip WHERE trip.id = \(table).trip_id AND \(table).day BETWEEN trip.start_day AND trip.end_day)
+                """)
             changed = changed || db.changesCount > 0
+            let assign = try db.cachedStatement(sql: "UPDATE \(table) SET trip_id = ? WHERE day BETWEEN ? AND ? AND trip_id IS NOT ?")
             for trip in kept {
-                try db.execute(sql: "UPDATE \(table) SET trip_id = NULL WHERE trip_id = ? AND (day < ? OR day > ?)",
-                               arguments: [trip.id, trip.days.lowerBound, trip.days.upperBound])
-                changed = changed || db.changesCount > 0
-                try db.execute(sql: "UPDATE \(table) SET trip_id = ? WHERE day BETWEEN ? AND ? AND trip_id IS NOT ?",
-                               arguments: [trip.id, trip.days.lowerBound, trip.days.upperBound, trip.id])
+                try assign.execute(arguments: [trip.id, trip.days.lowerBound, trip.days.upperBound, trip.id])
                 changed = changed || db.changesCount > 0
             }
         }

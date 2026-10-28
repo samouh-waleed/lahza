@@ -26,6 +26,9 @@ enum MetaKey: String, CaseIterable {
     case deviceTimeZone
     /// Located assets must be derived again (the gazetteer changed).
     case rederiveLocated
+    /// Rows the library-wide structure steps read changed since they last ran: set in the transaction that
+    /// changes them, cleared in the one that recomputes trips, cells and place counts.
+    case structureDue
     case mapsBackoffUntil
     case lastSync, lastFullScan
 }
@@ -73,6 +76,11 @@ enum Meta {
 
     static func set(_ db: Database, _ key: MetaKey, date: Date?) throws {
         try set(db, key, date.map { Int64($0.timeIntervalSince1970.rounded(.down)) })
+    }
+
+    /// Records that the library-wide structure steps must run at the next final structure run.
+    static func markStructureDue(_ db: Database) throws {
+        try set(db, .structureDue, 1)
     }
 
     /// Adds one to ``MetaKey/indexVersion`` and returns the new value.

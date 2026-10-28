@@ -64,14 +64,16 @@ struct PlaceColumns: Sendable, Hashable {
 ///    Each gets its counts, median centre, p90 spread, dominant cell, cover and label.
 ///
 /// Label rule, first that applies: a saved place or the home containing the centre; the dominant cell's Apple
-/// Maps area if it covers ≥ 40% of the located items; the dominant locality; the city; the country. Region names
-/// are never labels.
+/// Maps area if it covers ≥ 40% of the located items; the dominant locality, unless the centre is nearer the
+/// city's own point than the locality's (the gazetteer's locality is the nearest other place, which near a city
+/// centre is often a neighbouring district); the city; the country. Region names are never labels.
 struct DayBuilder {
     let db: Database
     let geo: GeoCache
     let context: DayContext
     private var places: PlaceRows
     private var areas: [Int64: DayContext.Area?] = [:]
+    private var points: [Int64: Coordinate?] = [:]
     /// Rows written (assets and moments).
     private(set) var changes = 0
 
@@ -239,6 +241,7 @@ struct DayBuilder {
         var unmatched = Dictionary(existing.map { ("\($0.values.firstAsset):\($0.values.items)", $0) }, uniquingKeysWith: { first, _ in first })
         var momentIDs: [Int64?] = Array(repeating: nil, count: segments.count)
         var values: [MomentValues] = []
+        var updates: [(id: Int64, old: MomentValues, new: MomentValues)] = []
         for (index, segment) in segments.enumerated() {
             var value = try moment(day: day, items: segment.map { (items[$0], targets[$0]) }, names: names)
             // Two moments can start in the same second (photos from two cameras in a shared library): the key
@@ -247,16 +250,24 @@ struct DayBuilder {
             values.append(value)
             if let match = unmatched.removeValue(forKey: "\(value.firstAsset):\(value.items)") {
                 momentIDs[index] = match.id
-                if match.values != value {
-                    try db.cachedStatement(sql: MomentValues.updateSQL).execute(arguments: StatementArguments(value.arguments + [match.id]))
-                    changes += 1
-                }
+                if match.values != value { updates.append((match.id, match.values, value)) }
             }
         }
+        // Written in an order the unique (day, start) key allows: the unmatched rows go first; when several kept rows
+        // change their start, they step aside to a start no photo has before any takes its new one; new rows go last.
         if !unmatched.isEmpty {
             let ids = unmatched.values.map(\.id)
             try db.execute(sql: "DELETE FROM moment WHERE id IN (\(ids.map { _ in "?" }.joined(separator: ", ")))", arguments: StatementArguments(ids))
             changes += ids.count
+        }
+        let moving = updates.filter { $0.old.startUTC != $0.new.startUTC }
+        if moving.count > 1 {
+            let aside = try db.cachedStatement(sql: "UPDATE moment SET start_utc = ? WHERE id = ?")
+            for update in moving { try aside.execute(arguments: [Int64.min + update.id, update.id]) }
+        }
+        for update in updates {
+            try db.cachedStatement(sql: MomentValues.updateSQL).execute(arguments: StatementArguments(update.new.arguments + [update.id]))
+            changes += 1
         }
         for index in segments.indices where momentIDs[index] == nil {
             try db.cachedStatement(sql: MomentValues.insertSQL).execute(arguments: StatementArguments(values[index].arguments))
@@ -282,6 +293,29 @@ struct DayBuilder {
             }
         }
         try db.cachedStatement(sql: "DELETE FROM dirty_day WHERE day = ?").execute(arguments: [day])
+    }
+
+    /// Places the located assets that have no moment day (undated ones): their cell's places, as for dated ones.
+    mutating func placeUndated() throws {
+        let rows = try Row.fetchAll(db, sql: """
+            SELECT id, cell, city_place, metro_place, locality_place, region_place, country_place FROM asset WHERE day IS NULL AND cell IS NOT NULL
+            """)
+        guard !rows.isEmpty else { return }
+        let cells = Set(rows.map { $0["cell"] as String })
+        let names = try cellNames(cells)
+        var placed: [String: PlaceColumns] = [:]
+        for hash in cells { placed[hash] = try placement(hash, names[hash]) }
+        let update = try db.cachedStatement(sql: """
+            UPDATE asset SET city_place = ?, metro_place = ?, locality_place = ?, region_place = ?, country_place = ? WHERE id = ?
+            """)
+        for row in rows {
+            let target = placed[row["cell"]] ?? PlaceColumns()
+            let current = PlaceColumns(city: row["city_place"], metro: row["metro_place"], locality: row["locality_place"], region: row["region_place"],
+                                       country: row["country_place"])
+            guard current != target else { continue }
+            try update.execute(arguments: [target.city, target.metro, target.locality, target.region, target.country, row["id"]])
+            changes += 1
+        }
     }
 
     // MARK: Moment values
@@ -330,7 +364,15 @@ struct DayBuilder {
             let inside = coordinates.filter { $0.distance(to: area.center) <= area.radius }.count
             if Double(inside) >= Self.poiShare * Double(coordinates.count) { return poi }
         }
-        return Self.dominant(localities) ?? city ?? country
+        if let locality = Self.dominant(localities), try !isNearerCity(than: locality, city: city, to: center) { return locality }
+        return city ?? country
+    }
+
+    /// Whether `center` is nearer the city's point than the locality's. Apple Maps localities have no point and
+    /// are kept.
+    private mutating func isNearerCity(than locality: Int64, city: Int64?, to center: Coordinate) throws -> Bool {
+        guard let city, city != locality, let cityPoint = try point(city), let localityPoint = try point(locality) else { return false }
+        return center.distance(to: cityPoint) < center.distance(to: localityPoint)
     }
 
     // MARK: Places
@@ -380,6 +422,15 @@ struct DayBuilder {
         }
         areas[placeID] = .some(area)
         return area
+    }
+
+    /// A place's point, when it has one.
+    private mutating func point(_ placeID: Int64) throws -> Coordinate? {
+        if let cached = points[placeID] { return cached }
+        let point = try Row.fetchOne(db, sql: "SELECT lat, lon FROM place WHERE id = ? AND lat IS NOT NULL AND lon IS NOT NULL",
+                                     arguments: [placeID]).map { Coordinate(latitude: $0["lat"], longitude: $0["lon"]) }
+        points[placeID] = .some(point)
+        return point
     }
 
     // MARK: Helpers

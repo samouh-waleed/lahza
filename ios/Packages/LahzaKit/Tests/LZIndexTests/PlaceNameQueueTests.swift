@@ -60,27 +60,33 @@ import Testing
         }
     }
 
-    @Test func onlyAreasAreAskedForAndOnlyTheCentroidIsSent() async throws {
+    @Test func onlyAreasAreAskedForAndOnlyTheCellCentreIsSent() async throws {
         let (database, indexer) = try await seeded()
         let maps = SeedMaps.client()
         await Fixture.placeNames(database, indexer, maps: maps).run()
-        let centroids = try await database.read { db in
-            Set(try Row.fetchAll(db, sql: "SELECT lat, lon FROM cell").map { Coordinate(latitude: $0["lat"], longitude: $0["lon"]) })
-        }
+        let centres = try await database.read { db in Set(try String.fetchAll(db, sql: "SELECT cell FROM cell").map(GeoHash.center)) }
         let needsLocality = try await database.read { db in
-            Set(try Row.fetchAll(db, sql: "SELECT lat, lon FROM cell WHERE needs_locality = 1").map { Coordinate(latitude: $0["lat"], longitude: $0["lon"]) })
+            Set(try String.fetchAll(db, sql: "SELECT cell FROM cell WHERE needs_locality = 1").map(GeoHash.center))
         }
+        let photos = try await database.read { db in
+            try Row.fetchAll(db, sql: "SELECT lat, lon FROM asset WHERE lat IS NOT NULL").map { Coordinate(latitude: $0["lat"], longitude: $0["lon"]) }
+        }
+        // The seed has one-photo cells, whose members' mean would be the photo itself.
+        let onePhotoCells = try await database.read { db in try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM cell WHERE photo_count = 1 AND poi_status != 6") ?? 0 }
+        #expect(onePhotoCells > 0)
         var asked = 0, geocoded = 0
         for call in maps.calls {
             switch call {
-            case .pointsOfInterest(let centroid, let radius, let categories):
+            case .pointsOfInterest(let point, let radius, let categories):
                 asked += 1
                 #expect(categories == PlaceCategory.areas)
                 #expect(radius == 500)
-                #expect(centroids.contains(centroid), "a cell centroid, never a photo's own position")
-            case .reverseGeocode(let centroid):
+                #expect(centres.contains(point), "a cell's centre")
+                #expect(!photos.contains { $0.distance(to: point) < 2 }, "never a photo's own position")
+            case .reverseGeocode(let point):
                 geocoded += 1
-                #expect(needsLocality.contains(centroid), "a reverse geocode only where the gazetteer has no city")
+                #expect(needsLocality.contains(point), "a reverse geocode only where the gazetteer has no city")
+                #expect(!photos.contains { $0.distance(to: point) < 2 })
             case .search:
                 Issue.record("place naming never searches")
             }
@@ -114,6 +120,36 @@ import Testing
                 .map { [$0["poi_status"] as Int == 1 ? "named" : "?", $0["covered_by"] == nil ? "fetched" : "covered", $0["name"] as String] }
         }
         #expect(rows == [["named", "covered", "Al-Nakheel Park"], ["named", "fetched", "Al-Nakheel Park"]])
+    }
+
+    @Test func cellsOnScreenGoFirstThenTheBestScored() async throws {
+        // ln(1 + photos) + 2·[a photo in the last 90 days] + 0.5·ln(1 + days), each cell kilometres from the others.
+        func photos(_ prefix: String, at place: Coordinate, days: [Int32], perDay: Int, from start: Int32) -> [LibraryAsset] {
+            days.flatMap { day in
+                (0..<perDay).map { index in
+                    let date = LocalTime.civil(day: start + day)
+                    return Fixture.photo("\(prefix)-\(day)-\(index)", StructureTests.utc(date.year, date.month, date.day, 10, index * 5), at: place)
+                }
+            }
+        }
+        let old = LocalTime.day(year: 2024, month: 3, day: 1), recent = LocalTime.day(year: 2026, month: 10, day: 1)
+        let busy = photos("busy", at: Fixture.nakheel, days: [0, 9, 18], perDay: 3, from: old)           // 9 photos, 3 days: 3.0
+        let fresh = photos("fresh", at: Fixture.athens, days: [0], perDay: 3, from: recent)              // recent: 3.7
+        let quiet = photos("quiet", at: Fixture.sydney, days: [0], perDay: 3, from: old + 100)           // 1.7
+        let onScreen = photos("seen", at: StructureTests.oia, days: [0], perDay: 3, from: old + 200)     // 1.7, boosted
+        let database = try IndexDatabase.open(.inMemory)
+        let indexer = Fixture.structured(database, FakeLibraryReader(.explicit(busy + fresh + quiet + onScreen)))
+        await Fixture.sync(indexer)
+        let maps = SeedMaps.client()
+        let queue = Fixture.placeNames(database, indexer, maps: maps)
+        await queue.prioritize(cells: [GeoHash.encode(StructureTests.oia, precision: 7)])
+        await queue.run()
+        let asked = maps.calls.compactMap { call -> Coordinate? in
+            if case .pointsOfInterest(let point, _, _) = call { return point }
+            return nil
+        }
+        let order = [StructureTests.oia, Fixture.athens, Fixture.nakheel, Fixture.sydney].map { GeoHash.center(GeoHash.encode($0, precision: 7)) }
+        #expect(asked == order)
     }
 
     @Test func aRebuildNamesCellsFromTheCacheWithoutAskingAgain() async throws {

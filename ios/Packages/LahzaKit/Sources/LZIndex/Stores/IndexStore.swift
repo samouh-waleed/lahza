@@ -40,8 +40,8 @@ import Observation
     /// The index version the latest place-naming run started at.
     @ObservationIgnored private var placeNamesVersion: Int64 = -1
     @ObservationIgnored private var queueProgress = PlaceNameProgress()
-    /// The session generation last repaired after damage.
-    @ObservationIgnored private var repairedGeneration = -1
+    /// A damaged index was repaired since launch.
+    @ObservationIgnored private var repaired = false
     @ObservationIgnored private let log = Log("index")
 
     static let pausedKey = KVKey.device("index.paused")
@@ -218,7 +218,8 @@ import Observation
             return
         }
         if dependencies.kv.string(forKey: Self.pausedKey) != nil {
-            if session != nil { await purge(.deletedByUser) }
+            // Also a file a failed or interrupted Delete index left behind.
+            if session != nil || IndexDatabase.exists(dependencies.location) { await purge(.deletedByUser) }
             status = IndexStatus(phase: .off(.deletedByUser))
             return
         }
@@ -300,14 +301,14 @@ import Observation
         status.placeNames = placeNameProgress
         self.status = status
         refreshPlaceNames()
-        if case .failed = status.phase, session.database.needsRebuild, repairedGeneration != generation {
-            repairedGeneration = generation
+        if case .failed = status.phase, session.database.needsRebuild, !repaired {
+            repaired = true
             transition { [weak self] in await self?.repair() }
         }
     }
 
     /// A job found the file damaged: closes it and opens it again, which rebuilds it (keeping saved places), then
-    /// reads the library. Once per session, so a file that stays damaged can't loop.
+    /// reads the library. Once per launch, so a file that keeps getting damaged can't loop; it stays failed.
     func repair() async {
         guard let session else { return }
         log.fault("Index damaged: reopening to rebuild", privacy: .public)

@@ -101,11 +101,11 @@ struct PlaceSpec: Sendable, Hashable {
     }
 }
 
-/// Place row ids by key inside one write transaction: a row is inserted (with its names) on first use. Ids are
-/// cached only for the transaction, so a rolled-back insert never leaves a stale id behind.
+/// Place row ids by key inside one write transaction: a row is inserted (with its names) on first use. Ids and
+/// kinds are cached only for the transaction, so a rolled-back insert never leaves a stale id behind.
 struct PlaceRows {
     let db: Database
-    private var ids: [String: Int64] = [:]
+    private var rows: [String: (id: Int64, kind: Int)] = [:]
 
     init(_ db: Database) {
         self.db = db
@@ -115,13 +115,9 @@ struct PlaceRows {
     /// row's name, category, position, radius and country are updated too (Apple Maps answers); its photo
     /// count never is.
     mutating func id(_ spec: PlaceSpec, refresh: Bool = false) throws -> Int64 {
-        if !refresh, let id = ids[spec.key] { return id }
+        if !refresh, let cached = rows[spec.key] { return try upgraded(cached, to: spec) }
         if let row = try Row.fetchOne(db, sql: "SELECT id, kind FROM place WHERE key = ?", arguments: [spec.key]) {
-            let id: Int64 = row["id"]
-            // A gazetteer place first seen as a locality becomes a city once it is some photo's city.
-            if spec.kind == .city, row["kind"] == PlaceKind.locality.rawValue {
-                try db.execute(sql: "UPDATE place SET kind = ? WHERE id = ?", arguments: [PlaceKind.city.rawValue, id])
-            }
+            let id = try upgraded((row["id"], row["kind"]), to: spec)
             if refresh {
                 try db.execute(sql: """
                     UPDATE place SET name = ?, category = ?, lat = ?, lon = ?, radius_m = ?, country_code = ? WHERE id = ?
@@ -131,7 +127,6 @@ struct PlaceRows {
                                      spec.coordinate?.longitude, spec.radius, spec.countryCode])
                 try insertNames(spec, id: id)
             }
-            ids[spec.key] = id
             return id
         }
         try db.execute(sql: """
@@ -140,8 +135,20 @@ struct PlaceRows {
                              spec.coordinate?.longitude, spec.radius, spec.countryCode, spec.source.rawValue])
         let id = db.lastInsertedRowID
         try insertNames(spec, id: id)
-        ids[spec.key] = id
+        rows[spec.key] = (id, spec.kind.rawValue)
         return id
+    }
+
+    /// A gazetteer place first seen as a locality becomes a city once it is some photo's city, whichever came
+    /// first in the transaction.
+    private mutating func upgraded(_ row: (id: Int64, kind: Int), to spec: PlaceSpec) throws -> Int64 {
+        var kind = row.kind
+        if spec.kind == .city, kind == PlaceKind.locality.rawValue {
+            try db.execute(sql: "UPDATE place SET kind = ? WHERE id = ?", arguments: [PlaceKind.city.rawValue, row.id])
+            kind = PlaceKind.city.rawValue
+        }
+        rows[spec.key] = (row.id, kind)
+        return row.id
     }
 
     private func insertNames(_ spec: PlaceSpec, id: Int64) throws {

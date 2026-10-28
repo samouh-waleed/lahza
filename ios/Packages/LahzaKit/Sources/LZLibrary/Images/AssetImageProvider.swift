@@ -126,19 +126,53 @@ public final class LiveAssetImageProvider: AssetImageProvider {
         manager.withLock { $0.stopCachingImagesForAllAssets() }
     }
 
+    /// One image request; cancelling the task cancels it in PhotoKit too (a row scrolled away) and returns
+    /// ``AssetImage/missing``.
     private func request(_ localID: String, size: CGSize, mode: PHImageContentMode) async -> AssetImage {
-        guard let asset = Self.assets([localID]).first else { return .missing }
-        return await withCheckedContinuation { continuation in
-            let once = ResumeOnce(continuation)
-            manager.withLock {
-                // High-quality delivery answers once, with the best local image or none.
-                _ = $0.requestImage(for: asset, targetSize: size, contentMode: mode, options: Self.options()) { image, info in
-                    if let cgImage = image?.cgImage {
-                        once.resume(.image(cgImage))
-                    } else {
-                        once.resume((info?[PHImageResultIsInCloudKey] as? NSNumber)?.boolValue == true ? .inCloud : .missing)
+        guard !Task.isCancelled, let asset = Self.assets([localID]).first else { return .missing }
+        let pending = PendingRequest()
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                let once = ResumeOnce(continuation)
+                let id = manager.withLock {
+                    // High-quality delivery answers once, with the best local image or none.
+                    $0.requestImage(for: asset, targetSize: size, contentMode: mode, options: Self.options()) { image, info in
+                        if let cgImage = image?.cgImage {
+                            once.resume(.image(cgImage))
+                        } else {
+                            once.resume((info?[PHImageResultIsInCloudKey] as? NSNumber)?.boolValue == true ? .inCloud : .missing)
+                        }
                     }
                 }
+                if pending.started(id, once) { cancel(id, once) }
+            }
+        } onCancel: {
+            if let (id, once) = pending.cancelled() { cancel(id, once) }
+        }
+    }
+
+    private func cancel(_ id: PHImageRequestID, _ once: ResumeOnce) {
+        manager.withLock { $0.cancelImageRequest(id) }
+        once.resume(.missing)
+    }
+
+    /// A request's id once PhotoKit has it, and whether its task was cancelled, whichever comes first.
+    private final class PendingRequest: Sendable {
+        private let state = Mutex<(request: (id: PHImageRequestID, once: ResumeOnce)?, cancelled: Bool)>((nil, false))
+
+        /// Records the request; true when the task was already cancelled.
+        func started(_ id: PHImageRequestID, _ once: ResumeOnce) -> Bool {
+            state.withLock { state in
+                state.request = (id, once)
+                return state.cancelled
+            }
+        }
+
+        /// Records the cancel; the request to cancel, once it has started.
+        func cancelled() -> (PHImageRequestID, ResumeOnce)? {
+            state.withLock { state in
+                state.cancelled = true
+                return state.request
             }
         }
     }

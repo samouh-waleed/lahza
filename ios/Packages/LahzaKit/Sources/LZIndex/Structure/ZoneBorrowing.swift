@@ -7,9 +7,10 @@ internal import GRDB
 /// 2. the home base's zone for its local year: `tz_src` 2;
 /// 3. the device zone: `tz_src` 3.
 ///
-/// The zone sets its wall time and moment day, so borrowing can move an asset to another day; both days are then
-/// marked dirty. A GPS-less asset's zone depends only on located assets within 12 h, so after a change on some
-/// days only the GPS-less assets within reach of those days' UTC span need borrowing again.
+/// The zone sets its wall time and moment day. A new zone marks the asset's day dirty (its moment's times and zone
+/// come from it), and both days when borrowing moves it to another. A GPS-less asset's zone depends only on located
+/// assets within 12 h, so after a change on some days only the GPS-less assets within reach of those days' UTC
+/// span need borrowing again.
 enum ZoneBorrowing {
     static let reach: Int64 = 12 * 3_600
     /// Windows are cut into pieces of at most this span, one transaction each.
@@ -44,8 +45,8 @@ enum ZoneBorrowing {
     }
 
     /// Borrows zones for the GPS-less dated assets created in `window`, writing only those that change. Returns
-    /// the days assets moved out of or into (already in `dirty_day`) and how many rows changed.
-    static func apply(_ db: Database, window: ClosedRange<Int64>, deviceZone: String, geo: GeoCache) throws -> (moved: Set<Int32>, changed: Int) {
+    /// the days of the assets it changed, old and new (already in `dirty_day`), and how many rows changed.
+    static func apply(_ db: Database, window: ClosedRange<Int64>, deviceZone: String, geo: GeoCache) throws -> (touched: Set<Int32>, changed: Int) {
         let unlocated = try Row.fetchAll(db, sql: """
             SELECT id, created_utc, tz, tz_src, wall_s, day FROM asset
             WHERE lat IS NULL AND created_utc BETWEEN ? AND ? ORDER BY created_utc, id
@@ -59,7 +60,7 @@ enum ZoneBorrowing {
         for row in try Row.fetchAll(db, sql: "SELECT year, tz FROM home_base WHERE tz IS NOT NULL") { homes[row["year"]] = row["tz"] }
         let device = try zones.id(deviceZone, db)
 
-        var moved = Set<Int32>()
+        var touched = Set<Int32>()
         var changed = 0
         var next = 0
         let update = try db.cachedStatement(sql: "UPDATE asset SET tz = ?, tz_src = ?, wall_s = ?, day = ? WHERE id = ?")
@@ -90,14 +91,12 @@ enum ZoneBorrowing {
             guard zone != row["tz"] || source.rawValue != row["tz_src"] || wall != row["wall_s"] || day != oldDay else { continue }
             try update.execute(arguments: [zone, source.rawValue, wall, day, row["id"]])
             changed += 1
-            if day != oldDay {
-                if let oldDay { moved.insert(oldDay) }
-                moved.insert(day)
-            }
+            if let oldDay { touched.insert(oldDay) }
+            touched.insert(day)
         }
         let dirty = try db.cachedStatement(sql: "INSERT OR IGNORE INTO dirty_day (day) VALUES (?)")
-        for day in moved { try dirty.execute(arguments: [day]) }
-        return (moved, changed)
+        for day in touched { try dirty.execute(arguments: [day]) }
+        return (touched, changed)
     }
 }
 

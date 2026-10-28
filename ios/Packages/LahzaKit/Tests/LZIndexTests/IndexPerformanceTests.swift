@@ -6,8 +6,8 @@ import Synchronization
 import Testing
 @testable import LZIndex
 
-/// 100k synthetic assets through the first build (P0 and the structure pass, P0b), into a temporary on-disk index (opt-in: `make perf-kit`, which
-/// sets LZ_PERF=1 and builds optimised). The spec's limits hold in an optimised build; an unoptimised run only gets
+/// 100k synthetic assets through the first build (P0 and the structure pass, P0b), a sync that changed nothing, one that brings 50 photos
+/// and a full restructure, into a temporary on-disk index (opt-in: `make perf-kit`, which sets LZ_PERF=1 and builds optimised). The spec's limits hold in an optimised build; an unoptimised run only gets
 /// a sanity bound, because unoptimised GRDB bindings are several times slower.
 @Suite(.enabled(if: ProcessInfo.processInfo.environment["LZ_PERF"] == "1"))
 struct IndexPerformanceTests {
@@ -15,6 +15,8 @@ struct IndexPerformanceTests {
     static let isOptimized = !_isDebugAssertConfiguration()
     static let firstBuildLimit: Duration = isOptimized ? .seconds(10) : .seconds(30)
     static let structureLimit: Duration = isOptimized ? .seconds(5) : .seconds(30)
+    /// Spec §3.5: an incremental sync of up to 50 changes under 1 s.
+    static let syncLimit: Duration = isOptimized ? .seconds(1) : .seconds(10)
     static let memoryGrowthLimit = 150 * 1_024 * 1_024
 
     /// The process's peak resident size so far (`mach_task_basic_info.resident_size_max`).
@@ -41,19 +43,31 @@ struct IndexPerformanceTests {
             let (structureTime, runs) = structure.total
             let summary = try await IndexReader(database: database).summary()
 
+            // A return to the foreground with nothing new, then 50 new photos.
+            var syncStarted = ContinuousClock.now
+            await Fixture.sync(indexer, .sync(.foreground))
+            let unchanged = ContinuousClock.now - syncStarted
+            reader.insert((0..<50).map { Fixture.photo("new-\($0)", 1_790_000_000 + Int64($0) * 600, at: Fixture.nakheel) })
+            syncStarted = ContinuousClock.now
+            await Fixture.sync(indexer, .sync(.foreground))
+            let fifty = ContinuousClock.now - syncStarted
+
             // P0b over every day again, as after a new structure version.
+            let (beforeRestructure, _) = structure.total
             try await indexer.restructureAll()
             await indexer.settled()
-            let (restructure, _) = structure.total
+            let restructure = structure.total.time - beforeRestructure
             let size = try await database.sizeBytes()
             await database.close()
 
-            print("PERF (\(Self.isOptimized ? "optimised" : "unoptimised")) first build of \(summary.assets) assets: \(firstBuild) in all, P0 \(firstBuild - structureTime), P0b \(structureTime) over \(runs) runs (\(await indexer.stats.checkpoints) checkpoints); full restructure \(restructure - structureTime); \(summary.moments) moments, \(summary.trips) trips; peak memory growth \(growth / 1_048_576) MB, index \(size / 1_048_576) MB")
+            print("PERF (\(Self.isOptimized ? "optimised" : "unoptimised")) first build of \(summary.assets) assets: \(firstBuild) in all, P0 \(firstBuild - structureTime), P0b \(structureTime) over \(runs) runs (\(await indexer.stats.checkpoints) checkpoints); unchanged sync \(unchanged); 50-photo sync \(fifty); full restructure \(restructure); \(summary.moments) moments, \(summary.trips) trips; peak memory growth \(growth / 1_048_576) MB, index \(size / 1_048_576) MB")
             #expect(summary.assets == 100_000)
             #expect(summary.moments > 0)
             #expect(firstBuild - structureTime < Self.firstBuildLimit)
             #expect(structureTime < Self.structureLimit)
-            #expect(restructure - structureTime < Self.structureLimit)
+            #expect(unchanged < Self.syncLimit)
+            #expect(fifty < Self.syncLimit)
+            #expect(restructure < Self.structureLimit)
             #expect(growth < Self.memoryGrowthLimit)
         }
     }
