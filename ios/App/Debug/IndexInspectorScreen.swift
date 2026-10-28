@@ -80,7 +80,8 @@ struct IndexInspectorScreen: View {
         }
         .settingsForm("Index inspector")
         .accessibilityIdentifier("index-inspector")
-        .task(id: status.version) { data = try? await model.index.reader?.inspector() }
+        // Every status change, so a first build's progress shows too.
+        .task(id: status) { data = try? await model.index.reader?.inspector() }
     }
 
     private func act(_ maintenance: IndexStore.Maintenance) {
