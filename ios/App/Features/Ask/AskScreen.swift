@@ -1,5 +1,5 @@
-import DDCore
-import DDDesign
+import LZCore
+import LZDesign
 import SwiftUI
 
 /// Ask: describe a moment and get back the matching photos. Search is not built yet (template
@@ -11,32 +11,32 @@ struct AskScreen: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: DDSpace.xl) {
-                VStack(alignment: .leading, spacing: DDSpace.sm) {
-                    Text(AskCopy.title).ddText(.displayLarge).foregroundStyle(.dd(.ink))
-                    Text(AskCopy.subtitle).ddText(.body).foregroundStyle(.dd(.muted))
+            VStack(alignment: .leading, spacing: LZSpace.xl) {
+                VStack(alignment: .leading, spacing: LZSpace.sm) {
+                    Text(AskCopy.title).lzText(.displayLarge).foregroundStyle(.lz(.ink))
+                    Text(AskCopy.subtitle).lzText(.body).foregroundStyle(.lz(.muted))
                 }
                 if let submitted {
                     Notice(.info, title: AskCopy.comingSoonTitle, message: AskCopy.comingSoon(submitted))
                 }
-                VStack(alignment: .leading, spacing: DDSpace.sm) {
-                    Text(AskCopy.examplesTitle).ddText(.label).foregroundStyle(.dd(.muted))
-                    DDFlowLayout(spacing: DDSpace.sm) {
+                VStack(alignment: .leading, spacing: LZSpace.sm) {
+                    Text(AskCopy.examplesTitle).lzText(.label).foregroundStyle(.lz(.muted))
+                    LZFlowLayout(spacing: LZSpace.sm) {
                         ForEach(AskCopy.examples, id: \.self) { example in
-                            DDChip(example, isSelected: query == example) { query = example }
+                            LZChip(example, isSelected: query == example) { query = example }
                         }
                     }
                 }
                 LibraryStatusCard()
                 Label(AskCopy.privacy, systemImage: "lock.shield")
-                    .ddText(.caption)
-                    .foregroundStyle(.dd(.muted))
+                    .lzText(.caption)
+                    .foregroundStyle(.lz(.muted))
             }
-            .ddPage()
-            .padding(.vertical, DDSpace.lg)
+            .lzPage()
+            .padding(.vertical, LZSpace.lg)
         }
         .scrollDismissesKeyboard(.interactively)
-        .background(.dd(.bg))
+        .background(.lz(.bg))
         .navigationTitle(AskCopy.navigationTitle)
         .navigationBarTitleDisplayMode(.inline)
         .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: AskCopy.prompt)

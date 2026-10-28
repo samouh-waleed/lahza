@@ -1,4 +1,4 @@
-import DDCore
+import LZCore
 import Foundation
 import SwiftUI
 

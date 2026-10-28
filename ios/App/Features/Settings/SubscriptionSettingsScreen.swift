@@ -1,5 +1,5 @@
-import DDBilling
-import DDDesign
+import LZBilling
+import LZDesign
 import SwiftUI
 
 /// Settings › Lahza Plus: the current plan, plans, restore and management.

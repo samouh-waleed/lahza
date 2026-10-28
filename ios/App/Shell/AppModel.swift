@@ -1,6 +1,6 @@
-import DDBilling
-import DDCore
-import DDDesign
+import LZBilling
+import LZCore
+import LZDesign
 import Foundation
 import LZLibrary
 import Observation
@@ -23,8 +23,8 @@ nonisolated enum RootScreen: Hashable, Sendable {
 
     @ObservationIgnored let dependencies: AppDependencies
     let router = AppRouter()
-    @ObservationIgnored let toasts = DDToastCenter()
-    @ObservationIgnored let feedback = DDFeedbackSettings()
+    @ObservationIgnored let toasts = LZToastCenter()
+    @ObservationIgnored let feedback = LZFeedbackSettings()
     @ObservationIgnored let preferences: AppPreferences
     @ObservationIgnored let purchases: PurchasesService
     let entitlement: EntitlementStore

@@ -1,4 +1,4 @@
-import DDDesign
+import LZDesign
 import LZLibrary
 import SwiftUI
 import UIKit
@@ -13,16 +13,16 @@ struct LibraryStatusCard: View {
         let store = model.photoAccess
         let access = store.access
         PaperCard {
-            VStack(alignment: .leading, spacing: DDSpace.md) {
-                HStack(alignment: .top, spacing: DDSpace.md) {
+            VStack(alignment: .leading, spacing: LZSpace.md) {
+                HStack(alignment: .top, spacing: LZSpace.md) {
                     IconBadge(access.symbol, tone: access.tone)
-                    VStack(alignment: .leading, spacing: DDSpace.xs) {
+                    VStack(alignment: .leading, spacing: LZSpace.xs) {
                         Text(PhotoAccessCopy.cardTitle(access, count: store.readableCount))
-                            .ddText(.headline)
-                            .foregroundStyle(.dd(.ink))
+                            .lzText(.headline)
+                            .foregroundStyle(.lz(.ink))
                         Text(PhotoAccessCopy.cardBody(access))
-                            .ddText(.subheadline)
-                            .foregroundStyle(.dd(.muted))
+                            .lzText(.subheadline)
+                            .foregroundStyle(.lz(.muted))
                     }
                 }
                 actions(access, isRequesting: store.isRequesting)
@@ -36,21 +36,21 @@ struct LibraryStatusCard: View {
         switch access {
         case .notDetermined:
             // Straight to the iOS prompt (covers installs that finished onboarding before it asked).
-            DDButton(PhotoAccessCopy.continueToPrompt, size: .small, isLoading: isRequesting) {
+            LZButton(PhotoAccessCopy.continueToPrompt, size: .small, isLoading: isRequesting) {
                 Task { await model.photoAccess.request() }
             }
             .accessibilityIdentifier("library-continue")
         case .limited:
-            DDAdaptiveStack(spacing: DDSpace.sm) {
-                DDButton(PhotoAccessCopy.choosePhotos, role: .secondary, size: .small) {
+            LZAdaptiveStack(spacing: LZSpace.sm) {
+                LZButton(PhotoAccessCopy.choosePhotos, role: .secondary, size: .small) {
                     Task { await model.chooseLimitedPhotos() }
                 }
                 .accessibilityIdentifier("library-choose-photos")
-                DDButton(PhotoAccessCopy.openSettings, role: .quiet, size: .small) { openURL.openAppSettings() }
+                LZButton(PhotoAccessCopy.openSettings, role: .quiet, size: .small) { openURL.openAppSettings() }
                     .accessibilityIdentifier("library-open-settings")
             }
         case .denied:
-            DDButton(PhotoAccessCopy.openSettings, role: .secondary, size: .small) { openURL.openAppSettings() }
+            LZButton(PhotoAccessCopy.openSettings, role: .secondary, size: .small) { openURL.openAppSettings() }
                 .accessibilityIdentifier("library-open-settings")
         case .full, .restricted:
             EmptyView()
@@ -78,7 +78,7 @@ extension PhotoAccess {
         }
     }
 
-    var tone: DDTone {
+    var tone: LZTone {
         switch self {
         case .notDetermined, .limited: .accent
         case .full: .sage

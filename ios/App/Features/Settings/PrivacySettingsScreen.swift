@@ -1,5 +1,5 @@
-import DDCore
-import DDDesign
+import LZCore
+import LZDesign
 import SwiftUI
 
 struct PrivacySettingsScreen: View {

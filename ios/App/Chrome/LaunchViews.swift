@@ -1,5 +1,5 @@
-import DDCore
-import DDDesign
+import LZCore
+import LZDesign
 import SwiftUI
 
 /// Holds the static launch screen's composition (the `LaunchBackground` colour and the wordmark)
@@ -10,7 +10,7 @@ struct LaunchHoldView: View {
             Color("LaunchBackground").ignoresSafeArea()
             Text(verbatim: Brand.name)
                 .font(.custom("InstrumentSerif-Regular", size: 52, relativeTo: .largeTitle))
-                .foregroundStyle(.dd(.ink))
+                .foregroundStyle(.lz(.ink))
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Opening \(Brand.name)")

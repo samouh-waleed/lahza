@@ -1,4 +1,4 @@
-import DDDesign
+import LZDesign
 import SwiftUI
 
 /// The window's root: the root screen (launching, onboarding or the tabs), the modal layers, the
@@ -13,8 +13,8 @@ struct RootView: View {
             .modifier(ModalLayer(level: 0))
             .privacyCover()
             .modifier(ToastLayer(level: 0))
-            .ddMotionRoot()
-            .ddFeedback(model.feedback)
+            .lzMotionRoot()
+            .lzFeedback(model.feedback)
             .environment(model.toasts)
             .environment(model.router)
             .preferredColorScheme(model.preferredColorScheme)
@@ -63,8 +63,8 @@ struct ModalLayer: ViewModifier {
                     // At accessibility sizes a half-height sheet shows little more than its title.
                     .presentationDetents(typeSize.isAccessibilitySize ? [.large] : presentation.size.detents)
                     .modifier(ModalSizing(page: presentation.route.prefersPageSizing))
-                    .presentationBackground(.dd(.bg))
-                    .presentationCornerRadius(DDRadius.sheet)
+                    .presentationBackground(.lz(.bg))
+                    .presentationCornerRadius(LZRadius.sheet)
             }
             .fullScreenCover(item: Binding(
                 get: { router.modal(at: level).flatMap { $0.fullScreen ? $0 : nil } },
