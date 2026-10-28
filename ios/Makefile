@@ -52,8 +52,9 @@ test-app: project   ## App-hosted tests on the simulator
 
 test: test-kit test-app
 
-perf-kit:           ## Opt-in performance tests on the Mac, in release (adds a release build to the package's .build)
-	LZ_PERF=1 swift test --package-path $(KIT) -c release --jobs $(JOBS) --filter Performance
+# Optimised, with DEBUG still defined: the kit tests share the DEBUG-only seed library. Adds a release build to the package's .build.
+perf-kit:           ## Opt-in performance tests on the Mac, optimised
+	LZ_PERF=1 swift test --package-path $(KIT) -c release -Xswiftc -DDEBUG --jobs $(JOBS) --filter Performance
 
 run: build          ## Install and launch on the simulator
 	xcrun simctl boot "$(SIM)" 2>/dev/null || true

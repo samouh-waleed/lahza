@@ -6,15 +6,13 @@ import Testing
 @testable import LZIndex
 
 /// 100k synthetic assets through the first build, into a temporary on-disk index (opt-in: `make perf-kit`, which
-/// sets LZ_PERF=1 and builds in release). The spec's limits hold in release; a debug build only gets a sanity
-/// bound, because unoptimised GRDB and SQLite bindings are several times slower.
+/// sets LZ_PERF=1 and builds optimised). The spec's limits hold in an optimised build; an unoptimised run only gets
+/// a sanity bound, because unoptimised GRDB bindings are several times slower.
 @Suite(.enabled(if: ProcessInfo.processInfo.environment["LZ_PERF"] == "1"))
 struct IndexPerformanceTests {
-    #if DEBUG
-    static let firstBuildLimit: Duration = .seconds(30)
-    #else
-    static let firstBuildLimit: Duration = .seconds(10)
-    #endif
+    /// `make perf-kit` keeps DEBUG defined (the seed library is DEBUG-only), so ask the optimiser instead.
+    static let isOptimized = !_isDebugAssertConfiguration()
+    static let firstBuildLimit: Duration = isOptimized ? .seconds(10) : .seconds(30)
     static let memoryGrowthLimit = 150 * 1_024 * 1_024
 
     /// The process's peak resident size so far (`mach_task_basic_info.resident_size_max`).
@@ -41,7 +39,7 @@ struct IndexPerformanceTests {
             let size = try await database.sizeBytes()
             await database.close()
 
-            print("PERF first build of \(summary.assets) assets: \(firstBuild) (P0, structure pass not yet in), peak memory growth \(growth / 1_048_576) MB, index \(size / 1_048_576) MB, \(await indexer.stats.checkpoints) checkpoints")
+            print("PERF (\(Self.isOptimized ? "optimised" : "unoptimised")) first build of \(summary.assets) assets: \(firstBuild) (P0, structure pass not yet in), peak memory growth \(growth / 1_048_576) MB, index \(size / 1_048_576) MB, \(await indexer.stats.checkpoints) checkpoints")
             #expect(summary.assets == 100_000)
             #expect(firstBuild < Self.firstBuildLimit)
             #expect(growth < Self.memoryGrowthLimit)

@@ -307,17 +307,20 @@ import Testing
 
     @Test func stoppingCancelsTheJobAndEndsTheStatusStream() async throws {
         let database = try IndexDatabase.open(.inMemory)
-        let indexer = Fixture.indexer(database, FakeLibraryReader(.seed(.hero)), settings: IndexerSettings(batchSize: 50, pacePerBatch: .milliseconds(15)))
+        let indexer = Fixture.indexer(database, FakeLibraryReader(.seed(.hero)),
+                                      settings: IndexerSettings(batchSize: 50, progressInterval: .zero, pacePerBatch: .milliseconds(15)))
         let stream = indexer.status
         let ended = Task { for await _ in stream {}; return true }
+        let recorder = StatusRecorder(indexer.status)
         await indexer.enqueue(.sync(.launch))
-        try await Task.sleep(for: .milliseconds(60))
+        try await waitUntil { recorder.values.contains { if case .reading(let done, _) = $0.phase { done >= 50 } else { false } } }
         await indexer.stop()
         #expect(await ended.value)
         #expect(try await Fixture.meta(database).phase == .dated, "the scan stopped mid-way and can resume")
         await indexer.enqueue(.sync(.manual))
         await indexer.settled()
         #expect(try await Fixture.meta(database).phase == .dated, "a stopped indexer takes no more jobs")
+        recorder.cancel()
     }
 }
 

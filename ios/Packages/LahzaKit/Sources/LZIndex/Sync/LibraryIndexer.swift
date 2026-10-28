@@ -482,15 +482,17 @@ public actor LibraryIndexer {
                 try Meta.set(db, .structureVersion, IndexSchema.structureVersion)
                 try Meta.set(db, .gazetteerVersion, gazetteerVersion)
             }
+            // A changed zone is recorded only once the assets are derived again, so an interrupted pass reruns.
             let storedZone = try Meta.string(db, .deviceTimeZone)
-            try Meta.set(db, .deviceTimeZone, zone)
-            return (dirtied: dirtied, zoneChanged: hasAssets && storedZone != nil && storedZone != zone,
-                    rederiveLocated: try Meta.int(db, .rederiveLocated) == 1)
+            let zoneChanged = hasAssets && storedZone != nil && storedZone != zone
+            if !zoneChanged { try Meta.set(db, .deviceTimeZone, zone) }
+            return (dirtied: dirtied, zoneChanged: zoneChanged, rederiveLocated: try Meta.int(db, .rederiveLocated) == 1)
         }
         versionsChecked = true
         if check.zoneChanged {
             log.notice("Device zone changed: deriving GPS-less assets again", privacy: .public)
             try await rederive(where: "tz_src = \(ZoneSource.device.rawValue) AND created_utc IS NOT NULL")
+            try await database.write { db in try Meta.set(db, .deviceTimeZone, zone) }
         }
         if check.rederiveLocated {
             log.notice("Gazetteer changed: deriving located assets again", privacy: .public)
