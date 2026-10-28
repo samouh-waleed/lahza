@@ -1,0 +1,8 @@
+// Shared build settings for Lahza. URLs use `/$()/` because `//` starts an xcconfig comment.
+// Website origin for the privacy policy, terms and support pages (placeholder until the real domain exists).
+LZ_WEB_URL = https:/$()/example.com/lahza
+// Public RevenueCat Apple SDK key (appl_…), set in the git-ignored Local.xcconfig. Never a test_ key in Release.
+LZ_RC_API_KEY =
+LZ_RC_ENTITLEMENT = lahza_plus
+LZ_RC_OFFERING = default
+LZ_RC_TEST_STORE = NO

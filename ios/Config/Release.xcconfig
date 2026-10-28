@@ -1,0 +1,3 @@
+#include "Shared.xcconfig"
+#include? "Local.xcconfig"
+#include? "Local.release.xcconfig"

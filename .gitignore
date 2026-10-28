@@ -1,0 +1,55 @@
+# Local planning notes and the template reference copy — never committed (see CLAUDE.md)
+plan-docs/
+
+# Secrets and signing material — never committed
+.env
+.env.*
+!.env.example
+!.env.*.example
+*.pem
+*.key
+*.p8
+*.p12
+*.cer
+*.mobileprovision
+*.provisionprofile
+*.jks
+**/Config/Local*.xcconfig
+!**/Config/Local.xcconfig.example
+AuthKey_*.p8
+
+# Xcode, SwiftPM and build output
+build/
+.build/
+DerivedData/
+xcuserdata/
+*.xcuserstate
+.swiftpm/
+# XcodeGen generates the Xcode project from ios/project.yml (`make project`)
+*.xcodeproj/
+*.xcworkspace/
+*.ipa
+*.dSYM.zip
+*.xcresult/
+
+# fastlane / Ruby
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots/
+fastlane/test_output/
+.bundle/
+vendor/bundle/
+
+# Machine-learning models (delivered via Background Assets, never committed)
+*.mlpackage/
+*.mlmodelc/
+*.mlmodel
+
+# Node tooling (if ever added)
+node_modules/
+coverage/
+
+# Local tooling and OS files
+.claude/settings.local.json
+.DS_Store
+*.log

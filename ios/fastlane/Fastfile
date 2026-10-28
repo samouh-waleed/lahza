@@ -1,0 +1,98 @@
+# Native release workflow. Run from ios/ with bundle exec fastlane ios beta.
+require "shellwords"
+require "yaml"
+
+default_platform(:ios)
+
+def lahza_api_key
+  app_store_connect_api_key(
+    key_id: ENV.fetch("ASC_KEY_ID"),
+    issuer_id: ENV.fetch("ASC_ISSUER_ID"),
+    key_filepath: File.expand_path(ENV.fetch("ASC_KEY_PATH"))
+  )
+end
+
+def lahza_version
+  spec = YAML.load_file(File.expand_path("../project.yml", __dir__))
+  spec.fetch("settings").fetch("base").fetch("MARKETING_VERSION").to_s
+end
+
+platform :ios do
+  desc "Verify release configuration without building or uploading (never prints keys)"
+  lane :preflight do
+    local = File.expand_path("../Config/Local.xcconfig", __dir__)
+    key = File.exist?(local) ? File.read(local)[/^LZ_RC_API_KEY\s*=\s*(\S+)/, 1] : nil
+    UI.user_error!("Set the public RevenueCat appl_ key in Config/Local.xcconfig before releasing.") unless key&.start_with?("appl_")
+    shared = File.read(File.expand_path("../Config/Shared.xcconfig", __dir__))
+    UI.user_error!("Replace the placeholder website (example.com) in Config/Shared.xcconfig before releasing.") if shared.include?("example.com")
+    UI.success("Release configuration looks complete.")
+  end
+
+  desc "Archive against production and upload a new build to App Store Connect / TestFlight"
+  lane :beta do
+    preflight
+    sh("xcodegen", "generate", "--spec", File.expand_path("../project.yml", __dir__))
+    api_key = lahza_api_key
+    # Fail on authentication/network errors. Only an empty version train starts at 100.
+    latest = latest_testflight_build_number(
+      api_key: api_key,
+      app_identifier: "com.waleedsamouh.lahza",
+      version: lahza_version,
+      initial_build_number: 99
+    )
+    build_number = [latest.to_i + 1, 100].max
+    # App Manager keys can upload but cannot create distribution certificates.
+    # On a signed-in Mac, let the Xcode account manage signing while the narrower
+    # API key continues to authenticate build-number lookup and TestFlight upload.
+    signing_options = ["-allowProvisioningUpdates"]
+    unless ENV["LAHZA_SIGN_WITH_XCODE_ACCOUNT"] == "1"
+      signing_options.concat([
+        "-authenticationKeyPath", File.expand_path(ENV.fetch("ASC_KEY_PATH")),
+        "-authenticationKeyID", ENV.fetch("ASC_KEY_ID"),
+        "-authenticationKeyIssuerID", ENV.fetch("ASC_ISSUER_ID")
+      ])
+    end
+    signing_args = signing_options.shelljoin
+    ipa = build_app(
+      project: "Lahza.xcodeproj",
+      scheme: "Lahza",
+      configuration: "Release",
+      destination: "generic/platform=iOS",
+      export_method: "app-store",
+      output_directory: "build",
+      output_name: "Lahza.ipa",
+      derived_data_path: ".build/ReleaseDerivedData",
+      xcargs: "#{signing_args} -jobs 2 CURRENT_PROJECT_VERSION=#{build_number}",
+      # Gym forwards xcargs to exportArchive too; repeating the authentication
+      # flags in export_xcargs makes Xcode reject the export.
+      export_options: { manageAppVersionAndBuildNumber: false }
+    )
+    upload_to_testflight(
+      api_key: api_key,
+      ipa: ipa,
+      app_identifier: "com.waleedsamouh.lahza",
+      skip_waiting_for_build_processing: true,
+      distribute_external: false
+    )
+    UI.success("Uploaded #{lahza_version} (#{build_number}). After processing, add it to your internal TestFlight group.")
+  end
+
+  desc "Submit a tested, existing build to App Review (manual release after approval)"
+  lane :submit do |options|
+    build_number = options[:build_number].to_s
+    UI.user_error!("Specify the tested build: bundle exec fastlane ios submit build_number:100") unless build_number.match?(/\A\d+\z/)
+    upload_to_app_store(
+      api_key: lahza_api_key,
+      app_identifier: "com.waleedsamouh.lahza",
+      app_version: lahza_version,
+      build_number: build_number,
+      skip_binary_upload: true,
+      skip_metadata: true,
+      skip_screenshots: true,
+      submit_for_review: true,
+      automatic_release: false,
+      # App Store Connect API keys do not support precheck's IAP checks.
+      precheck_include_in_app_purchases: false
+    )
+  end
+end

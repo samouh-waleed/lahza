@@ -1,0 +1,4 @@
+source "https://rubygems.org"
+
+# Use a maintained Ruby (3.3+) and bundle exec for reproducible release tooling.
+gem "fastlane", "~> 2.0"
