@@ -37,7 +37,7 @@ targets:
         buildPhase: resources
     dependencies:
       - package: LahzaKit
-        products: [DDCore, DDBilling, DDDesign]
+        products: [DDCore, DDBilling, DDDesign, LZLibrary]
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.waleedsamouh.lahza
@@ -61,7 +61,8 @@ targets:
         UILaunchScreen:
           UIColorName: LaunchBackground
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
-        # Photo library access (requested in onboarding once indexing exists, template-migration E1).
+        # Photo library access, asked on onboarding's last step (decision 30). The limited-access alert is off:
+        # Lahza offers the limited-library picker itself (Ask and Settings).
         NSPhotoLibraryUsageDescription: Lahza searches your photos on this iPhone so you can find moments by describing them. Your photos never leave your device.
         PHPhotoLibraryPreventAutomaticLimitedAccessAlert: true
         UIAppFonts:

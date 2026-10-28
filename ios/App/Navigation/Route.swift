@@ -67,6 +67,7 @@ nonisolated enum Route: Hashable, Sendable {
 
     // MARK: Settings
 
+    case photoAccess
     case appearance
     case privacy
     case subscription
@@ -88,7 +89,7 @@ nonisolated enum Route: Hashable, Sendable {
         switch self {
         case .ask: .ask
         case .moments: .moments
-        case .settings, .appearance, .privacy, .subscription, .acknowledgements: .settings
+        case .settings, .photoAccess, .appearance, .privacy, .subscription, .acknowledgements: .settings
         case .paywall, .onboarding, .notFound: nil
         }
     }
@@ -96,7 +97,7 @@ nonisolated enum Route: Hashable, Sendable {
     var presentation: RoutePresentation {
         switch self {
         case .ask, .moments, .settings: .tabRoot
-        case .appearance, .privacy, .subscription, .acknowledgements: .push
+        case .photoAccess, .appearance, .privacy, .subscription, .acknowledgements: .push
         case .paywall, .onboarding: .fullScreen
         case .notFound: .sheet(.medium)
         }
@@ -119,6 +120,7 @@ nonisolated enum Route: Hashable, Sendable {
         case .ask: "ask"
         case .moments: "moments"
         case .settings: "settings"
+        case .photoAccess: "photo-access"
         case .appearance: "appearance"
         case .privacy: "privacy"
         case .subscription: "subscription"
@@ -130,7 +132,7 @@ nonisolated enum Route: Hashable, Sendable {
     }
 
     init?(debugName: String) {
-        let all: [Route] = [.ask, .moments, .settings, .appearance, .privacy, .subscription, .acknowledgements, .paywall, .onboarding]
+        let all: [Route] = [.ask, .moments, .settings, .photoAccess, .appearance, .privacy, .subscription, .acknowledgements, .paywall, .onboarding]
         guard let match = all.first(where: { $0.debugName == debugName.lowercased() }) else { return nil }
         self = match
     }

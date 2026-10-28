@@ -1,19 +1,26 @@
 import DDCore
 import DDDesign
+import LZLibrary
 import SwiftUI
 
-/// First-run onboarding: what Lahza does, then the privacy promise. Photo access joins as the
-/// last step once library indexing exists (template-migration E1).
+/// First-run onboarding: what Lahza does, the privacy promise, then photo access. The photos step is
+/// the pre-permission screen (App Review 5.1.1, decision 30): it explains why, and its only action,
+/// Continue, shows the iOS prompt straight away. Any answer finishes onboarding; Lahza never blocks
+/// on it.
 struct OnboardingView: View {
     /// Opened again from Settings (shown as a cover, with a close button).
     var revisit = false
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
     @State private var step: Step = .welcome
+    /// The last Continue was tapped (a second tap must not finish while the prompt is up).
+    @State private var finishing = false
 
     enum Step: Int, CaseIterable {
         case welcome
         case privacy
+        /// Photo access: Continue goes straight to the iOS prompt (no skip, no "not now").
+        case photos
     }
 
     var body: some View {
@@ -35,6 +42,7 @@ struct OnboardingView: View {
                     switch step {
                     case .welcome: WelcomeStep()
                     case .privacy: PrivacyStep()
+                    case .photos: PhotosStep()
                     }
                 }
                 .ddPage()
@@ -43,7 +51,7 @@ struct OnboardingView: View {
             }
             .scrollBounceBehavior(.basedOnSize)
 
-            DDButton(step == .privacy ? OnboardingCopy.start : OnboardingCopy.next, fullWidth: true) { advance() }
+            DDButton(buttonTitle, isLoading: model.photoAccess.isRequesting, fullWidth: true) { advance() }
                 .padding(.horizontal, DDLayout.gutter)
                 .padding(.bottom, DDSpace.lg)
                 .accessibilityIdentifier("onboarding-continue")
@@ -53,13 +61,26 @@ struct OnboardingView: View {
         .accessibilityIdentifier("onboarding")
     }
 
+    /// "Continue" throughout; "Done" when a revisit's photos step has nothing to ask.
+    private var buttonTitle: String {
+        step == .photos && revisit && !model.photoAccess.access.canAsk ? OnboardingCopy.done : OnboardingCopy.next
+    }
+
     private func advance() {
         if let next = Step(rawValue: step.rawValue + 1) {
             step = next
-        } else if revisit {
-            dismiss()
-        } else {
-            model.completeOnboarding()
+            return
+        }
+        guard !finishing else { return }
+        finishing = true
+        Task {
+            if revisit {
+                // Shows the prompt only if access is still undecided.
+                await model.photoAccess.request()
+                dismiss()
+            } else {
+                await model.finishOnboarding()
+            }
         }
     }
 }
@@ -108,9 +129,55 @@ private struct PrivacyStep: View {
     }
 }
 
+/// Why Lahza asks for photo access, before iOS does. Once access is decided (a revisit, or a
+/// reinstall that kept it) it shows the current access instead of announcing the prompt.
+private struct PhotosStep: View {
+    @Environment(AppModel.self) private var model
+    /// One width for every point's glyph, so the lines start together.
+    @ScaledMetric(relativeTo: .subheadline) private var glyphWidth: CGFloat = 24
+
+    var body: some View {
+        let store = model.photoAccess
+        let access = store.access
+        VStack(alignment: .leading, spacing: DDSpace.xl) {
+            IconBadge("photo.on.rectangle.angled", tone: .accent, size: 56)
+            VStack(alignment: .leading, spacing: DDSpace.sm) {
+                Text(OnboardingCopy.photosTitle).ddText(.displaySmall).foregroundStyle(.dd(.ink))
+                Text(access.canAsk ? OnboardingCopy.photosBody : OnboardingCopy.photosBodyDecided)
+                    .ddText(.body)
+                    .foregroundStyle(.dd(.muted))
+            }
+            PaperCard {
+                VStack(alignment: .leading, spacing: DDSpace.sm) {
+                    ForEach(points(for: access), id: \.text) { point in
+                        Label {
+                            Text(point.text)
+                        } icon: {
+                            Image(systemName: point.symbol).frame(width: glyphWidth)
+                        }
+                        .ddText(.subheadline)
+                        .foregroundStyle(.dd(.ink))
+                    }
+                }
+            }
+            if !access.canAsk {
+                Notice(access.canRead ? .success : .info, title: PhotoAccessCopy.headline(access),
+                       message: PhotoAccessCopy.detail(access, count: store.readableCount))
+                    .accessibilityIdentifier("onboarding-photo-status")
+            }
+        }
+        .accessibilityIdentifier("onboarding-photos")
+    }
+
+    /// The Settings line is left out when access is restricted: then it can't be changed.
+    private func points(for access: PhotoAccess) -> [(symbol: String, text: String)] {
+        access == .restricted ? OnboardingCopy.photosPoints : OnboardingCopy.photosPoints + [OnboardingCopy.photosSettingsPoint]
+    }
+}
+
 nonisolated enum OnboardingCopy {
     static let next = "Continue"
-    static let start = "Get started"
+    static let done = "Done"
     static let welcome = "Find any moment by describing it."
     static let welcomeBody = "Tell Lahza what you remember and it finds the photos, grouped as the moments they belong to."
     static let promises: [(symbol: String, title: String, detail: String)] = [
@@ -123,6 +190,13 @@ nonisolated enum OnboardingCopy {
     static let privacyPoints = [
         "Photos are never uploaded",
         "No account, no tracking, no ads",
-        "Turn off photo access anytime in iPhone Settings",
     ]
+    static let photosTitle = "Lahza searches your photo library."
+    static let photosBody = "Next, iOS asks for photo access. With full access Lahza can search every photo, or you can pick just some."
+    static let photosBodyDecided = "With full access Lahza can search every photo; with limited access, only the ones you pick."
+    static let photosPoints: [(symbol: String, text: String)] = [
+        ("iphone", "Read only on this iPhone"),
+        ("eye.slash", "Your Hidden album is never read"),
+    ]
+    static let photosSettingsPoint = (symbol: "gearshape", text: "Change it anytime in iPhone Settings")
 }

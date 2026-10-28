@@ -21,6 +21,10 @@ struct SettingsHomeScreen: View {
                 group("PLAN") {
                     row(BillingCopy.plusName, "sparkles", .subscription, value: model.entitlement.isUnlocked ? "Active" : "Free")
                 }
+                group("LIBRARY") {
+                    row(PhotoAccessCopy.screenTitle, "photo.on.rectangle", .photoAccess, value: PhotoAccessCopy.status(model.photoAccess.access))
+                        .accessibilityIdentifier("settings-photo-access")
+                }
                 group("APP") {
                     row("Appearance", "circle.lefthalf.filled", .appearance)
                     row("Revisit welcome", "arrow.counterclockwise", .onboarding)

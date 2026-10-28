@@ -40,22 +40,47 @@ nonisolated enum NotFoundCopy {
 
 /// The opaque privacy cover (DDDesign `PrivacyCoverView`) whenever the scene is not active, so the
 /// app switcher never snapshots photos. Applied at the root and inside every modal. Not shown
-/// before the scene first becomes active, so launch hands off cleanly.
+/// before the scene first becomes active, so launch hands off cleanly, nor while the iOS photo
+/// prompt makes the scene inactive: the screen that explained it stays behind it (none of those
+/// screens shows photos).
 struct PrivacyCoverLayer: ViewModifier {
+    @Environment(AppModel.self) private var model
     @Environment(\.scenePhase) private var scenePhase
     @State private var hasBeenActive = false
+    /// From the photo prompt's start until the scene is active again: the answer can land before
+    /// the scene leaves `.inactive`, and the cover must not flash in between.
+    @State private var promptShown = false
+
+    private var covered: Bool {
+        switch scenePhase {
+        case .active: false
+        case .inactive: !(promptShown || model.photoAccess.isRequesting)
+        default: true
+        }
+    }
 
     func body(content: Content) -> some View {
         content
             .overlay {
-                if hasBeenActive && scenePhase != .active {
+                if hasBeenActive && covered {
                     PrivacyCoverView()
                         .transition(.identity)
                         .accessibilityIdentifier("privacy-cover")
                 }
             }
             .onChange(of: scenePhase, initial: true) { _, phase in
-                if phase == .active { hasBeenActive = true }
+                if phase == .active {
+                    hasBeenActive = true
+                    promptShown = false
+                }
+            }
+            .onChange(of: model.photoAccess.isRequesting) { _, requesting in
+                if requesting {
+                    promptShown = true
+                } else if scenePhase == .active {
+                    // The scene is already back (or never left, as with a DEBUG fake library).
+                    promptShown = false
+                }
             }
     }
 }
