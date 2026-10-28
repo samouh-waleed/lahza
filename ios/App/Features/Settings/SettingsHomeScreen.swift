@@ -1,6 +1,6 @@
-import DDBilling
-import DDCore
-import DDDesign
+import LZBilling
+import LZCore
+import LZDesign
 import SwiftUI
 
 struct SettingsHomeScreen: View {
@@ -14,8 +14,8 @@ struct SettingsHomeScreen: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 32) {
                 VStack(alignment: .leading, spacing: 10) {
-                    Text("Make it yours.").ddText(.displayLarge)
-                    Text("Your settings stay on this iPhone.").ddText(.body).foregroundStyle(.dd(.muted))
+                    Text("Make it yours.").lzText(.displayLarge)
+                    Text("Your settings stay on this iPhone.").lzText(.body).foregroundStyle(.lz(.muted))
                 }
                 .padding(.bottom, 8)
                 group("PLAN") {
@@ -35,7 +35,7 @@ struct SettingsHomeScreen: View {
                 }
                 #if DEBUG
                 group("DEVELOPER") {
-                    DDToggleRow("Sample store prices", subtitle: "Fake store, nothing is charged. Restart Lahza to apply.",
+                    LZToggleRow("Sample store prices", subtitle: "Fake store, nothing is charged. Restart Lahza to apply.",
                                 systemImage: "hammer", isOn: $sampleStorePrices)
                         .accessibilityIdentifier("developer-sample-prices")
                     row(LibraryCensusCopy.screenTitle, "chart.bar.doc.horizontal", .libraryCensus)
@@ -43,15 +43,15 @@ struct SettingsHomeScreen: View {
                 }
                 #endif
                 if let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String {
-                    Text("\(Brand.name) · Version \(version)").ddText(.caption).foregroundStyle(.dd(.muted))
+                    Text("\(Brand.name) · Version \(version)").lzText(.caption).foregroundStyle(.lz(.muted))
                 }
             }
-            .ddPage()
+            .lzPage()
             .padding(.top, 24)
             .padding(.bottom, 40)
         }
-        .background(.dd(.bg))
-        .tint(Color.dd(.accent))
+        .background(.lz(.bg))
+        .tint(Color.lz(.accent))
         .navigationTitle("Settings")
         .navigationBarTitleDisplayMode(.inline)
         .accessibilityIdentifier("settings-home")
@@ -59,8 +59,8 @@ struct SettingsHomeScreen: View {
 
     private func group<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(title).ddText(.label).foregroundStyle(.dd(.muted))
-            DDRowGroup(content: content)
+            Text(title).lzText(.label).foregroundStyle(.lz(.muted))
+            LZRowGroup(content: content)
         }
     }
 
@@ -73,8 +73,8 @@ extension View {
     /// The shared look of the settings forms: paper background, accent tint, an inline title.
     func settingsForm(_ title: String) -> some View {
         scrollContentBackground(.hidden)
-            .background(.dd(.bg))
-            .tint(Color.dd(.accent))
+            .background(.lz(.bg))
+            .tint(Color.lz(.accent))
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
     }

@@ -1,4 +1,4 @@
-import DDDesign
+import LZDesign
 import SwiftUI
 
 /// A calm loading screen: the brand loader, never a bare spinner.
@@ -6,11 +6,11 @@ struct AppLoadingView: View {
     var label = "Loading"
 
     var body: some View {
-        VStack(spacing: DDSpace.md) {
-            DDLoader(.sun, size: 36, label: label)
+        VStack(spacing: LZSpace.md) {
+            LZLoader(.sun, size: 36, label: label)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(.dd(.bg))
+        .background(.lz(.bg))
     }
 }
 
@@ -27,7 +27,7 @@ struct NotFoundView: View {
             model.open(.ask)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(.dd(.bg))
+        .background(.lz(.bg))
         .accessibilityIdentifier("not-found")
     }
 }
@@ -38,7 +38,7 @@ nonisolated enum NotFoundCopy {
     static let back = "Back to Ask"
 }
 
-/// The opaque privacy cover (DDDesign `PrivacyCoverView`) whenever the scene is not active, so the
+/// The opaque privacy cover (LZDesign `PrivacyCoverView`) whenever the scene is not active, so the
 /// app switcher never snapshots photos. Applied at the root and inside every modal. Not shown
 /// before the scene first becomes active, so launch hands off cleanly, nor while the iOS photo
 /// prompt makes the scene inactive: the screen that explained it stays behind it (none of those
@@ -90,7 +90,7 @@ extension View {
 }
 
 /// The toast host, drawn only on the topmost layer (the root, or the top modal), so a toast shows
-/// once and above sheets. At most 3, 2.5 s each (DDDesign `DDToastCenter`).
+/// once and above sheets. At most 3, 2.5 s each (LZDesign `LZToastCenter`).
 struct ToastLayer: ViewModifier {
     let level: Int
     @Environment(AppModel.self) private var model
@@ -100,7 +100,7 @@ struct ToastLayer: ViewModifier {
             if model.router.modals.count == level {
                 Color.clear
                     .frame(maxWidth: .infinity, maxHeight: 0)
-                    .ddToastHost(model.toasts)
+                    .lzToastHost(model.toasts)
             }
         }
     }

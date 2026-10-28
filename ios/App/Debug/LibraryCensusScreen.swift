@@ -1,5 +1,5 @@
 #if DEBUG
-import DDDesign
+import LZDesign
 import LZLibrary
 import SwiftUI
 
@@ -14,10 +14,10 @@ struct LibraryCensusScreen: View {
         let runner = model.censusRunner
         let store = model.photoAccess
         ScrollView {
-            VStack(alignment: .leading, spacing: DDSpace.xl) {
-                VStack(alignment: .leading, spacing: DDSpace.sm) {
-                    Text(LibraryCensusCopy.title).ddText(.displayLarge).foregroundStyle(.dd(.ink))
-                    Text(LibraryCensusCopy.subtitle).ddText(.body).foregroundStyle(.dd(.muted))
+            VStack(alignment: .leading, spacing: LZSpace.xl) {
+                VStack(alignment: .leading, spacing: LZSpace.sm) {
+                    Text(LibraryCensusCopy.title).lzText(.displayLarge).foregroundStyle(.lz(.ink))
+                    Text(LibraryCensusCopy.subtitle).lzText(.body).foregroundStyle(.lz(.muted))
                 }
                 CensusIntroCard()
                 if store.access.canRead {
@@ -35,11 +35,11 @@ struct LibraryCensusScreen: View {
                         .accessibilityIdentifier("library-census-needs-access")
                 }
             }
-            .ddPage()
-            .padding(.vertical, DDSpace.lg)
+            .lzPage()
+            .padding(.vertical, LZSpace.lg)
         }
-        .background(.dd(.bg))
-        .tint(Color.dd(.accent))
+        .background(.lz(.bg))
+        .tint(Color.lz(.accent))
         .navigationTitle(LibraryCensusCopy.screenTitle)
         .navigationBarTitleDisplayMode(.inline)
         .accessibilityIdentifier("library-census")
@@ -55,24 +55,24 @@ struct LibraryCensusScreen: View {
 private struct CensusIntroCard: View {
     var body: some View {
         PaperCard {
-            VStack(alignment: .leading, spacing: DDSpace.md) {
-                HStack(alignment: .top, spacing: DDSpace.md) {
+            VStack(alignment: .leading, spacing: LZSpace.md) {
+                HStack(alignment: .top, spacing: LZSpace.md) {
                     IconBadge("chart.bar.doc.horizontal", tone: .accent)
-                    VStack(alignment: .leading, spacing: DDSpace.xs) {
-                        Text(LibraryCensusCopy.introTitle).ddText(.headline).foregroundStyle(.dd(.ink))
-                        Text(LibraryCensusCopy.introBody).ddText(.subheadline).foregroundStyle(.dd(.muted))
+                    VStack(alignment: .leading, spacing: LZSpace.xs) {
+                        Text(LibraryCensusCopy.introTitle).lzText(.headline).foregroundStyle(.lz(.ink))
+                        Text(LibraryCensusCopy.introBody).lzText(.subheadline).foregroundStyle(.lz(.muted))
                     }
                 }
-                VStack(alignment: .leading, spacing: DDSpace.sm) {
+                VStack(alignment: .leading, spacing: LZSpace.sm) {
                     ForEach(LibraryCensusCopy.measures, id: \.self) { item in
                         Label(item, systemImage: "checkmark.circle")
-                            .ddText(.subheadline)
-                            .foregroundStyle(.dd(.ink))
+                            .lzText(.subheadline)
+                            .foregroundStyle(.lz(.ink))
                     }
                 }
                 Label(LibraryCensusCopy.privacy, systemImage: "lock.shield")
-                    .ddText(.caption)
-                    .foregroundStyle(.dd(.muted))
+                    .lzText(.caption)
+                    .foregroundStyle(.lz(.muted))
             }
         }
         .accessibilityIdentifier("library-census-intro")
@@ -87,26 +87,26 @@ private struct CensusRunPanel: View {
         let phase = runner.phase
         if phase.isRunning {
             PaperCard {
-                VStack(alignment: .leading, spacing: DDSpace.md) {
-                    Text(LibraryCensusCopy.step(phase.stage ?? 1)).ddText(.label).foregroundStyle(.dd(.muted))
+                VStack(alignment: .leading, spacing: LZSpace.md) {
+                    Text(LibraryCensusCopy.step(phase.stage ?? 1)).lzText(.label).foregroundStyle(.lz(.muted))
                     if let progress = runner.progress {
                         ProgressView(value: Double(progress.done), total: Double(max(progress.total, 1))) {
                             Text(LibraryCensusCopy.stageName(phase))
                         } currentValueLabel: {
                             Text(LibraryCensusCopy.progress(progress)).monospacedDigit()
                         }
-                        .progressViewStyle(.dd(.bar))
+                        .progressViewStyle(.lz(.bar))
                     } else {
                         ProgressView { Text(LibraryCensusCopy.stageName(phase)) }
-                            .progressViewStyle(.dd(.bar))
+                            .progressViewStyle(.lz(.bar))
                     }
-                    DDButton(LibraryCensusCopy.cancel, role: .secondary, size: .small) { runner.cancel() }
+                    LZButton(LibraryCensusCopy.cancel, role: .secondary, size: .small) { runner.cancel() }
                         .accessibilityIdentifier("library-census-cancel")
                 }
             }
             .accessibilityIdentifier("library-census-progress")
         } else {
-            VStack(alignment: .leading, spacing: DDSpace.md) {
+            VStack(alignment: .leading, spacing: LZSpace.md) {
                 switch phase {
                 case .failed(let error):
                     Notice(.error, title: LibraryCensusCopy.failedTitle,
@@ -117,10 +117,10 @@ private struct CensusRunPanel: View {
                     EmptyView()
                 }
                 // Once there are results, sharing them is the main action.
-                DDButton(runner.report == nil ? LibraryCensusCopy.run : LibraryCensusCopy.runAgain, systemImage: "play.fill",
+                LZButton(runner.report == nil ? LibraryCensusCopy.run : LibraryCensusCopy.runAgain, systemImage: "play.fill",
                          role: runner.report == nil ? .primary : .secondary, fullWidth: true) { runner.start() }
                     .accessibilityIdentifier("library-census-run")
-                Text(LibraryCensusCopy.runNote(source: runner.sourceName)).ddText(.caption).foregroundStyle(.dd(.muted))
+                Text(LibraryCensusCopy.runNote(source: runner.sourceName)).lzText(.caption).foregroundStyle(.lz(.muted))
             }
         }
     }
@@ -132,29 +132,29 @@ private struct CensusResults: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
-        VStack(alignment: .leading, spacing: DDSpace.xl) {
+        VStack(alignment: .leading, spacing: LZSpace.xl) {
             SectionHeader(LibraryCensusCopy.resultsTitle, caption: LibraryCensusCopy.resultsCaption(report))
             marks
-            VStack(alignment: .leading, spacing: DDSpace.sm) {
+            VStack(alignment: .leading, spacing: LZSpace.sm) {
                 ShareLink(item: report.text, subject: Text(LibraryCensusCopy.shareSubject), preview: SharePreview(LibraryCensusCopy.shareSubject)) {
                     Label(LibraryCensusCopy.share, systemImage: "square.and.arrow.up")
-                        .font(.dd(.callout).weight(.semibold))
-                        .foregroundStyle(.dd(.accentInk))
+                        .font(.lz(.callout).weight(.semibold))
+                        .foregroundStyle(.lz(.accentInk))
                         .frame(maxWidth: .infinity, minHeight: 27)
                 }
                 .buttonStyle(.glassProminent)
-                // DDButton's primary look, including its shape once the label may wrap.
-                .buttonBorderShape(dynamicTypeSize.isAccessibilitySize ? .roundedRectangle(radius: DDRadius.lg) : .capsule)
-                .tint(Color.dd(.accent))
+                // LZButton's primary look, including its shape once the label may wrap.
+                .buttonBorderShape(dynamicTypeSize.isAccessibilitySize ? .roundedRectangle(radius: LZRadius.lg) : .capsule)
+                .tint(Color.lz(.accent))
                 .controlSize(.large)
                 .accessibilityIdentifier("library-census-share")
-                Text(LibraryCensusCopy.shareNote).ddText(.caption).foregroundStyle(.dd(.muted))
+                Text(LibraryCensusCopy.shareNote).lzText(.caption).foregroundStyle(.lz(.muted))
             }
             ForEach(report.sections) { section in
-                VStack(alignment: .leading, spacing: DDSpace.sm) {
-                    Text(section.title).ddText(.label).foregroundStyle(.dd(.muted)).accessibilityAddTraits(.isHeader)
+                VStack(alignment: .leading, spacing: LZSpace.sm) {
+                    Text(section.title).lzText(.label).foregroundStyle(.lz(.muted)).accessibilityAddTraits(.isHeader)
                     if !section.rows.isEmpty {
-                        DDRowGroup {
+                        LZRowGroup {
                             ForEach(section.rows) { row in
                                 // Long values read better under the label than squeezed beside it.
                                 if row.value.count > 22 {
@@ -166,7 +166,7 @@ private struct CensusResults: View {
                         }
                     }
                     ForEach(section.notes, id: \.self) { note in
-                        Text(note).ddText(.caption).foregroundStyle(.dd(.muted))
+                        Text(note).lzText(.caption).foregroundStyle(.lz(.muted))
                     }
                 }
                 .accessibilityIdentifier("library-census-section-\(section.id)")
@@ -177,20 +177,20 @@ private struct CensusResults: View {
 
     private var marks: some View {
         PaperCard {
-            VStack(alignment: .leading, spacing: DDSpace.lg) {
-                Text(LibraryCensusCopy.marksTitle).ddText(.label).foregroundStyle(.dd(.muted))
+            VStack(alignment: .leading, spacing: LZSpace.lg) {
+                Text(LibraryCensusCopy.marksTitle).lzText(.label).foregroundStyle(.lz(.muted))
                 ForEach(report.marks) { mark in
-                    VStack(alignment: .leading, spacing: DDSpace.xs) {
-                        DDAdaptiveStack(spacing: DDSpace.sm, verticalAlignment: .firstTextBaseline) {
+                    VStack(alignment: .leading, spacing: LZSpace.xs) {
+                        LZAdaptiveStack(spacing: LZSpace.sm, verticalAlignment: .firstTextBaseline) {
                             Text(mark.title)
-                                .ddText(.headline)
-                                .foregroundStyle(.dd(.ink))
+                                .lzText(.headline)
+                                .foregroundStyle(.lz(.ink))
                                 .frame(maxWidth: .infinity, alignment: .leading)
                             Pill(mark.label, systemImage: mark.verdict.symbol, tone: mark.verdict.tone)
                                 .fixedSize()
                         }
-                        Text(mark.value).ddText(.subheadline).foregroundStyle(.dd(.ink))
-                        Text(mark.rule).ddText(.caption).foregroundStyle(.dd(.muted))
+                        Text(mark.value).lzText(.subheadline).foregroundStyle(.lz(.ink))
+                        Text(mark.rule).lzText(.caption).foregroundStyle(.lz(.muted))
                     }
                     .accessibilityElement(children: .combine)
                     .accessibilityIdentifier("library-census-mark-\(mark.id)")
@@ -202,7 +202,7 @@ private struct CensusResults: View {
 
 extension CensusVerdict {
     /// Pass reads as sage, fail as danger, a plan-changing flag as gold.
-    var tone: DDTone {
+    var tone: LZTone {
         switch self {
         case .pass: .sage
         case .fail: .danger

@@ -1,4 +1,4 @@
-import DDDesign
+import LZDesign
 import SwiftUI
 
 /// The three tabs (Ask · Moments · Settings), a native `TabView` whose Liquid Glass bar minimises
@@ -19,8 +19,8 @@ struct MainTabView: View {
             }
         }
         .tabBarMinimizeBehavior(.onScrollDown)
-        .tint(Color.dd(.accent))
-        .ddHaptic(.selection, trigger: router.userTabChanges)
+        .tint(Color.lz(.accent))
+        .lzHaptic(.selection, trigger: router.userTabChanges)
     }
 }
 

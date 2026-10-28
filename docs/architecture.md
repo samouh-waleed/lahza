@@ -123,7 +123,7 @@ Pipeline:
 |---|---|
 | `ios/project.yml` | XcodeGen spec; the Xcode project is generated (`make project`) and not committed |
 | `ios/App/` | The app: `Shell/` (composition root, dependencies, preferences), `Navigation/`, `Chrome/`, `Features/` (Ask, Moments, Library, Onboarding, Settings, Paywall), `Debug/` (launch arguments, developer screens) |
-| `ios/Packages/LahzaKit/` | Swift package: `DDCore` (brand, environment, storage, clock, log), `DDBilling` (RevenueCat, entitlement, paywall model), `DDDesign` (tokens, type, components, motion), `LZLibrary` (photo access: PhotoKit client, fake, access store; the library census for spike S2, whose screen is DEBUG-only). New modules use the `LZ` prefix; the `DD` ones get renamed later |
+| `ios/Packages/LahzaKit/` | Swift package: `LZCore` (brand, environment, storage, clock, log), `LZBilling` (RevenueCat, entitlement, paywall model), `LZDesign` (tokens, type, components, motion), `LZLibrary` (photo access: PhotoKit client, fake, access store; the library census for spike S2, whose screen is DEBUG-only). Modules use the `LZ` prefix |
 | `ios/Config/` | xcconfig files; secrets go only in the git-ignored `Local.xcconfig` |
 | `ios/Tests/` | App-hosted tests |
 

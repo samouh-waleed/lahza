@@ -1,6 +1,6 @@
-import DDBilling
-import DDCore
-import DDDesign
+import LZBilling
+import LZCore
+import LZDesign
 import SwiftUI
 
 /// Lahza Plus plans (full screen). Placeholder copy and layout until the paywall is designed
@@ -18,7 +18,7 @@ struct PaywallScreen: View {
                 AppLoadingView(label: BillingCopy.loadingPrices)
             }
         }
-        .background(.dd(.bg))
+        .background(.lz(.bg))
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button(BillingCopy.closeLabel, systemImage: "xmark") { dismiss() }
@@ -42,19 +42,19 @@ private struct PaywallContent: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: DDSpace.xl) {
-                VStack(alignment: .leading, spacing: DDSpace.sm) {
-                    Text(BillingCopy.plusName.uppercased()).ddText(.label).foregroundStyle(.dd(.accent))
-                    Text(BillingCopy.paywallTitle).ddText(.displayLarge).foregroundStyle(.dd(.ink))
-                    Text(BillingCopy.paywallSubtitle).ddText(.body).foregroundStyle(.dd(.muted))
+            VStack(alignment: .leading, spacing: LZSpace.xl) {
+                VStack(alignment: .leading, spacing: LZSpace.sm) {
+                    Text(BillingCopy.plusName.uppercased()).lzText(.label).foregroundStyle(.lz(.accent))
+                    Text(BillingCopy.paywallTitle).lzText(.displayLarge).foregroundStyle(.lz(.ink))
+                    Text(BillingCopy.paywallSubtitle).lzText(.body).foregroundStyle(.lz(.muted))
                 }
-                VStack(alignment: .leading, spacing: DDSpace.lg) {
+                VStack(alignment: .leading, spacing: LZSpace.lg) {
                     ForEach(BillingCopy.benefits, id: \.title) { benefit in
-                        HStack(alignment: .top, spacing: DDSpace.md) {
+                        HStack(alignment: .top, spacing: LZSpace.md) {
                             IconBadge(benefit.symbol, tone: .accent)
-                            VStack(alignment: .leading, spacing: DDSpace.xxs) {
-                                Text(benefit.title).ddText(.headline).foregroundStyle(.dd(.ink))
-                                Text(benefit.detail).ddText(.subheadline).foregroundStyle(.dd(.muted))
+                            VStack(alignment: .leading, spacing: LZSpace.xxs) {
+                                Text(benefit.title).lzText(.headline).foregroundStyle(.lz(.ink))
+                                Text(benefit.detail).lzText(.subheadline).foregroundStyle(.lz(.muted))
                             }
                         }
                     }
@@ -63,8 +63,8 @@ private struct PaywallContent: View {
                 if let timeline = paywall.trialTimeline { TrialTimelineCard(timeline: timeline) }
                 if paywall.usesTestStore { Notice(.info, message: BillingCopy.testStoreNotice) }
             }
-            .ddPage()
-            .padding(.vertical, DDSpace.lg)
+            .lzPage()
+            .padding(.vertical, LZSpace.lg)
         }
         .safeAreaInset(edge: .bottom) { actions }
         .onChange(of: paywall.notice) { _, notice in handle(notice) }
@@ -73,14 +73,14 @@ private struct PaywallContent: View {
     @ViewBuilder private var plans: some View {
         switch paywall.phase {
         case .idle, .loading:
-            HStack(spacing: DDSpace.sm) {
-                DDLoader(.star, size: 20, label: BillingCopy.loadingPrices)
-                Text(BillingCopy.loadingPrices).ddText(.subheadline).foregroundStyle(.dd(.muted))
+            HStack(spacing: LZSpace.sm) {
+                LZLoader(.star, size: 20, label: BillingCopy.loadingPrices)
+                Text(BillingCopy.loadingPrices).lzText(.subheadline).foregroundStyle(.lz(.muted))
             }
         case .unavailable(let message):
             Notice(.warn, message: message, actionTitle: BillingCopy.tryAgain) { Task { await paywall.load() } }
         case .ready, .purchasing, .restoring:
-            VStack(spacing: DDSpace.sm) {
+            VStack(spacing: LZSpace.sm) {
                 ForEach(paywall.catalog.offers, id: \.period) { offer in
                     PlanCard(offer: offer, isSelected: paywall.selectedPeriod == offer.period) { paywall.select(offer.period) }
                 }
@@ -89,17 +89,17 @@ private struct PaywallContent: View {
     }
 
     private var actions: some View {
-        VStack(spacing: DDSpace.sm) {
-            DDButton(paywall.purchaseTitle, isLoading: paywall.phase == .purchasing, fullWidth: true) {
+        VStack(spacing: LZSpace.sm) {
+            LZButton(paywall.purchaseTitle, isLoading: paywall.phase == .purchasing, fullWidth: true) {
                 Task { await paywall.purchase() }
             }
             .disabled(paywall.selectedOffer == nil || paywall.isBusy || paywall.phase == .loading)
             .accessibilityIdentifier("paywall-purchase")
             Text(BillingCopy.renewalDisclosure)
-                .ddText(.caption)
-                .foregroundStyle(.dd(.muted))
+                .lzText(.caption)
+                .foregroundStyle(.lz(.muted))
                 .multilineTextAlignment(.center)
-            HStack(spacing: DDSpace.lg) {
+            HStack(spacing: LZSpace.lg) {
                 Button(paywall.phase == .restoring ? BillingCopy.restoring : BillingCopy.restorePurchases) {
                     Task { await paywall.restore() }
                 }
@@ -108,12 +108,12 @@ private struct PaywallContent: View {
                 Link(BillingCopy.privacyPolicy, destination: paywall.privacyURL)
             }
             .font(.footnote)
-            .tint(Color.dd(.accent))
+            .tint(Color.lz(.accent))
         }
-        .padding(.horizontal, DDLayout.gutter)
-        .padding(.top, DDSpace.md)
-        .padding(.bottom, DDSpace.sm)
-        .background(.dd(.bg))
+        .padding(.horizontal, LZLayout.gutter)
+        .padding(.top, LZSpace.md)
+        .padding(.bottom, LZSpace.sm)
+        .background(.lz(.bg))
     }
 
     private func handle(_ notice: PaywallModel.Notice?) {
@@ -132,18 +132,18 @@ private struct PlanCard: View {
 
     var body: some View {
         PaperCard(style: isSelected ? .raised : .paper, action: select) {
-            HStack(alignment: .center, spacing: DDSpace.md) {
-                VStack(alignment: .leading, spacing: DDSpace.xxs) {
-                    Text(offer.period.title).ddText(.headline).foregroundStyle(.dd(.ink))
-                    Text(offer.billedPriceText).ddText(.subheadline).foregroundStyle(.dd(.muted))
+            HStack(alignment: .center, spacing: LZSpace.md) {
+                VStack(alignment: .leading, spacing: LZSpace.xxs) {
+                    Text(offer.period.title).lzText(.headline).foregroundStyle(.lz(.ink))
+                    Text(offer.billedPriceText).lzText(.subheadline).foregroundStyle(.lz(.muted))
                     if offer.period == .annual, let perMonth = offer.perMonthPrice {
-                        Text("\(perMonth) / month").ddText(.caption).foregroundStyle(.dd(.muted))
+                        Text("\(perMonth) / month").lzText(.caption).foregroundStyle(.lz(.muted))
                     }
                 }
                 Spacer()
                 if let trial = offer.trial { Pill("\(trial.duration) free", tone: .sage) }
                 Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                    .foregroundStyle(isSelected ? .dd(.accent) : .dd(.muted))
+                    .foregroundStyle(isSelected ? .lz(.accent) : .lz(.muted))
                     .accessibilityHidden(true)
             }
         }
@@ -158,14 +158,14 @@ private struct TrialTimelineCard: View {
 
     var body: some View {
         PaperCard {
-            VStack(alignment: .leading, spacing: DDSpace.md) {
-                Text(timeline.summary).ddText(.headline).foregroundStyle(.dd(.ink))
+            VStack(alignment: .leading, spacing: LZSpace.md) {
+                Text(timeline.summary).lzText(.headline).foregroundStyle(.lz(.ink))
                 ForEach(Array(timeline.steps.enumerated()), id: \.offset) { _, step in
-                    HStack(alignment: .top, spacing: DDSpace.md) {
-                        Image(systemName: symbol(step.kind)).foregroundStyle(.dd(.accent)).frame(width: 22)
-                        VStack(alignment: .leading, spacing: DDSpace.xxs) {
-                            Text(step.title).ddText(.subheadline).foregroundStyle(.dd(.ink))
-                            Text(step.detail).ddText(.caption).foregroundStyle(.dd(.muted))
+                    HStack(alignment: .top, spacing: LZSpace.md) {
+                        Image(systemName: symbol(step.kind)).foregroundStyle(.lz(.accent)).frame(width: 22)
+                        VStack(alignment: .leading, spacing: LZSpace.xxs) {
+                            Text(step.title).lzText(.subheadline).foregroundStyle(.lz(.ink))
+                            Text(step.detail).lzText(.caption).foregroundStyle(.lz(.muted))
                         }
                     }
                 }

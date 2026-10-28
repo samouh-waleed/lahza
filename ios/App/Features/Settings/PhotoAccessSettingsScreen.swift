@@ -1,4 +1,4 @@
-import DDDesign
+import LZDesign
 import LZLibrary
 import SwiftUI
 

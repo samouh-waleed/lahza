@@ -1,4 +1,4 @@
-import DDDesign
+import LZDesign
 import SwiftUI
 
 /// Third-party software, fonts and data, with their full licence texts (bundled in the app, as the

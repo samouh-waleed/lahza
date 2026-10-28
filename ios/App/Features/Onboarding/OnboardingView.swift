@@ -1,5 +1,5 @@
-import DDCore
-import DDDesign
+import LZCore
+import LZDesign
 import LZLibrary
 import SwiftUI
 
@@ -27,15 +27,15 @@ struct OnboardingView: View {
         VStack(spacing: 0) {
             HStack {
                 ProgressView(value: Double(step.rawValue + 1), total: Double(Step.allCases.count))
-                    .tint(Color.dd(.accent))
+                    .tint(Color.lz(.accent))
                     .frame(maxWidth: 120)
                 Spacer()
                 if revisit {
-                    DDIconButton("xmark", label: "Close", style: .glass, size: 40) { dismiss() }
+                    LZIconButton("xmark", label: "Close", style: .glass, size: 40) { dismiss() }
                 }
             }
-            .padding(.horizontal, DDLayout.gutter)
-            .padding(.top, DDSpace.md)
+            .padding(.horizontal, LZLayout.gutter)
+            .padding(.top, LZSpace.md)
 
             ScrollView {
                 Group {
@@ -45,18 +45,18 @@ struct OnboardingView: View {
                     case .photos: PhotosStep()
                     }
                 }
-                .ddPage()
-                .padding(.vertical, DDSpace.xl)
+                .lzPage()
+                .padding(.vertical, LZSpace.xl)
                 .transition(.opacity)
             }
             .scrollBounceBehavior(.basedOnSize)
 
-            DDButton(buttonTitle, isLoading: model.photoAccess.isRequesting, fullWidth: true) { advance() }
-                .padding(.horizontal, DDLayout.gutter)
-                .padding(.bottom, DDSpace.lg)
+            LZButton(buttonTitle, isLoading: model.photoAccess.isRequesting, fullWidth: true) { advance() }
+                .padding(.horizontal, LZLayout.gutter)
+                .padding(.bottom, LZSpace.lg)
                 .accessibilityIdentifier("onboarding-continue")
         }
-        .background(.dd(.bg))
+        .background(.lz(.bg))
         .animation(.easeInOut(duration: 0.3), value: step)
         .accessibilityIdentifier("onboarding")
     }
@@ -87,19 +87,19 @@ struct OnboardingView: View {
 
 private struct WelcomeStep: View {
     var body: some View {
-        VStack(alignment: .leading, spacing: DDSpace.xl) {
-            VStack(alignment: .leading, spacing: DDSpace.sm) {
-                Text(verbatim: Brand.name).ddText(.displayXL).foregroundStyle(.dd(.ink))
-                Text(OnboardingCopy.welcome).ddText(.title).foregroundStyle(.dd(.ink))
-                Text(OnboardingCopy.welcomeBody).ddText(.body).foregroundStyle(.dd(.muted))
+        VStack(alignment: .leading, spacing: LZSpace.xl) {
+            VStack(alignment: .leading, spacing: LZSpace.sm) {
+                Text(verbatim: Brand.name).lzText(.displayXL).foregroundStyle(.lz(.ink))
+                Text(OnboardingCopy.welcome).lzText(.title).foregroundStyle(.lz(.ink))
+                Text(OnboardingCopy.welcomeBody).lzText(.body).foregroundStyle(.lz(.muted))
             }
-            VStack(alignment: .leading, spacing: DDSpace.lg) {
+            VStack(alignment: .leading, spacing: LZSpace.lg) {
                 ForEach(OnboardingCopy.promises, id: \.title) { promise in
-                    HStack(alignment: .top, spacing: DDSpace.md) {
+                    HStack(alignment: .top, spacing: LZSpace.md) {
                         IconBadge(promise.symbol, tone: .accent)
-                        VStack(alignment: .leading, spacing: DDSpace.xxs) {
-                            Text(promise.title).ddText(.headline).foregroundStyle(.dd(.ink))
-                            Text(promise.detail).ddText(.subheadline).foregroundStyle(.dd(.muted))
+                        VStack(alignment: .leading, spacing: LZSpace.xxs) {
+                            Text(promise.title).lzText(.headline).foregroundStyle(.lz(.ink))
+                            Text(promise.detail).lzText(.subheadline).foregroundStyle(.lz(.muted))
                         }
                     }
                 }
@@ -110,18 +110,18 @@ private struct WelcomeStep: View {
 
 private struct PrivacyStep: View {
     var body: some View {
-        VStack(alignment: .leading, spacing: DDSpace.xl) {
+        VStack(alignment: .leading, spacing: LZSpace.xl) {
             IconBadge("lock.shield", tone: .sage, size: 56)
-            VStack(alignment: .leading, spacing: DDSpace.sm) {
-                Text(OnboardingCopy.privacyTitle).ddText(.displaySmall).foregroundStyle(.dd(.ink))
-                Text(OnboardingCopy.privacyBody).ddText(.body).foregroundStyle(.dd(.muted))
+            VStack(alignment: .leading, spacing: LZSpace.sm) {
+                Text(OnboardingCopy.privacyTitle).lzText(.displaySmall).foregroundStyle(.lz(.ink))
+                Text(OnboardingCopy.privacyBody).lzText(.body).foregroundStyle(.lz(.muted))
             }
             PaperCard {
-                VStack(alignment: .leading, spacing: DDSpace.sm) {
+                VStack(alignment: .leading, spacing: LZSpace.sm) {
                     ForEach(OnboardingCopy.privacyPoints, id: \.self) { point in
                         Label(point, systemImage: "checkmark")
-                            .ddText(.subheadline)
-                            .foregroundStyle(.dd(.ink))
+                            .lzText(.subheadline)
+                            .foregroundStyle(.lz(.ink))
                     }
                 }
             }
@@ -139,24 +139,24 @@ private struct PhotosStep: View {
     var body: some View {
         let store = model.photoAccess
         let access = store.access
-        VStack(alignment: .leading, spacing: DDSpace.xl) {
+        VStack(alignment: .leading, spacing: LZSpace.xl) {
             IconBadge("photo.on.rectangle.angled", tone: .accent, size: 56)
-            VStack(alignment: .leading, spacing: DDSpace.sm) {
-                Text(OnboardingCopy.photosTitle).ddText(.displaySmall).foregroundStyle(.dd(.ink))
+            VStack(alignment: .leading, spacing: LZSpace.sm) {
+                Text(OnboardingCopy.photosTitle).lzText(.displaySmall).foregroundStyle(.lz(.ink))
                 Text(access.canAsk ? OnboardingCopy.photosBody : OnboardingCopy.photosBodyDecided)
-                    .ddText(.body)
-                    .foregroundStyle(.dd(.muted))
+                    .lzText(.body)
+                    .foregroundStyle(.lz(.muted))
             }
             PaperCard {
-                VStack(alignment: .leading, spacing: DDSpace.sm) {
+                VStack(alignment: .leading, spacing: LZSpace.sm) {
                     ForEach(points(for: access), id: \.text) { point in
                         Label {
                             Text(point.text)
                         } icon: {
                             Image(systemName: point.symbol).frame(width: glyphWidth)
                         }
-                        .ddText(.subheadline)
-                        .foregroundStyle(.dd(.ink))
+                        .lzText(.subheadline)
+                        .foregroundStyle(.lz(.ink))
                     }
                 }
             }
