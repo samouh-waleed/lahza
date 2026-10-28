@@ -22,7 +22,7 @@ SIM_MEDIA = $(HOME)/Library/Developer/CoreSimulator/Devices/$(SIM_UDID)/data/Med
 SIM_SAMPLES := 6
 SEED_DIR := .build/seed
 
-.PHONY: help project build test test-kit test-app perf-kit run devices device gazetteer seed-photos sim-reset grant-photos probe-photos clean
+.PHONY: help project build test test-kit test-app perf-kit run devices device gazetteer seed-photos sim-reset grant-photos probe-photos verify-search clean
 
 help:
 	@echo 'make project   regenerate Lahza.xcodeproj from project.yml'
@@ -36,6 +36,7 @@ help:
 	@echo 'make seed-photos   add the 557-item hero seed library to the simulator'"'"'s Photos (once; FORCE=1 adds it again)'
 	@echo 'make grant-photos  give Lahza full photo access on the simulator'
 	@echo 'make probe-photos  check what PhotoKit kept of the seed library and print its PROBE facts (seeded simulator, after grant-photos)'
+	@echo 'make verify-search build the search index from the seeded simulator'"'"'s real PhotoKit and check it against the scenario'
 	@echo 'make sim-reset CONFIRM=1   DESTRUCTIVE: erases the simulator (every app, photo and setting on it)'
 
 project:            ## Regenerate Lahza.xcodeproj from project.yml
@@ -113,6 +114,12 @@ probe-photos: project  ## PhotoKitProbeTests on the seeded simulator: what the i
 	set -o pipefail && TEST_RUNNER_LZ_SEEDED_LIBRARY=1 $(XCB) test -only-testing:LahzaTests/PhotoKitProbeTests -collect-test-diagnostics never \
 		| tee .build/probe-photos.log | xcbeautify --quiet --is-ci --preserve-unbeautified | grep -v -e IDESchemeActionSDKRecord -e IDETestOperationsObserverDebug; \
 		status=$$?; grep '^PROBE ' .build/probe-photos.log; exit $$status
+
+verify-search: project grant-photos  ## SeededLibraryTests on the seeded simulator: the index of real PhotoKit, then its SEEDED lines
+	@mkdir -p .build
+	set -o pipefail && TEST_RUNNER_LZ_SEEDED_LIBRARY=1 $(XCB) test -only-testing:LahzaTests/SeededLibraryTests -collect-test-diagnostics never \
+		| tee .build/verify-search.log | xcbeautify --quiet --is-ci --preserve-unbeautified | grep -v -e IDESchemeActionSDKRecord -e IDETestOperationsObserverDebug; \
+		status=$$?; grep '^SEEDED ' .build/verify-search.log; exit $$status
 
 clean:
 	rm -rf .build $(KIT)/.build

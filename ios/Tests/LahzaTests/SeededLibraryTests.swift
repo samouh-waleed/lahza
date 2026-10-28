@@ -9,8 +9,8 @@ import Testing
 /// home base the hero scenario promises, with the seed's fake Apple Maps and Riyadh as the device zone, into a
 /// temporary folder. Opt-in, like the probe:
 ///
-///     make sim-reset CONFIRM=1 && make seed-photos && make grant-photos
-///     TEST_RUNNER_LZ_SEEDED_LIBRARY=1 make test-app
+///     make sim-reset CONFIRM=1 && make seed-photos
+///     make verify-search
 @MainActor @Suite(.enabled(if: ProcessInfo.processInfo.environment["LZ_SEEDED_LIBRARY"] == "1", "needs a seeded simulator: LZ_SEEDED_LIBRARY=1"))
 struct SeededLibraryTests {
     private let scenario = SeedScenario.hero
