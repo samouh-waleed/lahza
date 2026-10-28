@@ -56,14 +56,27 @@ import Testing
         let again = SeedScenario(.hero)
         #expect(again.items == hero.items)
         #expect(again.trips == hero.trips)
-        // Pinned, so a change of jitter, order or zone data shows up here first.
+        // Pinned, so a change of jitter, seed, order or zone data shows up here first: a simulator seeded
+        // from the old render would no longer match (reseed it with make sim-reset CONFIRM=1 seed-photos).
         let first = hero.items[0]
         #expect(first.tag == .london)
         #expect(first.localDateTime == "2021-12-30T14:00:00")
         #expect(first.utc == 1_640_872_800)
+        #expect(first.coordinate == Coordinate(latitude: 51.507941, longitude: -0.168331))
+        let park = hero.items(.nakheel)[0]
+        #expect(park.id == "seed/0198")
+        #expect(park.coordinate == Coordinate(latitude: 24.760028, longitude: 46.644105))
         let last = hero.items[556]
         #expect(last.tag == .home)
         #expect(last.localDateTime == "2026-10-14T21:50:00")
+        #expect(last.coordinate == Coordinate(latitude: 24.747942, longitude: 46.632977))
+        // Every row's id, second and position (FNV-1a).
+        var digest: UInt64 = 0xCBF2_9CE4_8422_2325
+        for item in hero.items {
+            let row = "\(item.id) \(item.utc.map(String.init) ?? "-") \(item.coordinate.map { "\($0.latitude) \($0.longitude)" } ?? "-")\n"
+            for byte in row.utf8 { digest = (digest ^ UInt64(byte)) &* 0x100_0000_01B3 }
+        }
+        #expect(digest == 0xA72B_09C7_0180_EED3)
     }
 
     // MARK: Invariants

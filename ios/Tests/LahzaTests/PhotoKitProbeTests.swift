@@ -24,8 +24,9 @@ struct PhotoKitProbeTests {
         return assets.withLock { $0 }
     }
 
+    /// UTC seconds, rounded down as the rest of the kit does (LocalTime, the census).
     private func second(_ date: Date?) -> Int64? {
-        date.map { Int64($0.timeIntervalSince1970.rounded()) }
+        date.map { Int64($0.timeIntervalSince1970.rounded(.down)) }
     }
 
     @Test func theSeedLibraryImportedAsRecorded() async throws {

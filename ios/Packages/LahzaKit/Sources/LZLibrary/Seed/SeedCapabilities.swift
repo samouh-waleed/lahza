@@ -30,7 +30,7 @@ public struct SeedCapabilities: Sendable, Hashable {
 
     public struct Sample: Sendable, Hashable {
         public var isVideo: Bool
-        /// Creation date in UTC seconds.
+        /// Creation date in UTC seconds, rounded down like the rest of the kit (some samples have fractional seconds).
         public var utc: Int64?
         public var isLocated: Bool
         public var pixelWidth: Int
@@ -69,8 +69,8 @@ public struct SeedCapabilities: Sendable, Hashable {
         builtInSamples: [
             Sample(isVideo: false, utc: 1_255_122_560, isLocated: false, pixelWidth: 4288, pixelHeight: 2848),
             Sample(isVideo: false, utc: 1_299_975_445, isLocated: true, pixelWidth: 4288, pixelHeight: 2848),
-            Sample(isVideo: false, utc: 1_344_451_932, isLocated: true, pixelWidth: 3000, pixelHeight: 2002),
-            Sample(isVideo: false, utc: 1_344_461_390, isLocated: true, pixelWidth: 1668, pixelHeight: 2500),
+            Sample(isVideo: false, utc: 1_344_451_931, isLocated: true, pixelWidth: 3000, pixelHeight: 2002),
+            Sample(isVideo: false, utc: 1_344_461_389, isLocated: true, pixelWidth: 1668, pixelHeight: 2500),
             Sample(isVideo: false, utc: 1_344_462_930, isLocated: true, pixelWidth: 3000, pixelHeight: 2002),
             Sample(isVideo: false, utc: 1_522_437_259, isLocated: true, pixelWidth: 4032, pixelHeight: 3024),
         ]
