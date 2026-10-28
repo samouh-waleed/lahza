@@ -11,6 +11,7 @@ let package = Package(
         .library(name: "DDCore", targets: ["DDCore"]),
         .library(name: "DDBilling", targets: ["DDBilling"]),
         .library(name: "DDDesign", targets: ["DDDesign"]),
+        .library(name: "LZLibrary", targets: ["LZLibrary"]),
     ],
     dependencies: [
         .package(url: "https://github.com/RevenueCat/purchases-ios-spm.git", from: "5.91.0"),
@@ -26,9 +27,13 @@ let package = Package(
             dependencies: ["DDCore"],
             swiftSettings: [.defaultIsolation(MainActor.self)]
         ),
+        // Photo library access: the PhotoKit client (live and fake) and the access store; the library census for
+        // Phase 0 spike S2 (facts, summariser, sources live and fake, runner), whose screen exists only in DEBUG builds.
+        .target(name: "LZLibrary", dependencies: ["DDCore"]),
 
         .testTarget(name: "DDCoreTests", dependencies: ["DDCore"]),
         .testTarget(name: "DDBillingTests", dependencies: ["DDBilling"]),
         .testTarget(name: "DDDesignTests", dependencies: ["DDDesign"]),
+        .testTarget(name: "LZLibraryTests", dependencies: ["LZLibrary"]),
     ]
 )

@@ -21,6 +21,10 @@ struct SettingsHomeScreen: View {
                 group("PLAN") {
                     row(BillingCopy.plusName, "sparkles", .subscription, value: model.entitlement.isUnlocked ? "Active" : "Free")
                 }
+                group("LIBRARY") {
+                    row(PhotoAccessCopy.screenTitle, "photo.on.rectangle", .photoAccess, value: PhotoAccessCopy.status(model.photoAccess.access))
+                        .accessibilityIdentifier("settings-photo-access")
+                }
                 group("APP") {
                     row("Appearance", "circle.lefthalf.filled", .appearance)
                     row("Revisit welcome", "arrow.counterclockwise", .onboarding)
@@ -34,6 +38,8 @@ struct SettingsHomeScreen: View {
                     DDToggleRow("Sample store prices", subtitle: "Fake store, nothing is charged. Restart Lahza to apply.",
                                 systemImage: "hammer", isOn: $sampleStorePrices)
                         .accessibilityIdentifier("developer-sample-prices")
+                    row(LibraryCensusCopy.screenTitle, "chart.bar.doc.horizontal", .libraryCensus)
+                        .accessibilityIdentifier("developer-library-census")
                 }
                 #endif
                 if let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String {

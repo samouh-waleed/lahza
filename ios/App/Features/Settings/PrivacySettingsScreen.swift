@@ -9,7 +9,7 @@ struct PrivacySettingsScreen: View {
         Form {
             Section("Your photos") {
                 Text("Your photos never leave this iPhone.").font(.headline)
-                Text("When library search arrives, Lahza will read your photo library on this device to build its search index. The index, and anything Lahza learns about your photos, will be stored only here, excluded from backups, and deletable from Settings.")
+                Text("With the access you choose, Lahza reads your photo library on this device, never your Hidden album. When search arrives, Lahza will build its search index here too. The index, and anything Lahza learns about your photos, will be stored only here, excluded from backups, and deletable from Settings.")
                 Text("There’s no account, no Lahza server, no ads and no tracking.")
             }
             Section("What leaves the device") {

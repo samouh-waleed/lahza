@@ -2,6 +2,7 @@ import DDBilling
 import DDCore
 import DDDesign
 import Foundation
+import LZLibrary
 import Observation
 import SwiftUI
 
@@ -14,7 +15,8 @@ nonisolated enum RootScreen: Hashable, Sendable {
 }
 
 /// The composition root: builds the services, decides the root screen, opens every route and
-/// follows the scene phase. Injected through the environment (`@Environment(AppModel.self)`).
+/// follows the scene phase (re-reading photo access whenever Lahza returns to the foreground).
+/// Injected through the environment (`@Environment(AppModel.self)`).
 @MainActor @Observable final class AppModel {
     /// The app's one model (built from ``AppDependencies/resolve()``).
     static let shared = AppModel(dependencies: .resolve())
@@ -26,12 +28,22 @@ nonisolated enum RootScreen: Hashable, Sendable {
     @ObservationIgnored let preferences: AppPreferences
     @ObservationIgnored let purchases: PurchasesService
     let entitlement: EntitlementStore
+    let photoAccess: PhotoAccessStore
+    #if DEBUG
+    /// DEBUG: Settings › Developer › Library census (Phase 0 spike S2). It lives here so a run
+    /// carries on when its screen is left.
+    @ObservationIgnored let censusRunner: CensusRunner
+    #endif
 
     private(set) var isReady = false
     private(set) var onboardingCompleted: Bool
     private(set) var appearance: AppearanceMode
     private(set) var scenePhase: ScenePhase = .inactive
 
+    /// The latest photo-access refresh (tests await it).
+    @ObservationIgnored private(set) var photoRefresh: Task<Void, Never>?
+    /// The scene went to the background since it was last active (a trip to iPhone Settings does).
+    @ObservationIgnored private var leftForBackground = false
     @ObservationIgnored private let log = Log("shell")
 
     init(dependencies: AppDependencies) {
@@ -39,6 +51,10 @@ nonisolated enum RootScreen: Hashable, Sendable {
         preferences = AppPreferences(kv: dependencies.kv)
         purchases = dependencies.makePurchasesService()
         entitlement = EntitlementStore(kv: dependencies.kv, entitlementIdentifier: dependencies.billingEnvironment.entitlementIdentifier)
+        photoAccess = PhotoAccessStore(client: dependencies.photoLibrary)
+        #if DEBUG
+        censusRunner = CensusRunner(source: dependencies.censusSource)
+        #endif
         onboardingCompleted = preferences.onboardingCompleted
         appearance = preferences.appearance
         if dependencies.autoBoot { start() }
@@ -57,12 +73,15 @@ nonisolated enum RootScreen: Hashable, Sendable {
     // MARK: Launch
 
     /// Launch: preferences are read in `init`; billing starts in the background so it never holds
-    /// the first screen (free search works without it).
+    /// the first screen (free search works without it). Photo access is read and counted in the
+    /// background too, and never asked for here.
     func start() {
         guard !isReady else { return }
         log.info("Launch (\(dependencies.label))", privacy: .public)
         isReady = true
         Task { await entitlement.start(with: purchases) }
+        photoAccess.start()
+        refreshPhotoAccess()
         if let route = dependencies.initialRoute { open(route) }
     }
 
@@ -90,6 +109,30 @@ nonisolated enum RootScreen: Hashable, Sendable {
         router.dismissModals { $0.route == .onboarding }
     }
 
+    /// Onboarding's last step: the iOS photo prompt when access is undecided, then the tabs whatever
+    /// the answer (Lahza works without access and points to Settings). Already decided, it finishes
+    /// without asking.
+    func finishOnboarding() async {
+        await photoAccess.request()
+        completeOnboarding()
+    }
+
+    // MARK: Photo library
+
+    /// Re-reads photo access and recounts, in the background.
+    @discardableResult
+    func refreshPhotoAccess() -> Task<Void, Never> {
+        let task = Task { await photoAccess.refresh() }
+        photoRefresh = task
+        return task
+    }
+
+    /// The system picker for the limited selection, then a recount.
+    func chooseLimitedPhotos() async {
+        await dependencies.presentLimitedLibraryPicker()
+        await photoAccess.refresh()
+    }
+
     // MARK: Settings
 
     func setAppearance(_ mode: AppearanceMode) {
@@ -101,6 +144,21 @@ nonisolated enum RootScreen: Hashable, Sendable {
 
     func scenePhaseChanged(_ phase: ScenePhase) {
         scenePhase = phase
+        switch phase {
+        case .background:
+            leftForBackground = true
+            #if DEBUG
+            censusRunner.appLeftForeground()
+            #endif
+        case .active where leftForBackground:
+            // People change photo access in iPhone Settings; Lahza is not told, so it re-reads on
+            // return. Brief blips (the iOS prompt, Control Center) never leave the app, and launch
+            // has already counted, so neither recounts.
+            leftForBackground = false
+            refreshPhotoAccess()
+        default:
+            break
+        }
     }
 
     // MARK: Billing
