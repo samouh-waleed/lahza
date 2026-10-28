@@ -2,8 +2,8 @@ import LZDesign
 import LZLibrary
 import SwiftUI
 
-/// A square thumbnail of one library item, from what the iPhone holds (network off). A sweep while it loads; a
-/// cloud glyph when the photo is only in iCloud, a photo glyph when it can't be read.
+/// A thumbnail of one library item, cropped to fill, from what the iPhone holds (network off). A sweep while it
+/// loads; a cloud glyph when the photo is only in iCloud, a photo glyph when it can't be read.
 struct AssetThumbnail: View {
     let localID: String
     /// A fixed square side in points, or nil to fill the space offered (a grid cell adds `.aspectRatio(1, ...)`).

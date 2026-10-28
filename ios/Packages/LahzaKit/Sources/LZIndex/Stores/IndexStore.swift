@@ -373,7 +373,10 @@ import Observation
 
     /// Cancels the running pass; the next time naming may run, it starts again whatever the version.
     private func stopPlaceNames() {
-        if placeNamesTask != nil { placeNamesVersion = -1 }
+        if placeNamesTask != nil {
+            placeNamesVersion = -1
+            log.info("Place names stopped\(sceneActive ? "" : ": Lahza is in the background")", privacy: .public)
+        }
         placeNamesTask?.cancel()
         placeNamesTask = nil
         placeNamesRun += 1

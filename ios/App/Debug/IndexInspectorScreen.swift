@@ -55,7 +55,7 @@ struct IndexInspectorScreen: View {
                 }
                 Section("Home bases") {
                     ForEach(data.homeBases, id: \.year) { home in
-                        LabeledContent("\(home.year)", value: "\(IndexInspectorCopy.homeSource(home.source)) · \(home.nights) nights · \(home.countryCode ?? "–") · \(home.timeZone ?? "–")")
+                        LabeledContent(String(home.year), value: "\(IndexInspectorCopy.homeSource(home.source)) · \(home.nights) nights · \(home.countryCode ?? "–") · \(home.timeZone ?? "–")")
                     }
                 }
                 Section("Trips") {
