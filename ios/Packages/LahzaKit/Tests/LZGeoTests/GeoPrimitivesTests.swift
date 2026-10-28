@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import LZGeo
 
-/// Geohash cells, name folding, country names, category radii and the scripted Maps client.
+/// Geohash cells, name folding, country names, category radii, the scripted Maps client and the Maps search timeout.
 @Suite struct GeoPrimitivesTests {
     // MARK: Coordinate
 
@@ -164,5 +164,42 @@ import Testing
         maps.setFailure(nil)
         #expect(try await maps.search("paris", near: GeoRegion(center: Coordinate(latitude: 24.7, longitude: 46.7), spanDegrees: 4)).count == 1)
         #expect(maps.calls.count == 5)
+    }
+
+    // MARK: Search timeout
+
+    /// `value` after `seconds`, cancelled or not, like MapKit's calls bridged from completion handlers.
+    private static func ignoringCancellation(_ value: Int, after seconds: Double) async -> Int {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global().asyncAfter(deadline: .now() + seconds) { continuation.resume(returning: value) }
+        }
+    }
+
+    @Test func firstOfReturnsTheResultOrTimesOut() async throws {
+        let clock = ContinuousClock()
+        let timeout = MapsError.other("timeout")
+        var start = clock.now
+        #expect(try await firstOf(timeout: .seconds(10), orThrow: timeout) { 7 } == 7)
+        #expect(clock.now - start < .seconds(1), "doesn't wait for the timer")
+        await #expect(throws: MapsError.notFound) {
+            try await firstOf(timeout: .seconds(10), orThrow: timeout) { () async throws -> Int in throw MapsError.notFound }
+        }
+        start = clock.now
+        await #expect(throws: timeout) {
+            try await firstOf(timeout: .milliseconds(50), orThrow: timeout) { await Self.ignoringCancellation(7, after: 2) }
+        }
+        #expect(clock.now - start < .seconds(1.5), "doesn't wait for an operation that ignores cancellation")
+    }
+
+    @Test func firstOfStopsWaitingWhenTheCallerIsCancelled() async throws {
+        let clock = ContinuousClock()
+        let start = clock.now
+        let search = Task {
+            try await firstOf(timeout: .seconds(10), orThrow: MapsError.other("timeout")) { await Self.ignoringCancellation(7, after: 2) }
+        }
+        try await Task.sleep(for: .milliseconds(50))
+        search.cancel()
+        await #expect(throws: CancellationError.self) { try await search.value }
+        #expect(clock.now - start < .seconds(1.5))
     }
 }

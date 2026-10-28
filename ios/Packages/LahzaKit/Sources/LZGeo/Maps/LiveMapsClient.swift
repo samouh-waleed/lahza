@@ -1,7 +1,6 @@
 #if canImport(MapKit) && os(iOS)
 import Foundation
 import MapKit
-import Synchronization
 
 /// ``MapsClient`` over MapKit. Every MapKit object is created and read on the main actor; only the
 /// plain values cross back. Needs no account or key.
@@ -37,7 +36,7 @@ public struct LiveMapsClient: MapsClient {
 
     public func search(_ text: String, near region: GeoRegion?) async throws(MapsError) -> [MapPlace] {
         do {
-            return try await Self.firstOf(timeout: searchTimeout) { try await Self.search(text, near: region) }
+            return try await firstOf(timeout: searchTimeout, orThrow: MapsError.other("timeout")) { try await Self.search(text, near: region) }
         } catch {
             throw Self.mapsError(error)
         }
@@ -150,7 +149,7 @@ public struct LiveMapsClient: MapsClient {
         return center.distance(to: corner)
     }
 
-    // MARK: Errors and timeout
+    // MARK: Errors
 
     static func mapsError(_ error: any Error) -> MapsError {
         if let error = error as? MapsError { return error }
@@ -173,38 +172,6 @@ public struct LiveMapsClient: MapsClient {
     }
 
     private static let offlineCodes: Set<Int> = [NSURLErrorNotConnectedToInternet, NSURLErrorNetworkConnectionLost]
-
-    /// The operation's result, or `.other("timeout")` after `timeout`, whichever comes first (MapKit's
-    /// search may ignore cancellation, so this doesn't wait for it to finish).
-    private static func firstOf<T: Sendable>(timeout: Duration, _ operation: @escaping @Sendable () async throws -> T) async throws -> T {
-        let once = Once()
-        return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<T, any Error>) in
-            Task {
-                do {
-                    let value = try await operation()
-                    if once.claim() { continuation.resume(returning: value) }
-                } catch {
-                    if once.claim() { continuation.resume(throwing: error) }
-                }
-            }
-            Task {
-                try? await Task.sleep(for: timeout)
-                if once.claim() { continuation.resume(throwing: MapsError.other("timeout")) }
-            }
-        }
-    }
-}
-
-/// True for the first caller only.
-private final class Once: Sendable {
-    private let claimed = Mutex(false)
-
-    func claim() -> Bool {
-        claimed.withLock { claimed in
-            defer { claimed = true }
-            return !claimed
-        }
-    }
 }
 
 extension CLLocationCoordinate2D {

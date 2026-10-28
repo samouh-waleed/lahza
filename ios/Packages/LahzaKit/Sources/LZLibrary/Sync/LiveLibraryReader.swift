@@ -10,7 +10,9 @@ import Synchronization
 /// ``LibraryReaderError/noAccess`` without it. Scans run off the main actor in batches inside
 /// autorelease pools, read metadata only (no image data, no filenames, no network), and check for
 /// cancellation between batches. Changes come from PhotoKit's persistent history, so they survive
-/// relaunches; the availability observer is registered only once access is readable.
+/// relaunches. The availability observer is registered the first time ``access()`` finds access readable;
+/// every scan, re-read and ``availability()`` asks it, so a stream subscribed before the grant starts
+/// hearing once the reader is used after it.
 public final class LiveLibraryReader: LibraryReader {
     private static let idChunk = 500
 
@@ -24,7 +26,9 @@ public final class LiveLibraryReader: LibraryReader {
     }
 
     public func access() -> PhotoAccess {
-        PhotoAccess(PHPhotoLibrary.authorizationStatus(for: .readWrite))
+        let access = PhotoAccess(PHPhotoLibrary.authorizationStatus(for: .readWrite))
+        if access.canRead { observer.registerOnce() }
+        return access
     }
 
     public func currentToken() throws -> LibraryToken {
@@ -103,7 +107,7 @@ public final class LiveLibraryReader: LibraryReader {
 
     public func availability() -> AsyncStream<LibraryAvailability> {
         let stream = observer.subscribe()
-        if access().canRead { observer.registerOnce() }
+        _ = access() // registers the observer when access is already readable
         return stream
     }
 
