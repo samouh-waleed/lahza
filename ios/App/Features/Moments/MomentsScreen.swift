@@ -89,13 +89,15 @@ private struct MomentsList: View {
     let stillReading: Bool
     @Environment(AppModel.self) private var model
     @State private var selectedYear: Int?
+    /// The section the year strip asked for, scrolled to once its rows are laid out.
+    @State private var scrollTarget: MomentsStore.MonthSection.ID?
 
     var body: some View {
         let store = model.moments
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
-                    header(store: store, proxy: proxy)
+                    header(store: store)
                     switch store.mode {
                     case .moments: moments(store)
                     case .trips: trips(store)
@@ -105,12 +107,17 @@ private struct MomentsList: View {
                 .padding(.bottom, LZSpace.xl)
             }
             .scrollIndicators(.visible)
+            .onChange(of: scrollTarget) { _, target in
+                guard let target else { return }
+                withAnimation(.snappy) { proxy.scrollTo(target, anchor: .top) }
+                scrollTarget = nil
+            }
         }
     }
 
     // MARK: Header
 
-    private func header(store: MomentsStore, proxy: ScrollViewProxy) -> some View {
+    private func header(store: MomentsStore) -> some View {
         VStack(alignment: .leading, spacing: LZSpace.lg) {
             Text(MomentCopy.intro).lzText(.body).foregroundStyle(.lz(.muted))
             LZSegmented(MomentCopy.modeLabel,
@@ -119,7 +126,7 @@ private struct MomentsList: View {
                         selection: Binding(get: { store.mode }, set: { store.mode = $0 }))
                 .accessibilityIdentifier("moments-mode")
             if store.mode == .moments, store.years.count > 1 {
-                yearStrip(store: store, proxy: proxy)
+                yearStrip(store: store)
             }
             if stillReading {
                 Label(MomentCopy.stillReading, systemImage: "photo.stack")
@@ -131,12 +138,12 @@ private struct MomentsList: View {
         .padding(.bottom, LZSpace.sm)
     }
 
-    private func yearStrip(store: MomentsStore, proxy: ScrollViewProxy) -> some View {
+    private func yearStrip(store: MomentsStore) -> some View {
         ScrollView(.horizontal) {
             HStack(spacing: LZSpace.sm) {
                 ForEach(store.years) { year in
                     Button {
-                        jump(to: year.year, store: store, proxy: proxy)
+                        jump(to: year.year, store: store)
                     } label: {
                         Pill(MomentCopy.yearPill(year: year.year, moments: year.moments), tone: selectedYear == year.year ? .accent : .neutral)
                             .lzHitTarget()
@@ -154,12 +161,10 @@ private struct MomentsList: View {
         .accessibilityLabel(MomentCopy.yearsLabel)
     }
 
-    private func jump(to year: Int, store: MomentsStore, proxy: ScrollViewProxy) {
+    /// Loads pages until the year has a section (an older year may need several), then scrolls to it.
+    private func jump(to year: Int, store: MomentsStore) {
         selectedYear = year
-        Task {
-            guard let section = await store.loadThrough(year: year) else { return }
-            withAnimation(.snappy) { proxy.scrollTo(section, anchor: .top) }
-        }
+        Task { scrollTarget = await store.loadThrough(year: year) }
     }
 
     // MARK: Moments
@@ -213,13 +218,10 @@ private struct MonthHeader: View {
     let section: MomentsStore.MonthSection
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: LZSpace.sm) {
-            Text(MomentCopy.monthTitle(year: section.year, month: section.month))
-                .lzText(.headline)
-                .foregroundStyle(.lz(.ink))
-            Text(MomentCopy.count(section.total, "moment"))
-                .lzText(.caption)
-                .foregroundStyle(.lz(.muted))
+        // The count goes under the month when both don't fit on one line.
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .firstTextBaseline, spacing: LZSpace.sm) { title; count }
+            VStack(alignment: .leading, spacing: LZSpace.xxs) { title; count }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.top, LZSpace.lg)
@@ -228,6 +230,18 @@ private struct MonthHeader: View {
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isHeader)
         .accessibilityLabel(MomentCopy.monthHeader(year: section.year, month: section.month, moments: section.total))
+    }
+
+    private var title: some View {
+        Text(MomentCopy.monthTitle(year: section.year, month: section.month))
+            .lzText(.headline)
+            .foregroundStyle(.lz(.ink))
+    }
+
+    private var count: some View {
+        Text(MomentCopy.count(section.total, "moment"))
+            .lzText(.caption)
+            .foregroundStyle(.lz(.muted))
     }
 }
 

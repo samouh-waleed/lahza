@@ -7,7 +7,7 @@ import SwiftUI
 struct MomentListRow: View {
     let moment: MomentRow
     var trip: TripRow?
-    /// The first line: the day ("Sat 22 Aug"), or the time span under a day heading.
+    /// The first line: the day ("Sat 22 Aug"), or the start time under a day heading.
     var title: String?
     let action: () -> Void
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize

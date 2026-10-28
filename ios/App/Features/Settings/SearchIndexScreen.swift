@@ -43,8 +43,19 @@ struct SearchIndexScreen: View {
                             confirmRebuild = true
                         }
                         .accessibilityIdentifier("search-index-rebuild")
+                        // Each confirmation hangs off its own button, so its popover points at it.
+                        .confirmationDialog(IndexCopy.rebuildTitle, isPresented: $confirmRebuild, titleVisibility: .visible) {
+                            Button(IndexCopy.rebuild) { Task { await index.rebuild() } }
+                        } message: {
+                            Text(IndexCopy.rebuildMessage)
+                        }
                         LZButton(IndexCopy.delete, systemImage: "trash", role: .destructive, fullWidth: true) { confirmDelete = true }
                             .accessibilityIdentifier("search-index-delete")
+                            .confirmationDialog(IndexCopy.deleteTitle, isPresented: $confirmDelete, titleVisibility: .visible) {
+                                Button(IndexCopy.delete, role: .destructive) { Task { await index.deleteIndex() } }
+                            } message: {
+                                Text(IndexCopy.deleteMessage)
+                            }
                     }
                     Text(IndexCopy.footer)
                         .lzText(.caption)
@@ -60,16 +71,6 @@ struct SearchIndexScreen: View {
         .navigationBarTitleDisplayMode(.inline)
         .accessibilityIdentifier("search-index")
         .task(id: status.version) { sizeBytes = try? await index.reader?.sizeBytes() }
-        .confirmationDialog(IndexCopy.rebuildTitle, isPresented: $confirmRebuild, titleVisibility: .visible) {
-            Button(IndexCopy.rebuild) { Task { await index.rebuild() } }
-        } message: {
-            Text(IndexCopy.rebuildMessage)
-        }
-        .confirmationDialog(IndexCopy.deleteTitle, isPresented: $confirmDelete, titleVisibility: .visible) {
-            Button(IndexCopy.delete, role: .destructive) { Task { await index.deleteIndex() } }
-        } message: {
-            Text(IndexCopy.deleteMessage)
-        }
     }
 
     private func group<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {

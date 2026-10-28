@@ -50,7 +50,8 @@ struct LibrarySummaryCard: View {
                 Text(AskCopy.summaryEyebrow)
                     .lzText(.label)
                     .foregroundStyle(.lz(.muted))
-                HStack(alignment: .firstTextBaseline, spacing: LZSpace.sm) {
+                // The noun goes under the number at accessibility text sizes.
+                LZAdaptiveStack(spacing: LZSpace.sm, verticalAlignment: .firstTextBaseline) {
                     LZNumeral(summary.assets.formatted(), role: .numeral)
                         .foregroundStyle(.lz(.ink))
                     Text(AskCopy.assetsNoun(summary.assets, isLimited: isLimited))

@@ -155,7 +155,7 @@ struct TripDetailScreen: View {
                     ForEach(days, id: \.day) { day in
                         Section {
                             ForEach(day.moments) { moment in
-                                MomentListRow(moment: moment, title: MomentCopy.timeSpan(moment)) {
+                                MomentListRow(moment: moment, title: MomentCopy.startTime(moment)) {
                                     model.open(.moment(MomentRef(key: moment.key, origin: ref.origin)))
                                 }
                             }

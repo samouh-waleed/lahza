@@ -109,6 +109,12 @@ nonisolated enum MomentCopy {
         return (start..<end).formatted(style)
     }
 
+    /// "10:00 AM": when the moment started, in its own local time (a trip's rows, under their day).
+    static func startTime(_ moment: MomentRow, locale: Locale = .autoupdatingCurrent) -> String {
+        Date(timeIntervalSince1970: TimeInterval(moment.startWall))
+            .formatted(Date.FormatStyle(date: .omitted, time: .shortened, locale: locale, calendar: utcCalendar, timeZone: .gmt))
+    }
+
     /// "Athens time" when the moment's zone was on another offset than this iPhone's, else nil.
     static func zoneNote(_ moment: MomentRow, deviceZone: TimeZone) -> String? {
         guard let identifier = moment.timeZone, let zone = TimeZone(identifier: identifier) else { return nil }
