@@ -3,12 +3,9 @@ import Synchronization
 
 /// Small synchronous string key-value storage.
 ///
-/// Values are raw strings: JSON text for structured values (use ``json(forKey:)`` /
-/// ``setJSON(_:forKey:)``), plain strings for a few rows. Never secrets (Keychain) and never the
-/// corpus. Implementations must be thread-safe.
-///
-/// Keys are compared by code units, like `UserDefaults` (literal `NSString` comparison), never by
-/// Unicode canonical equivalence.
+/// Values are raw strings: JSON text for structured values (use ``value(_:forKey:)`` /
+/// ``setValue(_:forKey:)``), plain strings for a few rows. Never secrets (Keychain) and never the
+/// corpus. Implementations must be thread-safe. Keys are built with ``KVKey``.
 public protocol KeyValueStore: Sendable {
     /// The stored string, or nil.
     func string(forKey key: String) -> String?
@@ -16,35 +13,26 @@ public protocol KeyValueStore: Sendable {
     func setString(_ value: String, forKey key: String)
     /// Removes a key (no-op when absent).
     func removeValue(forKey key: String)
-    /// Every stored key that starts with `prefix`, compared by code units like JS `startsWith`.
+    /// Every stored key that starts with `prefix`, sorted.
     func keys(withPrefix prefix: String) -> [String]
 }
 
 extension KeyValueStore {
-    /// The stored JSON parsed, or nil when missing or unparseable. A stored `null` comes back as
-    /// `.null`.
-    public func json(forKey key: String) -> JSONValue? {
-        guard let raw = string(forKey: key) else { return nil }
-        return try? JSONValue.parse(raw)
-    }
-
-    /// Stores `JSON.stringify(value)`.
-    public func setJSON(_ value: JSONValue, forKey key: String) {
-        setString(value.jsStringify(), forKey: key)
-    }
-
-    /// Decodes the stored JSON as `T`; nil when missing, unparseable or mismatched.
+    /// Decodes the stored JSON as `T` with `JSONDecoder`; nil when missing, unparseable or
+    /// mismatched.
     public func value<T: Decodable>(_ type: T.Type, forKey key: String) -> T? {
-        guard let json = json(forKey: key) else { return nil }
-        return try? JSONValueDecoder().decode(type, from: json)
+        guard let raw = string(forKey: key) else { return nil }
+        return try? JSONDecoder().decode(type, from: Data(raw.utf8))
     }
 
-    /// Encodes with ``JSONValueEncoder`` and stores the JS-exact JSON. Returns false
-    /// (and writes nothing) when encoding throws.
+    /// Encodes with `JSONEncoder` (sorted keys, slashes unescaped, so equal values store equal
+    /// text) and stores the JSON. Returns false (and writes nothing) when encoding throws.
     @discardableResult
     public func setValue<T: Encodable>(_ value: T, forKey key: String) -> Bool {
-        guard let json = try? JSONValueEncoder().encode(value) else { return false }
-        setJSON(json, forKey: key)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+        guard let data = try? encoder.encode(value) else { return false }
+        setString(String(decoding: data, as: UTF8.self), forKey: key)
         return true
     }
 
@@ -85,52 +73,28 @@ public struct UserDefaultsKeyValueStore: KeyValueStore {
     public func removeValue(forKey key: String) { defaults.removeObject(forKey: key) }
 
     public func keys(withPrefix prefix: String) -> [String] {
-        storedKeys().filter { jsStringHasPrefix($0, prefix) }.sorted(by: jsStringLess)
-    }
-
-    /// Every key visible through these defaults. The Swift `dictionaryRepresentation()` bridges
-    /// eagerly into a `[String: Any]`, which merges keys that are canonically equivalent (NFC and
-    /// NFD spellings) and drops one at random, so the Objective-C dictionary's key array is read
-    /// instead and each key is bridged on its own.
-    private func storedKeys() -> [String] {
-        let selector = NSSelectorFromString("dictionaryRepresentation")
-        if defaults.responds(to: selector),
-           let dictionary = defaults.perform(selector)?.takeUnretainedValue() as? NSDictionary {
-            return dictionary.allKeys.compactMap { $0 as? String }
-        }
-        return Array(defaults.dictionaryRepresentation().keys)
+        defaults.dictionaryRepresentation().keys.filter { $0.hasPrefix(prefix) }.sorted()
     }
 }
 
-/// Thread-safe in-memory store for tests and previews. Keys are code-unit exact, like `UserDefaults`.
+/// Thread-safe in-memory store for tests and previews.
 public final class InMemoryKeyValueStore: KeyValueStore {
-    private let storage: Mutex<[JSStringKey: String]>
+    private let storage: Mutex<[String: String]>
 
     public init(_ initial: [String: String] = [:]) {
-        var rows: [JSStringKey: String] = [:]
-        for (key, value) in initial { rows[JSStringKey(key)] = value }
-        storage = Mutex(rows)
+        storage = Mutex(initial)
     }
 
-    public func string(forKey key: String) -> String? { storage.withLock { $0[JSStringKey(key)] } }
-    public func setString(_ value: String, forKey key: String) { storage.withLock { $0[JSStringKey(key)] = value } }
-    public func removeValue(forKey key: String) { _ = storage.withLock { $0.removeValue(forKey: JSStringKey(key)) } }
+    public func string(forKey key: String) -> String? { storage.withLock { $0[key] } }
+    public func setString(_ value: String, forKey key: String) { storage.withLock { $0[key] = value } }
+    public func removeValue(forKey key: String) { _ = storage.withLock { $0.removeValue(forKey: key) } }
 
     public func keys(withPrefix prefix: String) -> [String] {
-        storage.withLock { rows in
-            rows.keys.map(\.string).filter { jsStringHasPrefix($0, prefix) }.sorted(by: jsStringLess)
-        }
+        storage.withLock { rows in rows.keys.filter { $0.hasPrefix(prefix) }.sorted() }
     }
 
-    /// Every stored pair (tests). Keys that differ only by Unicode normalization collapse in a
-    /// Swift dictionary; use ``keys(withPrefix:)`` with `""` to see every stored key.
-    public var snapshot: [String: String] {
-        storage.withLock { rows in
-            var copy: [String: String] = [:]
-            for (key, value) in rows { copy[key.string] = value }
-            return copy
-        }
-    }
+    /// Every stored pair (tests).
+    public var snapshot: [String: String] { storage.withLock { $0 } }
 }
 
 /// Key builders for kv rows. Every row is `lahza.<suffix>`.

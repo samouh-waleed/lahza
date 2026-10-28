@@ -219,19 +219,19 @@ public struct CustomerSnapshot: Sendable, Equatable {
 
     /// `plus` when the configured entitlement is active, else `free`.
     public func plan(entitlement: String = Brand.plusEntitlement) -> String {
-        activeEntitlements.contains(where: { jsStringEqual($0, entitlement) }) ? "plus" : "free"
+        activeEntitlements.contains(entitlement) ? "plus" : "free"
     }
 
     /// The entitlement is active **and** will renew. False once the person cancelled (even while the
     /// trial or period still runs) or it lapsed.
     public func renews(entitlement: String = Brand.plusEntitlement) -> Bool {
-        plan(entitlement: entitlement) == "plus" && !nonRenewingEntitlements.contains(where: { jsStringEqual($0, entitlement) })
+        plan(entitlement: entitlement) == "plus" && !nonRenewingEntitlements.contains(entitlement)
     }
 
     /// The entitlement is active in a free trial. If the trial was redeemed elsewhere after the prices
     /// loaded, Apple charges at once and there is no trial.
     public func isInTrial(entitlement: String = Brand.plusEntitlement) -> Bool {
-        plan(entitlement: entitlement) == "plus" && trialEntitlements.contains(where: { jsStringEqual($0, entitlement) })
+        plan(entitlement: entitlement) == "plus" && trialEntitlements.contains(entitlement)
     }
 
     /// RevenueCat's anonymous id (`/\$RCAnonymousID:([a-z0-9]{32})$/`, `IdentityManager.anonymousRegex`).
@@ -313,12 +313,12 @@ public final class CustomerInfoOwnership: Sendable {
         state.withLock { state in
             guard let current = state.current else { return originalAppUserID }
             if let original = state.original {
-                return jsStringEqual(original, originalAppUserID) ? current : originalAppUserID
+                return original == originalAppUserID ? current : originalAppUserID
             }
             if state.learning {
                 // Right after `configure` nothing else was identified in this process. A non-anonymous
                 // original that is another id is still never this account's.
-                if !originalAppUserID.isEmpty, !CustomerSnapshot.isAnonymousAppUserID(originalAppUserID), !jsStringEqual(originalAppUserID, current) {
+                if !originalAppUserID.isEmpty, !CustomerSnapshot.isAnonymousAppUserID(originalAppUserID), originalAppUserID != current {
                     return originalAppUserID
                 }
                 state.original = originalAppUserID

@@ -147,7 +147,7 @@ public struct PlusCatalog: Sendable, Equatable {
         offers.map { offer in
             guard offer.introOffer?.isFree == true else { return offer }
             var copy = offer
-            let status = eligibility.first(where: { jsStringEqual($0.key, offer.productIdentifier) })?.value
+            let status = eligibility[offer.productIdentifier]
             copy.trial = FreeTrial.confirmed(intro: offer.introOffer, eligibility: status)
             return copy
         }

@@ -13,13 +13,6 @@ public protocol AppClock: Sendable {
     func sleep(for duration: Duration) async throws
 }
 
-extension AppClock {
-    /// `Date.now()` as a JS time value.
-    public var nowMilliseconds: Int64 { JSDate.milliseconds(from: now) }
-    /// `new Date().toISOString()`.
-    public var nowISOString: String { JSDate.isoString(now) }
-}
-
 /// The real clock: `Date()` and `Task.sleep`.
 public struct SystemClock: AppClock {
     public init() {}
@@ -37,7 +30,7 @@ public struct SystemClock: AppClock {
 /// `CancellationError`, so "a second edit within 800 ms cancels the first push" can be tested:
 ///
 /// ```swift
-/// let clock = FixedClock(milliseconds: 0)
+/// let clock = FixedClock(Date(timeIntervalSince1970: 0))
 /// let first = Task { try await clock.sleep(for: .milliseconds(800)); await push() }
 /// #expect(await clock.waitForSleepers(1))
 /// await clock.advance(by: .milliseconds(500))   // nothing fires
@@ -89,15 +82,18 @@ public final class FixedClock: AppClock {
         state = Mutex(State(now: date))
     }
 
-    /// Starts at a JS time value.
-    public convenience init(milliseconds: Int64) {
-        self.init(Date(jsMilliseconds: milliseconds))
-    }
-
-    /// Starts at an ISO instant (`Date.parse` rules, UTC for offset-less times); nil if invalid.
+    /// Starts at an ISO 8601 date-time with a zone (`2026-09-24T08:30:00Z`, optionally with
+    /// fractional seconds or an offset such as `+02:00`); nil if invalid.
     public convenience init?(iso: String) {
-        guard let ms = JSDate.parse(iso, timeZone: TimeZone(secondsFromGMT: 0) ?? .gmt) else { return nil }
-        self.init(milliseconds: ms)
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = formatter.date(from: iso) {
+            self.init(date)
+            return
+        }
+        formatter.formatOptions = [.withInternetDateTime]
+        guard let date = formatter.date(from: iso) else { return nil }
+        self.init(date)
     }
 
     public var now: Date { state.withLock { $0.now } }

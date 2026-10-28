@@ -26,17 +26,17 @@ public enum RevenueCatKey {
         guard platform != .other else { return nil }
         let raw = testStore ? testKey : platform == .ios ? iosKey : androidKey
         guard let raw else { return nil }
-        let key = jsTrim(raw)
+        let key = trimmedKey(raw)
         guard !key.isEmpty else { return nil }
         let prefix = testStore ? "test_" : platform == .ios ? "appl_" : "goog_"
-        guard jsStringHasPrefix(key, prefix), key.utf16.allSatisfy(isKeyUnit) else { throw .sdkKeyMismatch }
+        guard key.hasPrefix(prefix), key.utf16.allSatisfy(isKeyUnit) else { throw .sdkKeyMismatch }
         return key
     }
 
     /// Whether `identifier` is `expected` exactly, or `expected + ":"` + a base plan (the
     /// Google Play form; App Store product ids cannot contain `:`, so on iOS this is an exact match).
     public static func matchesStoreProduct(_ identifier: String, _ expected: String) -> Bool {
-        jsStringEqual(identifier, expected) || jsStringHasPrefix(identifier, expected + ":")
+        identifier == expected || identifier.hasPrefix(expected + ":")
     }
 
     /// `/^[a-zA-Z0-9_]+$/` on one UTF-16 code unit.
@@ -45,20 +45,9 @@ public enum RevenueCatKey {
     }
 }
 
-/// `String.prototype.trim` (ECMA-262 WhiteSpace and LineTerminator code points).
-func jsTrim(_ string: String) -> String {
-    func trimmable(_ scalar: Unicode.Scalar) -> Bool {
-        switch scalar.value {
-        case 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x20, 0xA0, 0x1680, 0x2000...0x200A, 0x2028, 0x2029, 0x202F, 0x205F, 0x3000, 0xFEFF:
-            true
-        default:
-            false
-        }
-    }
-    let scalars = string.unicodeScalars
-    guard let first = scalars.firstIndex(where: { !trimmable($0) }),
-          let last = scalars.lastIndex(where: { !trimmable($0) }) else { return "" }
-    return String(scalars[first...last])
+/// A configured key without the surrounding whitespace and newlines a pasted value can carry.
+func trimmedKey(_ string: String) -> String {
+    string.trimmingCharacters(in: .whitespacesAndNewlines)
 }
 
 /// The billing view of the build configuration (``AppEnvironment``): SDK key, offering, entitlement,
@@ -117,7 +106,7 @@ public struct BillingEnvironment: Sendable, Equatable {
     /// release build is never in Test Store mode, so it never shows "Test purchases only. No money
     /// will be charged."
     public var usesTestStore: Bool {
-        configuration == .debug && (explicitTestStore || apiKey.map { jsStringHasPrefix(jsTrim($0), "test_") } == true)
+        configuration == .debug && (explicitTestStore || apiKey.map { trimmedKey($0).hasPrefix("test_") } == true)
     }
 
     /// The SDK key to configure with, through ``RevenueCatKey/select(platform:testStore:testKey:iosKey:androidKey:)``

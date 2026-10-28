@@ -97,14 +97,27 @@ public func sha256Hex(_ data: Data) -> String { SHA256Hex.hash(data) }
 
 /// The deterministic record id for a natural key.
 ///
-/// `h = sha256hex(JSON.stringify([owner, collection, kind, key]))`, then
+/// `h = sha256hex(json)`, where `json` is `[owner, collection, kind, key]` as compact JSON
+/// (``naturalKeyJSON(_:)``), then
 /// `h[0..8]-h[8..12]-5h[13..16]-{(hex(h[16]) & 3) | 8}h[17..20]-h[20..32]`.
 /// Note `h[12]` is skipped. Writers of the same natural key converge on one id.
 public func activityId(owner: String, collection: String, kind: String, key: String) -> String {
-    let json = JSONValue.array([.string(owner), .string(collection), .string(kind), .string(key)]).jsStringify()
-    let hash = Array(sha256Hex(json).utf8)
+    let hash = Array(sha256Hex(naturalKeyJSON([owner, collection, kind, key])).utf8)
     func slice(_ range: Range<Int>) -> String { String(decoding: hash[range], as: UTF8.self) }
     let nibble = Int(hash[16] <= UInt8(ascii: "9") ? hash[16] - UInt8(ascii: "0") : hash[16] - UInt8(ascii: "a") + 10)
     let variant = String((nibble & 3) | 8, radix: 16)
     return "\(slice(0..<8))-\(slice(8..<12))-5\(slice(13..<16))-\(variant)\(slice(17..<20))-\(slice(20..<32))"
+}
+
+/// The compact JSON array that ``activityId(owner:collection:kind:key:)`` hashes, e.g.
+/// `["device","photos","moment","2024-06-01"]`.
+///
+/// `JSONEncoder` with slashes left unescaped: `"` and `\` are escaped, control characters use
+/// `\b` `\f` `\n` `\r` `\t` or `\u00xx`, and everything else (including non-ASCII) is written as
+/// UTF-8. The bytes must stay stable, since they decide every id.
+func naturalKeyJSON(_ parts: [String]) -> Data {
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = .withoutEscapingSlashes
+    // An array of strings always encodes; the empty fallback only satisfies the type checker.
+    return (try? encoder.encode(parts)) ?? Data()
 }
