@@ -33,6 +33,8 @@ import Observation
     public private(set) var sections: [MonthSection] = []
     public private(set) var years: [YearCount] = []
     public private(set) var trips: [TripRow] = []
+    /// The latest home base's country (ISO 3166 alpha-2): place lines name the country only away from it.
+    public private(set) var homeCountryCode: String?
     /// More moments than are loaded.
     public private(set) var hasMore = false
     public private(set) var isLoading = false
@@ -102,6 +104,16 @@ import Observation
         sections.first { $0.year == year }?.id
     }
 
+    /// Loads pages until `year` has a section (the year strip jumps to an older year), and returns it.
+    public func loadThrough(year: Int) async -> MonthSection.ID? {
+        while firstSection(of: year) == nil, hasMore, !Task.isCancelled {
+            let loaded = rows.count
+            await loadMore()
+            if rows.count == loaded { break }
+        }
+        return firstSection(of: year)
+    }
+
     private func reload(limit: Int) async {
         guard let reader = index.reader else { return clear() }
         let version = index.version
@@ -111,13 +123,15 @@ import Observation
             async let page = reader.moments(after: nil, limit: limit)
             async let monthCounts = reader.momentMonths()
             async let tripRows = reader.trips()
-            let (loaded, counts, loadedTrips) = try await (page, monthCounts, tripRows)
+            async let home = reader.homeBase(year: nil)
+            let (loaded, counts, loadedTrips, homeBase) = try await (page, monthCounts, tripRows, home)
             rows = loaded
             hasMore = loaded.count == limit
             months = Dictionary(counts.map { ($0.id, $0.moments) }, uniquingKeysWith: +)
             years = Dictionary(grouping: counts, by: \.year).map { YearCount(year: $0.key, moments: $0.value.reduce(0) { $0 + $1.moments }) }
                 .sorted { $0.year > $1.year }
             trips = loadedTrips
+            homeCountryCode = homeBase?.countryCode
             loadedVersion = version
             loadedGeneration = reader.generation
             hasLoaded = true
@@ -147,6 +161,7 @@ import Observation
         sections = []
         years = []
         trips = []
+        homeCountryCode = nil
         months = [:]
         hasMore = false
         hasLoaded = false

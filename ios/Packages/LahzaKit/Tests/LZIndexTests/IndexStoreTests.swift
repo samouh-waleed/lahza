@@ -239,5 +239,27 @@ import Testing
         let first = try #require(rows.first)
         let detail = try #require(await moments.moment(first.key))
         #expect(detail.members.count == detail.moment.itemCount)
+        #expect(greece.places.first == "Athens")
+        #expect(!greece.places.contains("Greece"))
+        #expect(greece.thumbnailLocalIDs.count == 5)
+        #expect(greece.thumbnailLocalIDs.first == greece.coverLocalID)
+    }
+
+    @Test func theYearStripLoadsPagesUntilItsYear() async throws {
+        let store = IndexStore(dependencies(FakeLibraryReader(.seed(.hero))))
+        store.start()
+        await store.settled()
+        let moments = MomentsStore(index: store)
+        await moments.load()
+        #expect(moments.hasMore, "the hero library has more moments than a page")
+        #expect(moments.years.first?.year == 2026)
+        #expect(moments.years.last?.year == 2021)
+        #expect(moments.firstSection(of: 2021) == nil)
+        let section = try #require(await moments.loadThrough(year: 2021))
+        #expect(section == moments.sections.first { $0.year == 2021 }?.id)
+        #expect(moments.moments.count > MomentsStore.pageSize)
+        #expect(moments.moments.allSatisfy { $0.thumbnailLocalIDs.count == min(3, $0.itemCount) })
+        #expect(await moments.loadThrough(year: 2019) == nil, "a year without moments loads everything, then gives up")
+        #expect(!moments.hasMore)
     }
 }

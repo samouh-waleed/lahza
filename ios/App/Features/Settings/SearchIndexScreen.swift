@@ -2,8 +2,8 @@ import LZDesign
 import LZIndex
 import SwiftUI
 
-/// Settings › Search index: what the index holds, Apple Maps place names, Rebuild and Delete. The index is a
-/// cache of the library on this iPhone, so both are always safe.
+/// Settings › Search index: what the index is doing and holds, Apple Maps place names, Rebuild and Delete. The
+/// index is a cache of the library on this iPhone, so both are always safe.
 struct SearchIndexScreen: View {
     @Environment(AppModel.self) private var model
     @State private var sizeBytes: Int64?
@@ -13,51 +13,51 @@ struct SearchIndexScreen: View {
     var body: some View {
         let index = model.index
         let status = index.status
-        Form {
-            Section {
-                Label(IndexCopy.headline(status), systemImage: IndexCopy.symbol(status))
-                    .font(.headline)
-                    .accessibilityIdentifier("search-index-status")
-                if let updated = status.lastSync, status.phase == .ready {
-                    Text(IndexCopy.updated(updated)).foregroundStyle(.secondary)
-                }
-                if let detail = IndexCopy.placeNames(status.placeNames) {
-                    Text(detail).foregroundStyle(.secondary).accessibilityIdentifier("search-index-place-names")
-                }
-            }
-            if let summary = status.summary, index.reader != nil {
-                Section("What's indexed") {
-                    LabeledContent("Photos & videos", value: summary.assets.formatted())
-                    LabeledContent("With a location", value: IndexCopy.percent(summary.located, of: summary.assets))
-                    LabeledContent("Moments", value: summary.moments.formatted())
-                    LabeledContent("Trips", value: summary.trips.formatted())
-                    LabeledContent("Places named", value: "\(status.placeNames.named.formatted()) of \(status.placeNames.eligible.formatted())")
-                    if let sizeBytes {
-                        LabeledContent("Index size", value: ByteCountFormatter.string(fromByteCount: sizeBytes, countStyle: .file))
+        ScrollView {
+            VStack(alignment: .leading, spacing: LZSpace.xxl) {
+                SearchIndexStatusCard(status: status)
+                if let summary = status.summary, index.reader != nil {
+                    group(IndexCopy.contentsTitle) {
+                        ListRow(IndexCopy.assetsRow, value: summary.assets.formatted())
+                        ListRow(IndexCopy.locatedRow, value: IndexCopy.percent(summary.located, of: summary.assets))
+                        ListRow(IndexCopy.momentsRow, value: summary.moments.formatted())
+                        ListRow(IndexCopy.tripsRow, value: summary.trips.formatted())
+                        ListRow(IndexCopy.placesRow, value: IndexCopy.namedValue(status.placeNames))
+                        if let sizeBytes {
+                            ListRow(IndexCopy.sizeRow, value: ByteCountFormatter.string(fromByteCount: sizeBytes, countStyle: .file))
+                        }
                     }
+                    .accessibilityIdentifier("search-index-contents")
                 }
-            }
-            Section {
-                Toggle("Apple Maps place names", isOn: Binding(get: { index.appleMapsNames }, set: { index.setAppleMapsNames($0) }))
-                    .accessibilityIdentifier("search-index-apple-maps")
-            } footer: {
-                Text(IndexCopy.appleMapsFooter)
-            }
-            Section {
-                if status.phase == .off(.deletedByUser) {
-                    Button(IndexCopy.buildIndex) { index.buildAgain() }
-                        .accessibilityIdentifier("search-index-build")
-                } else if index.reader != nil {
-                    Button(IndexCopy.rebuild) { confirmRebuild = true }
+                group(IndexCopy.placeNamesTitle) {
+                    LZToggleRow(IndexCopy.appleMapsToggle, subtitle: IndexCopy.appleMapsFooter, systemImage: "map",
+                                isOn: Binding(get: { index.appleMapsNames }, set: { index.setAppleMapsNames($0) }))
+                        .accessibilityIdentifier("search-index-apple-maps")
+                }
+                VStack(alignment: .leading, spacing: LZSpace.md) {
+                    if status.phase == .off(.deletedByUser) {
+                        LZButton(IndexCopy.buildIndex, systemImage: "arrow.clockwise", fullWidth: true) { index.buildAgain() }
+                            .accessibilityIdentifier("search-index-build")
+                    } else if index.reader != nil {
+                        LZButton(IndexCopy.rebuild, systemImage: "arrow.triangle.2.circlepath", role: .secondary, fullWidth: true) {
+                            confirmRebuild = true
+                        }
                         .accessibilityIdentifier("search-index-rebuild")
-                    Button(IndexCopy.delete, role: .destructive) { confirmDelete = true }
-                        .accessibilityIdentifier("search-index-delete")
+                        LZButton(IndexCopy.delete, systemImage: "trash", role: .destructive, fullWidth: true) { confirmDelete = true }
+                            .accessibilityIdentifier("search-index-delete")
+                    }
+                    Text(IndexCopy.footer)
+                        .lzText(.caption)
+                        .foregroundStyle(.lz(.muted))
                 }
-            } footer: {
-                Text(IndexCopy.footer)
             }
+            .lzPage()
+            .padding(.vertical, LZSpace.xl)
         }
-        .settingsForm(IndexCopy.screenTitle)
+        .background(.lz(.bg))
+        .tint(Color.lz(.accent))
+        .navigationTitle(IndexCopy.screenTitle)
+        .navigationBarTitleDisplayMode(.inline)
         .accessibilityIdentifier("search-index")
         .task(id: status.version) { sizeBytes = try? await index.reader?.sizeBytes() }
         .confirmationDialog(IndexCopy.rebuildTitle, isPresented: $confirmRebuild, titleVisibility: .visible) {
@@ -71,11 +71,68 @@ struct SearchIndexScreen: View {
             Text(IndexCopy.deleteMessage)
         }
     }
+
+    private func group<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: LZSpace.sm) {
+            Text(title).lzText(.label).foregroundStyle(.lz(.muted)).accessibilityAddTraits(.isHeader)
+            LZRowGroup(content: content)
+        }
+    }
+}
+
+/// The index's phase, when it last caught up, reading progress and the place-name line.
+private struct SearchIndexStatusCard: View {
+    let status: IndexStatus
+
+    var body: some View {
+        PaperCard {
+            VStack(alignment: .leading, spacing: LZSpace.md) {
+                HStack(alignment: .center, spacing: LZSpace.md) {
+                    IconBadge(IndexCopy.symbol(status), tone: IndexCopy.tone(status))
+                    VStack(alignment: .leading, spacing: LZSpace.xxs) {
+                        Text(IndexCopy.headline(status))
+                            .lzText(.headline)
+                            .foregroundStyle(.lz(.ink))
+                            .accessibilityIdentifier("search-index-status")
+                        if let updated = status.lastSync, status.phase == .ready {
+                            TimelineView(.periodic(from: .now, by: 30)) { _ in
+                                Text(IndexCopy.updated(updated))
+                                    .lzText(.subheadline)
+                                    .foregroundStyle(.lz(.muted))
+                            }
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                if case .reading(let done, let total) = status.phase, total > 0 {
+                    ProgressView(value: Double(min(done, total)), total: Double(total))
+                        .progressViewStyle(.lz(.bar))
+                        .accessibilityLabel(IndexCopy.headline(status))
+                }
+                if let detail = IndexCopy.placeNames(status.placeNames) {
+                    Label(detail, systemImage: IndexCopy.placeNamesSymbol(status.placeNames))
+                        .lzText(.subheadline)
+                        .foregroundStyle(.lz(.muted))
+                        .accessibilityIdentifier("search-index-place-names")
+                }
+            }
+        }
+        .accessibilityElement(children: .combine)
+    }
 }
 
 /// The search index's words (spec §4.6, §7.3).
 nonisolated enum IndexCopy {
     static let screenTitle = "Search index"
+    static let contentsTitle = "WHAT’S INDEXED"
+    static let placeNamesTitle = "PLACE NAMES"
+    static let assetsRow = "Photos & videos"
+    static let locatedRow = "With a location"
+    static let momentsRow = "Moments"
+    static let tripsRow = "Trips"
+    static let placesRow = "Places named"
+    static let sizeRow = "Index size"
+    static let appleMapsToggle = "Apple Maps place names"
     static let rebuild = "Rebuild index"
     static let delete = "Delete index"
     static let buildIndex = "Build index"
@@ -85,6 +142,7 @@ nonisolated enum IndexCopy {
     static let deleteMessage = "Lahza forgets the dates, places, moments and saved places it learned, and stops searching until you build it again. Your photos aren’t touched."
     static let appleMapsFooter = "Sends the approximate location of photo clusters, and places you type, to Apple Maps to get names like parks. Photos are never sent."
     static let footer = "The index lives only on this iPhone, isn’t backed up, and is rebuilt from your library if deleted."
+    static let unavailableDetail = "Lahza tries again the next time it opens."
 
     /// Settings' row value.
     static func value(_ status: IndexStatus) -> String {
@@ -123,6 +181,15 @@ nonisolated enum IndexCopy {
         }
     }
 
+    static func tone(_ status: IndexStatus) -> LZTone {
+        switch status.phase {
+        case .ready: .sage
+        case .preparing, .reading, .organizing: .accent
+        case .failed: .gold
+        case .off, .paused: .neutral
+        }
+    }
+
     /// The place-name line, or nil when there is nothing to say.
     static func placeNames(_ progress: PlaceNameProgress) -> String? {
         switch progress.state {
@@ -133,6 +200,21 @@ nonisolated enum IndexCopy {
         case .off: "Apple Maps place names are off"
         case .idle, .done: nil
         }
+    }
+
+    static func placeNamesSymbol(_ progress: PlaceNameProgress) -> String {
+        switch progress.state {
+        case .waitingForNetwork: "wifi.slash"
+        case .throttled: "hourglass"
+        case .backgrounded: "moon"
+        case .off: "map"
+        case .running, .idle, .done: "mappin.and.ellipse"
+        }
+    }
+
+    /// "18 of 47".
+    static func namedValue(_ progress: PlaceNameProgress) -> String {
+        "\(progress.named.formatted()) of \(progress.eligible.formatted())"
     }
 
     static func updated(_ date: Date) -> String {

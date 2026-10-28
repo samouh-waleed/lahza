@@ -52,8 +52,9 @@ public struct IndexReader: Sendable {
             }
             let condition = conditions.isEmpty ? "" : "WHERE " + conditions.joined(separator: " AND ")
             arguments.append(max(0, limit))
-            return try Row.fetchAll(db, sql: "\(IndexQueries.momentSelect) \(condition) ORDER BY m.day DESC, m.start_utc DESC LIMIT ?",
-                                    arguments: StatementArguments(arguments)).map(IndexQueries.momentRow)
+            let rows = try Row.fetchAll(db, sql: "\(IndexQueries.momentSelect) \(condition) ORDER BY m.day DESC, m.start_utc DESC LIMIT ?",
+                                        arguments: StatementArguments(arguments)).map(IndexQueries.momentRow)
+            return try IndexQueries.withThumbnails(db, rows)
         }
     }
 
@@ -67,15 +68,16 @@ public struct IndexReader: Sendable {
                 rows += try Row.fetchAll(db, sql: "\(IndexQueries.momentSelect) WHERE m.id IN (\(marks))", arguments: StatementArguments(chunk))
                     .map(IndexQueries.momentRow)
             }
-            return rows.sorted { ($0.key.day, $0.key.startUTC) > ($1.key.day, $1.key.startUTC) }
+            return try IndexQueries.withThumbnails(db, rows.sorted { ($0.key.day, $0.key.startUTC) > ($1.key.day, $1.key.startUTC) })
         }
     }
 
     /// One moment and its items in time order; nil when no moment has that key (any more).
     public func moment(_ key: MomentKey) async throws -> MomentDetailRows? {
         try await database.read { db in
-            guard let moment = try Row.fetchOne(db, sql: "\(IndexQueries.momentSelect) WHERE m.day = ? AND m.start_utc = ?",
-                                                arguments: [key.day, key.startUTC]).map(IndexQueries.momentRow) else { return nil }
+            guard let row = try Row.fetchOne(db, sql: "\(IndexQueries.momentSelect) WHERE m.day = ? AND m.start_utc = ?",
+                                             arguments: [key.day, key.startUTC]).map(IndexQueries.momentRow),
+                  let moment = try IndexQueries.withThumbnails(db, [row]).first else { return nil }
             let members = try Row.fetchAll(db, sql: """
                 SELECT id, local_id, kind, created_utc, wall_s, duration, flags, place_src FROM asset WHERE moment_id = ? ORDER BY created_utc, id
                 """, arguments: [moment.id]).map { row in
@@ -87,10 +89,10 @@ public struct IndexReader: Sendable {
         }
     }
 
-    /// Trips newest first.
+    /// Trips newest first, with the places they visit and their mosaic.
     public func trips() async throws -> [TripRow] {
         try await database.read { db in
-            try Row.fetchAll(db, sql: """
+            let trips = try Row.fetchAll(db, sql: """
                 SELECT t.id, t.start_day, t.end_day, t.label, country.country_code AS country, t.abroad, t.moment_count, t.item_count,
                        t.video_count, t.max_km, cover.local_id AS cover
                 FROM trip t LEFT JOIN place country ON country.id = t.country_place LEFT JOIN asset cover ON cover.id = t.cover_asset
@@ -100,6 +102,7 @@ public struct IndexReader: Sendable {
                         abroad: row["abroad"], momentCount: row["moment_count"], itemCount: row["item_count"], videoCount: row["video_count"],
                         maxKm: row["max_km"], coverLocalID: row["cover"])
             }
+            return try IndexQueries.withPlacesAndMosaics(db, trips)
         }
     }
 
@@ -222,6 +225,63 @@ enum IndexQueries {
                   endWall: row["end_wall"], timeZone: row["zone"], itemCount: row["item_count"], photoCount: row["photo_count"],
                   videoCount: row["video_count"], locatedCount: row["located_count"], borrowedCount: row["borrowed_count"], label: row["label"],
                   cityName: row["city"], countryCode: row["country"], tripID: row["trip_id"], coverLocalID: row["cover"], cell: row["cell"])
+    }
+
+    /// Fills each moment's thumbnails: its cover, then its other items in time order, at most `perMoment`.
+    static func withThumbnails(_ db: Database, _ rows: [MomentRow], perMoment: Int = 3) throws -> [MomentRow] {
+        guard !rows.isEmpty else { return rows }
+        var thumbnails: [Int64: [String]] = [:]
+        let ids = rows.map(\.id)
+        for start in stride(from: 0, to: ids.count, by: 900) {
+            let chunk = ids[start..<min(ids.count, start + 900)]
+            let marks = Array(repeating: "?", count: chunk.count).joined(separator: ", ")
+            for row in try Row.fetchAll(db, sql: """
+                SELECT moment_id, local_id FROM (
+                  SELECT a.moment_id, a.local_id,
+                         ROW_NUMBER() OVER (PARTITION BY a.moment_id ORDER BY a.id = m.cover_asset DESC, a.created_utc, a.id) AS rank
+                  FROM asset a JOIN moment m ON m.id = a.moment_id WHERE a.moment_id IN (\(marks)))
+                WHERE rank <= \(max(1, perMoment)) ORDER BY moment_id, rank
+                """, arguments: StatementArguments(chunk)) {
+                thumbnails[row["moment_id"], default: []].append(row["local_id"])
+            }
+        }
+        return rows.map { row in
+            var row = row
+            row.thumbnailLocalIDs = thumbnails[row.id] ?? []
+            return row
+        }
+    }
+
+    /// Fills each trip's places (the city of each moment, or its town where there is no city, in visiting order,
+    /// leaving out the trip's label) and its mosaic (the trip's cover, then the covers of its largest moments in
+    /// time order, at most `mosaic`).
+    static func withPlacesAndMosaics(_ db: Database, _ trips: [TripRow], mosaic: Int = 5) throws -> [TripRow] {
+        guard !trips.isEmpty else { return trips }
+        var places: [Int64: [String]] = [:]
+        for row in try Row.fetchAll(db, sql: """
+            SELECT m.trip_id, COALESCE(city.name, CASE WHEN label.kind = \(PlaceKind.locality.rawValue) THEN label.name END) AS place_name,
+                   MIN(m.start_utc) AS first_utc
+            FROM moment m LEFT JOIN place city ON city.id = m.city_place LEFT JOIN place label ON label.id = m.label_place
+            WHERE m.trip_id IS NOT NULL GROUP BY m.trip_id, place_name HAVING place_name IS NOT NULL ORDER BY m.trip_id, first_utc
+            """) {
+            places[row["trip_id"], default: []].append(row["place_name"])
+        }
+        var covers: [Int64: [String]] = [:]
+        for row in try Row.fetchAll(db, sql: """
+            SELECT trip_id, local_id FROM (
+              SELECT m.trip_id, cover.local_id, m.start_utc, ROW_NUMBER() OVER (PARTITION BY m.trip_id ORDER BY m.item_count DESC, m.start_utc) AS rank
+              FROM moment m JOIN asset cover ON cover.id = m.cover_asset WHERE m.trip_id IS NOT NULL)
+            WHERE rank <= \(max(1, mosaic)) ORDER BY trip_id, start_utc
+            """) {
+            covers[row["trip_id"], default: []].append(row["local_id"])
+        }
+        return trips.map { trip in
+            var trip = trip
+            trip.places = (places[trip.id] ?? []).filter { $0 != trip.label }
+            let cover = trip.coverLocalID.map { [$0] } ?? []
+            trip.thumbnailLocalIDs = Array((cover + (covers[trip.id] ?? []).filter { $0 != trip.coverLocalID }).prefix(max(1, mosaic)))
+            return trip
+        }
     }
 
     static func summary(_ db: Database) throws -> LibrarySummary {

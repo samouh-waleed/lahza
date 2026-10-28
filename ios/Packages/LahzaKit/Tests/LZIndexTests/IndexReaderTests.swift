@@ -104,6 +104,34 @@ import Testing
         #expect(try await reader.homeBase(year: 2019) == nil)
     }
 
+    @Test func rowsCarryTheirThumbnailsAndTripsTheirPlacesAndMosaic() async throws {
+        let (database, reader) = try await structured()
+        try await database.write { db in
+            try db.execute(sql: "UPDATE moment SET cover_asset = (SELECT id FROM asset WHERE local_id = 'p6') WHERE id = 3")
+            try db.execute(sql: """
+                INSERT INTO place (id, kind, key, name, country_code, photo_count, source) VALUES (6, 4, 'al:GR:oia', 'Oia', 'GR', 1, 2);
+                INSERT INTO moment (id, day, start_utc, end_utc, start_wall, end_wall, first_asset, item_count, photo_count, video_count,
+                  located_count, borrowed_count, label_place, country_place, trip_id, cover_asset)
+                  SELECT 4, day + 1, created_utc + 86400, created_utc + 86400, 0, 0, id, 1, 1, 0, 1, 0, 6, 4, 7, id FROM asset WHERE local_id = 'p5';
+                INSERT INTO moment (id, day, start_utc, end_utc, start_wall, end_wall, first_asset, item_count, photo_count, video_count,
+                  located_count, borrowed_count, label_place, country_place, trip_id, cover_asset)
+                  SELECT 5, day + 1, created_utc + 90000, created_utc + 90000, 0, 0, id, 1, 1, 0, 1, 0, 4, 4, 7, id FROM asset WHERE local_id = 'p4';
+                """)
+        }
+        let rows = try await reader.moments(after: nil, limit: 10)
+        #expect(rows.first { $0.id == 3 }?.thumbnailLocalIDs == ["p6", "p4", "p5"], "the cover first, then time order")
+        #expect(rows.first { $0.id == 1 }?.thumbnailLocalIDs == ["p1", "p2"])
+        #expect(try await reader.momentRows(ids: [2]).first?.thumbnailLocalIDs == ["p3"])
+        let key = try #require(rows.first { $0.id == 3 }?.key)
+        #expect(try await reader.moment(key)?.moment.thumbnailLocalIDs == ["p6", "p4", "p5"])
+
+        let trip = try #require(try await reader.trips().first)
+        #expect(trip.places == ["Athens", "Oia"], "cities, then towns, in visiting order; the country label and the trip's own label are left out")
+        #expect(trip.thumbnailLocalIDs.first == "p5", "the trip's cover leads the mosaic")
+        #expect(Set(trip.thumbnailLocalIDs) == ["p5", "p6", "p4"])
+        #expect(trip.thumbnailLocalIDs.count == 3)
+    }
+
     @Test func localIdentifiersForRowIDs() async throws {
         let (database, reader) = try await structured()
         let ids = try await database.read { db in try Int64.fetchAll(db, sql: "SELECT id FROM asset ORDER BY local_id") }

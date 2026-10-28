@@ -3,8 +3,8 @@ import LZGeo
 import LZIndex
 import SwiftUI
 
-/// One moment: its day, place and items. A plain list for now; the photo grid comes with the Moments tab's
-/// design.
+/// One moment: its day, place, time span (with the zone when it isn't this iPhone's), counts and every item in a
+/// grid. Shared by Ask and Moments; the viewer and Save place come later.
 struct MomentDetailScreen: View {
     let ref: MomentRef
     @Environment(AppModel.self) private var model
@@ -12,116 +12,188 @@ struct MomentDetailScreen: View {
     @State private var loaded = false
 
     var body: some View {
-        Form {
+        ScrollView {
             if let detail {
-                Section {
-                    Text(MomentCopy.title(detail.moment)).font(.headline)
-                    Text(MomentCopy.subtitle(detail.moment)).foregroundStyle(.secondary)
-                }
-                Section(MomentCopy.allTitle(detail.members.count)) {
-                    ForEach(detail.members) { member in
-                        LabeledContent(member.wall.map(MomentCopy.time) ?? "–", value: member.isVideo ? "Video" : "Photo")
+                VStack(alignment: .leading, spacing: LZSpace.xl) {
+                    MomentHeader(moment: detail.moment, trip: trip(of: detail.moment), homeCountry: model.moments.homeCountryCode,
+                                 deviceZone: model.dependencies.deviceTimeZone())
+                    VStack(alignment: .leading, spacing: LZSpace.sm) {
+                        Text(MomentCopy.allTitle(detail.members.count))
+                            .lzText(.label)
+                            .foregroundStyle(.lz(.muted))
+                            .accessibilityAddTraits(.isHeader)
+                        MomentGrid(members: detail.members)
                     }
                 }
+                .lzPage()
+                .padding(.vertical, LZSpace.lg)
             } else if loaded {
-                Text(MomentCopy.gone).foregroundStyle(.secondary)
+                EmptyState(MomentCopy.goneTitle, message: MomentCopy.goneBody, systemImage: "rectangle.stack", tone: .neutral)
+                    .lzPage()
             }
         }
-        .settingsForm(detail.map { MomentCopy.title($0.moment) } ?? MomentCopy.navigationTitle)
+        .background(.lz(.bg))
+        .navigationTitle(detail.map { MomentCopy.shortDay($0.moment.key.day) } ?? MomentCopy.momentTitle)
+        .navigationBarTitleDisplayMode(.inline)
         .accessibilityIdentifier("moment-detail")
         .task(id: model.index.version) {
             detail = await model.moments.moment(ref.key)
             loaded = true
+            if let cell = detail?.moment.cell { model.index.prioritizePlaceNames(cells: [cell]) }
         }
+    }
+
+    private func trip(of moment: MomentRow) -> TripRow? {
+        moment.tripID.flatMap { id in model.moments.trips.first { $0.id == id } }
     }
 }
 
-/// One trip's moments, day by day.
-struct TripDetailScreen: View {
-    let ref: TripRef
-    @Environment(AppModel.self) private var model
-    @State private var trip: TripRow?
-    @State private var moments: [MomentRow] = []
+/// The moment's date, place line, time span and counts.
+private struct MomentHeader: View {
+    let moment: MomentRow
+    let trip: TripRow?
+    let homeCountry: String?
+    let deviceZone: TimeZone
 
     var body: some View {
-        Form {
-            if let trip {
-                Section {
-                    Text(MomentCopy.tripTitle(trip)).font(.headline)
-                    Text(MomentCopy.counts(photos: trip.itemCount - trip.videoCount, videos: trip.videoCount)).foregroundStyle(.secondary)
-                }
-                ForEach(days, id: \.day) { day in
-                    Section(MomentCopy.dayTitle(day.day)) {
-                        ForEach(day.moments) { moment in
-                            Button {
-                                model.open(.moment(MomentRef(key: moment.key, origin: ref.origin)))
-                            } label: {
-                                LabeledContent(moment.label ?? MomentCopy.unknownPlace, value: moment.itemCount.formatted())
-                            }
-                        }
-                    }
+        VStack(alignment: .leading, spacing: LZSpace.sm) {
+            Text(MomentCopy.dayTitle(moment.key.day))
+                .lzText(.display)
+                .foregroundStyle(.lz(.ink))
+            Label(MomentCopy.placeLine(moment, homeCountry: homeCountry), systemImage: "mappin.and.ellipse")
+                .lzText(.body)
+                .foregroundStyle(.lz(.ink))
+            Label(time, systemImage: "clock")
+                .lzText(.subheadline)
+                .foregroundStyle(.lz(.muted))
+            HStack(spacing: LZSpace.sm) {
+                Text(MomentCopy.counts(photos: moment.photoCount, videos: moment.videoCount))
+                    .lzText(.subheadline)
+                    .foregroundStyle(.lz(.muted))
+                if let trip {
+                    Pill(MomentCopy.tripBadge(trip), systemImage: "airplane", tone: .sage)
                 }
             }
         }
-        .settingsForm(trip?.label ?? MomentCopy.tripNavigationTitle)
+        .accessibilityElement(children: .combine)
+    }
+
+    private var time: String {
+        [MomentCopy.timeSpan(moment), MomentCopy.zoneNote(moment, deviceZone: deviceZone)].compactMap { $0 }.joined(separator: " · ")
+    }
+}
+
+/// Every item of a moment in time order: square tiles, a video's length, a favourite's heart.
+private struct MomentGrid: View {
+    let members: [MomentDetailRows.Member]
+
+    var body: some View {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 96), spacing: 3)], spacing: 3) {
+            ForEach(members) { member in
+                AssetThumbnail(localID: member.localID, side: nil, radius: LZRadius.xs)
+                    .aspectRatio(1, contentMode: .fit)
+                    .overlay(alignment: .bottomLeading) {
+                        if member.isFavorite {
+                            Image(systemName: "heart.fill")
+                                .font(.caption2)
+                                .foregroundStyle(.white)
+                                .shadow(radius: 2)
+                                .padding(LZSpace.xs + 1)
+                        }
+                    }
+                    .overlay(alignment: .bottomTrailing) {
+                        if member.isVideo {
+                            Text(MomentCopy.duration(member.duration))
+                                .font(.caption2.weight(.semibold).monospacedDigit())
+                                .foregroundStyle(.white)
+                                .shadow(radius: 2)
+                                .padding(LZSpace.xs + 1)
+                        }
+                    }
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(MomentGrid.label(member))
+            }
+        }
+    }
+
+    /// "Video, 0:42, favourite, 5:20 PM".
+    static func label(_ member: MomentDetailRows.Member) -> String {
+        var parts = [member.isVideo ? "Video, \(MomentCopy.duration(member.duration))" : "Photo"]
+        if member.isFavorite { parts.append("favourite") }
+        if let wall = member.wall {
+            parts.append(Date(timeIntervalSince1970: TimeInterval(wall))
+                .formatted(Date.FormatStyle(date: .omitted, time: .shortened, timeZone: .gmt)))
+        }
+        return parts.joined(separator: ", ")
+    }
+}
+
+/// One trip: its name, dates, counts and places, then its moments day by day.
+struct TripDetailScreen: View {
+    let ref: TripRef
+    @Environment(AppModel.self) private var model
+    @State private var moments: [MomentRow] = []
+    @State private var loaded = false
+
+    var body: some View {
+        let trip = model.moments.trips.first { $0.startDay == ref.startDay }
+        ScrollView {
+            if let trip {
+                LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
+                    VStack(alignment: .leading, spacing: LZSpace.sm) {
+                        Text(trip.label).lzText(.display).foregroundStyle(.lz(.ink))
+                        Label(MomentCopy.tripDates(trip), systemImage: "calendar")
+                            .lzText(.body)
+                            .foregroundStyle(.lz(.ink))
+                        Text(MomentCopy.tripCaption(trip))
+                            .lzText(.subheadline)
+                            .foregroundStyle(.lz(.muted))
+                    }
+                    .accessibilityElement(children: .combine)
+                    .padding(.top, LZSpace.lg)
+                    .padding(.bottom, LZSpace.sm)
+                    ForEach(days, id: \.day) { day in
+                        Section {
+                            ForEach(day.moments) { moment in
+                                MomentListRow(moment: moment, title: MomentCopy.timeSpan(moment)) {
+                                    model.open(.moment(MomentRef(key: moment.key, origin: ref.origin)))
+                                }
+                            }
+                        } header: {
+                            Text(MomentCopy.tripDay(day.day, moments: day.moments))
+                                .lzText(.headline)
+                                .foregroundStyle(.lz(.ink))
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.top, LZSpace.lg)
+                                .padding(.bottom, LZSpace.xs)
+                                .background(.lz(.bg))
+                                .accessibilityAddTraits(.isHeader)
+                        }
+                    }
+                }
+                .lzPage()
+                .padding(.bottom, LZSpace.xl)
+            } else if loaded {
+                EmptyState(MomentCopy.tripGoneTitle, message: MomentCopy.goneBody, systemImage: "airplane", tone: .neutral)
+                    .lzPage()
+            }
+        }
+        .background(.lz(.bg))
+        .navigationTitle(trip?.label ?? MomentCopy.tripTitle)
+        .navigationBarTitleDisplayMode(.inline)
         .accessibilityIdentifier("trip-detail")
         .task(id: model.index.version) {
-            trip = (try? await model.index.reader?.trips())?.first { $0.startDay == ref.startDay }
-            moments = if let trip { await model.moments.moments(of: trip) } else { [] }
+            await model.moments.load()
+            if let trip = model.moments.trips.first(where: { $0.startDay == ref.startDay }) {
+                moments = await model.moments.moments(of: trip)
+            } else {
+                moments = []
+            }
+            loaded = true
         }
     }
 
     private var days: [(day: Int32, moments: [MomentRow])] {
         Dictionary(grouping: moments, by: \.key.day).sorted { $0.key < $1.key }.map { ($0.key, $0.value) }
-    }
-}
-
-/// Moment and trip words shared by the Moments screens.
-nonisolated enum MomentCopy {
-    static let navigationTitle = "Moment"
-    static let tripNavigationTitle = "Trip"
-    static let gone = "This moment changed. Go back to see it again."
-    static let unknownPlace = "Unknown place"
-
-    /// "Sat 22 Aug 2026".
-    static func title(_ moment: MomentRow) -> String { dayTitle(moment.key.day) }
-
-    static func dayTitle(_ day: Int32) -> String {
-        let date = LocalTime.civil(day: day)
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = .gmt
-        let value = calendar.date(from: DateComponents(year: date.year, month: date.month, day: date.day)) ?? .now
-        return value.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated).year().locale(Locale(identifier: "en_GB")))
-    }
-
-    /// "Al-Nakheel Park · 8 photos".
-    static func subtitle(_ moment: MomentRow) -> String {
-        [moment.label, counts(photos: moment.photoCount, videos: moment.videoCount)].compactMap { $0 }.joined(separator: " · ")
-    }
-
-    static func counts(photos: Int, videos: Int) -> String {
-        var parts: [String] = []
-        if photos > 0 || videos == 0 { parts.append(photos == 1 ? "1 photo" : "\(photos.formatted()) photos") }
-        if videos > 0 { parts.append(videos == 1 ? "1 video" : "\(videos.formatted()) videos") }
-        return parts.joined(separator: " · ")
-    }
-
-    static func allTitle(_ count: Int) -> String { "All · \(count.formatted())" }
-
-    /// "Greece · 2–8 Jul 2023".
-    static func tripTitle(_ trip: TripRow) -> String { "\(trip.label) · \(dayRange(trip.startDay, trip.endDay))" }
-
-    static func dayRange(_ first: Int32, _ last: Int32) -> String {
-        let a = LocalTime.civil(day: first), b = LocalTime.civil(day: last)
-        let months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
-        if a.year != b.year { return "\(a.day) \(months[a.month - 1]) \(a.year) – \(b.day) \(months[b.month - 1]) \(b.year)" }
-        if a.month != b.month { return "\(a.day) \(months[a.month - 1]) – \(b.day) \(months[b.month - 1]) \(b.year)" }
-        return "\(a.day)–\(b.day) \(months[b.month - 1]) \(b.year)"
-    }
-
-    /// Local wall time "17:20".
-    static func time(_ wall: Int64) -> String {
-        let minute = LocalTime.minuteOfDay(wallSeconds: wall)
-        return String(format: "%02d:%02d", minute / 60, minute % 60)
     }
 }
