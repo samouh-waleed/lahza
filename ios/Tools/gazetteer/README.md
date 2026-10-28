@@ -18,8 +18,9 @@ GeoNames and committed; the GeoNames dump itself is not.
 ## Licence
 
 GeoNames data is licensed under [Creative Commons Attribution 4.0](https://creativecommons.org/licenses/by/4.0/)
-(CC BY 4.0). Attribution: "Place names: GeoNames (geonames.org), CC BY 4.0", shown on the app's
-Acknowledgements screen.
+(CC BY 4.0). The app's Acknowledgements screen credits it in its Data section as "GeoNames" (linking to
+geonames.org) with "Place names · CC BY 4.0 · data as of 28 Oct 2026", the date read from the bundled file.
+The attribution and licence link ship in `ios/Resources/Licenses/GeoNames-CC-BY-4.0.txt`.
 
 Changes made to the data: historical, abandoned and destroyed places (PPLH, PPLQ, PPLW) are dropped; each place
 keeps its name, position, population, feature class, country, region and time zone; English alternate names are
@@ -33,8 +34,9 @@ added; everything is re-encoded in Lahza's binary `LZGZ` format.
 
 `lz-gazetteer` (`Packages/LahzaKit/Sources/LZGazetteerTool`) validates every time zone, re-reads 1,000 random
 places to check the file, fails above 2,000,000 bytes and warns above 1,800,000. It prints each section's size
-and the SHA-256; the same inputs always give the same bytes. Update the numbers above and run `make test-kit`
-after a rebuild (the gazetteer tests pin the place count and a table of verified lookups).
+and the SHA-256; the same inputs always give the same bytes. After a rebuild, update the numbers above and the
+dump date in `GeoNames-CC-BY-4.0.txt`, then run `make test` (the gazetteer tests pin the place count, a table of
+verified lookups and the dump date).
 
 `aliases-en.tsv` holds English names people type that GeoNames misses or the automatic filter drops (Mecca,
 Medina, Diriyah, Heraklion…). Each row is `geonameid⇥alias|alias⇥display name`; the tool checks the display

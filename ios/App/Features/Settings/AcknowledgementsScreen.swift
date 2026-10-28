@@ -1,9 +1,10 @@
 import LZDesign
+import LZGeo
 import SwiftUI
 
-/// Third-party software, fonts and data, with their full licence texts (bundled in the app, as the
-/// licences require). New entries land as the matching features do: SigLIP 2 (Apache-2.0, with its
-/// NOTICE) and GRDB (MIT).
+/// Third-party software, fonts and data, with their licence texts bundled in the app as the licences
+/// require (for CC BY data, the attribution and a link to the licence). New entries land as the matching
+/// features do: SigLIP 2 (Apache-2.0, with its NOTICE) and GRDB (MIT).
 struct AcknowledgementsScreen: View {
     private struct Entry: Identifiable {
         let name: String
@@ -24,9 +25,23 @@ struct AcknowledgementsScreen: View {
 
     /// The offline place list (LZGeo's gazetteer).
     private let data = [
-        Entry(name: "GeoNames", licence: "Place names · Creative Commons Attribution 4.0 (CC BY 4.0)", url: "https://www.geonames.org",
-              file: "GeoNames-CC-BY-4.0"),
+        Entry(name: "GeoNames", licence: Self.bundledGeoNamesCredit, url: "https://www.geonames.org", file: "GeoNames-CC-BY-4.0"),
     ]
+
+    /// Dated from the bundled gazetteer, so a `make gazetteer` rebuild updates it.
+    private static let bundledGeoNamesCredit = geoNamesCredit(dumpDate: (try? Gazetteer.bundled())?.sourceDate)
+
+    /// "Place names · CC BY 4.0 · data as of 28 Oct 2026" for the GeoNames dump of a yyyymmdd `dumpDate`.
+    static func geoNamesCredit(dumpDate: Int?, locale: Locale = .current) -> String {
+        let credit = "Place names · CC BY 4.0"
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = .gmt
+        guard let dumpDate,
+              let date = calendar.date(from: DateComponents(year: dumpDate / 10_000, month: dumpDate / 100 % 100, day: dumpDate % 100))
+        else { return credit }
+        let style = Date.FormatStyle(locale: locale, calendar: calendar, timeZone: .gmt).day().month(.abbreviated).year()
+        return "\(credit) · data as of \(date.formatted(style))"
+    }
 
     var body: some View {
         List {
