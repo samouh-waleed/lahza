@@ -1,4 +1,5 @@
 import Foundation
+import LZIndex
 import SwiftUI
 
 /// The three tabs, in bar order.
@@ -57,6 +58,20 @@ nonisolated enum RoutePresentation: Hashable, Sendable {
     case fullScreen
 }
 
+/// A moment to open, and the tab it opens on (Ask or Moments).
+nonisolated struct MomentRef: Hashable, Sendable {
+    var key: MomentKey
+    var origin: AppTab
+    /// The search it was found by (results keep their reasons).
+    var searchID: UUID?
+}
+
+/// A trip to open (by its first day), and the tab it opens on.
+nonisolated struct TripRef: Hashable, Sendable {
+    var startDay: Int32
+    var origin: AppTab
+}
+
 /// Every place Lahza can open, typed.
 nonisolated enum Route: Hashable, Sendable {
     // MARK: Tab roots
@@ -72,12 +87,21 @@ nonisolated enum Route: Hashable, Sendable {
     case privacy
     case subscription
     case acknowledgements
+    /// Settings › Search index.
+    case searchIndex
+
+    // MARK: Moments (pushed on the tab they were opened from; not deep-linkable)
+
+    case moment(MomentRef)
+    case trip(TripRef)
 
     // MARK: Developer (DEBUG builds only: Release has no such case, so no way in)
 
     #if DEBUG
     /// Settings › Developer › Library census (Phase 0 spike S2).
     case libraryCensus
+    /// Settings › Developer › Index inspector.
+    case indexInspector
     #endif
 
     // MARK: Modals
@@ -96,9 +120,11 @@ nonisolated enum Route: Hashable, Sendable {
         switch self {
         case .ask: .ask
         case .moments: .moments
-        case .settings, .photoAccess, .appearance, .privacy, .subscription, .acknowledgements: .settings
+        case .settings, .photoAccess, .appearance, .privacy, .subscription, .acknowledgements, .searchIndex: .settings
+        case .moment(let ref): ref.origin
+        case .trip(let ref): ref.origin
         #if DEBUG
-        case .libraryCensus: .settings
+        case .libraryCensus, .indexInspector: .settings
         #endif
         case .paywall, .onboarding, .notFound: nil
         }
@@ -107,9 +133,9 @@ nonisolated enum Route: Hashable, Sendable {
     var presentation: RoutePresentation {
         switch self {
         case .ask, .moments, .settings: .tabRoot
-        case .photoAccess, .appearance, .privacy, .subscription, .acknowledgements: .push
+        case .photoAccess, .appearance, .privacy, .subscription, .acknowledgements, .searchIndex, .moment, .trip: .push
         #if DEBUG
-        case .libraryCensus: .push
+        case .libraryCensus, .indexInspector: .push
         #endif
         case .paywall, .onboarding: .fullScreen
         case .notFound: .sheet(.medium)
@@ -130,7 +156,7 @@ nonisolated enum Route: Hashable, Sendable {
     /// Routes that exist only in DEBUG builds (developer tools).
     static var developerRoutes: [Route] {
         #if DEBUG
-        return [.libraryCensus]
+        return [.libraryCensus, .indexInspector]
         #else
         return []
         #endif
@@ -147,8 +173,12 @@ nonisolated enum Route: Hashable, Sendable {
         case .privacy: "privacy"
         case .subscription: "subscription"
         case .acknowledgements: "acknowledgements"
+        case .searchIndex: "search-index"
+        case .moment: "moment"
+        case .trip: "trip"
         #if DEBUG
         case .libraryCensus: "library-census"
+        case .indexInspector: "index-inspector"
         #endif
         case .paywall: "paywall"
         case .onboarding: "onboarding"
@@ -157,8 +187,9 @@ nonisolated enum Route: Hashable, Sendable {
     }
 
     init?(debugName: String) {
-        let all: [Route] = [.ask, .moments, .settings, .photoAccess, .appearance, .privacy, .subscription, .acknowledgements, .paywall, .onboarding]
-            + Route.developerRoutes
+        // Moments and trips need a key, so they are not deep-linkable.
+        let all: [Route] = [.ask, .moments, .settings, .photoAccess, .appearance, .privacy, .subscription, .acknowledgements, .searchIndex, .paywall,
+                            .onboarding] + Route.developerRoutes
         guard let match = all.first(where: { $0.debugName == debugName.lowercased() }) else { return nil }
         self = match
     }

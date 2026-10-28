@@ -76,10 +76,11 @@ import Observation
         }
     }
 
-    /// The index changed: reloads as many moments as are loaded, so the list stays where it is.
+    /// The index changed: reloads as many moments as are loaded, so the list stays where it is. Nothing loads
+    /// before the first ``load()``.
     public func indexChanged() async {
-        guard let reader = index.reader else { return clear() }
-        guard hasLoaded || reader.generation != loadedGeneration else { return }
+        guard index.reader != nil else { return clear() }
+        guard hasLoaded else { return }
         await reload(limit: max(Self.pageSize, rows.count))
     }
 

@@ -1,7 +1,10 @@
 import LZBilling
 import LZCore
 import Foundation
+import LZGeo
+import LZIndex
 import LZLibrary
+import UIKit
 
 /// Everything the composition root needs from the outside world. `live()` is production;
 /// `testHost()` is inert for the app-hosted unit tests; DEBUG launch arguments
@@ -18,6 +21,21 @@ struct AppDependencies {
     var photoLibrary: any PhotoLibraryClient
     /// Shows the system picker for the limited selection and returns when it closes.
     var presentLimitedLibraryPicker: @MainActor () async -> Void
+    /// What the search index reads (PhotoKit; a fake library under `-LZPhotos`, `-LZSeed` and in tests).
+    var libraryReader: any LibraryReader
+    /// Thumbnails and screen-size images, never from the network.
+    var images: any AssetImageProvider
+    /// Apple Maps (place names, and later place search).
+    var maps: any MapsClient
+    /// Apple Maps requests a minute, shared by place naming and search.
+    var mapsPerMinute = 30
+    var network: any NetworkStatus
+    var indexLocation: IndexLocation = .applicationSupport
+    /// Destroy the on-disk index before opening it (DEBUG `-LZIndex reset`).
+    var resetIndexOnLaunch = false
+    /// The zone photos without a position fall back to.
+    var deviceTimeZone: @Sendable () -> TimeZone = { .current }
+    var indexSettings = IndexerSettings()
     #if DEBUG
     /// DEBUG: what Settings › Developer › Library census reads (PhotoKit; the fake library under
     /// `-LZPhotos` and in tests).
@@ -41,12 +59,16 @@ struct AppDependencies {
             purchases: RevenueCatPurchasesClient(),
             billingEnvironment: BillingEnvironment(environment),
             photoLibrary: LivePhotoLibraryClient(),
-            presentLimitedLibraryPicker: { await LimitedLibraryPicker.present() }
+            presentLimitedLibraryPicker: { await LimitedLibraryPicker.present() },
+            libraryReader: LiveLibraryReader(),
+            images: LiveAssetImageProvider(),
+            maps: LiveMapsClient(),
+            network: LiveNetworkStatus()
         )
     }
 
     /// The app-hosted unit tests' host: nothing boots, nothing touches the network, the real
-    /// defaults or the photo library.
+    /// defaults or the photo library. The index is in memory over an empty fake library.
     static func testHost() -> AppDependencies {
         var dependencies = live()
         dependencies.label = "test-host"
@@ -56,6 +78,11 @@ struct AppDependencies {
         let photos = FakePhotoLibraryClient(access: .notDetermined)
         dependencies.photoLibrary = photos
         dependencies.presentLimitedLibraryPicker = {}
+        dependencies.libraryReader = FakeLibraryReader(.empty, following: photos)
+        dependencies.images = FakeAssetImageProvider()
+        dependencies.maps = FakeMapsClient(.empty)
+        dependencies.network = FakeNetworkStatus(reachable: false)
+        dependencies.indexLocation = .inMemory
         #if DEBUG
         dependencies.censusSource = FakeCensusSource(library: photos, pace: .zero)
         #endif
@@ -77,5 +104,14 @@ struct AppDependencies {
     /// The purchase service for this set.
     func makePurchasesService() -> PurchasesService {
         PurchasesService(client: purchases, environment: billingEnvironment, clock: clock)
+    }
+
+    /// What the search index needs from this set.
+    func makeIndexDependencies(gazetteer: Gazetteer?, budget: MapsBudget) -> IndexDependencies {
+        let photoLibrary = photoLibrary
+        return IndexDependencies(location: indexLocation, reader: libraryReader, gazetteer: gazetteer, maps: maps, budget: budget, clock: clock,
+                                 network: network, kv: kv, deviceTimeZone: deviceTimeZone, changes: { photoLibrary.changes() },
+                                 settings: indexSettings, resetOnLaunch: resetIndexOnLaunch,
+                                 isProtectedDataAvailable: { UIApplication.shared.isProtectedDataAvailable })
     }
 }

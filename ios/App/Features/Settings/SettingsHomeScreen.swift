@@ -24,6 +24,8 @@ struct SettingsHomeScreen: View {
                 group("LIBRARY") {
                     row(PhotoAccessCopy.screenTitle, "photo.on.rectangle", .photoAccess, value: PhotoAccessCopy.status(model.photoAccess.access))
                         .accessibilityIdentifier("settings-photo-access")
+                    row(IndexCopy.screenTitle, "magnifyingglass", .searchIndex, value: IndexCopy.value(model.index.status))
+                        .accessibilityIdentifier("settings-search-index")
                 }
                 group("APP") {
                     row("Appearance", "circle.lefthalf.filled", .appearance)
@@ -40,6 +42,8 @@ struct SettingsHomeScreen: View {
                         .accessibilityIdentifier("developer-sample-prices")
                     row(LibraryCensusCopy.screenTitle, "chart.bar.doc.horizontal", .libraryCensus)
                         .accessibilityIdentifier("developer-library-census")
+                    row("Index inspector", "tablecells", .indexInspector)
+                        .accessibilityIdentifier("developer-index-inspector")
                 }
                 #endif
                 if let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String {
