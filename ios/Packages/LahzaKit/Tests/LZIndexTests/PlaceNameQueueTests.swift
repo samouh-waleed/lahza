@@ -22,7 +22,7 @@ import Testing
         #expect(try await budget.acquire(.interactive))
         #expect(try await !budget.acquire(.interactive), "interactive never waits")
         await clock.advance(by: .seconds(5))
-        #expect(await clock.pendingSleepCount == 1, "one token every 2 s: 5 s refills 2.5, not yet 3")
+        #expect(clock.pendingSleepCount == 1, "one token every 2 s: 5 s refills 2.5, not yet 3")
         await clock.advance(by: .seconds(1))
         await clock.run()
         #expect(try await waiting.value)

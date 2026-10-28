@@ -77,6 +77,29 @@ import Testing
         }
     }
 
+    @Test func aDamagedIndexIsReopenedRebuiltAndReadAgain() async throws {
+        try await Fixture.withTemporaryDirectory { url in
+            let kv = InMemoryKeyValueStore()
+            let store = IndexStore(dependencies(FakeLibraryReader(.explicit(Self.library)), location: .directory(url), kv: kv))
+            store.start()
+            await store.settled()
+            let before = try #require(store.reader)
+            #expect(store.status.phase == .ready)
+
+            // A job hit SQLITE_CORRUPT: the marker asks the next open to rebuild.
+            let database = try IndexDatabase.open(.directory(url))
+            database.noteCorruption()
+            await database.close()
+            #expect(database.needsRebuild)
+            await store.repair()
+            await store.settled()
+            #expect(store.status.phase == .ready)
+            #expect(store.status.summary?.assets == 30)
+            #expect(store.reader?.generation != before.generation, "a new session")
+            #expect(!database.needsRebuild, "the open rebuilt the file")
+        }
+    }
+
     @Test func deleteIndexStaysOffUntilBuildAgain() async throws {
         let kv = InMemoryKeyValueStore()
         let store = IndexStore(dependencies(FakeLibraryReader(.explicit(Self.library)), kv: kv))

@@ -189,6 +189,12 @@ public final class IndexDatabase: Sendable {
         FileManager.default.createFile(atPath: folder.appendingPathComponent(Self.rebuildMarker).path, contents: nil)
     }
 
+    /// A job found the file damaged: opening it again rebuilds it.
+    public var needsRebuild: Bool {
+        guard let folder = try? Self.folder(for: location) else { return false }
+        return FileManager.default.fileExists(atPath: folder.appendingPathComponent(Self.rebuildMarker).path)
+    }
+
     // MARK: Access (fenced)
 
     /// One consistent snapshot read (WAL), even while a sync writes.

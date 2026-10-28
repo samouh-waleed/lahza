@@ -70,6 +70,7 @@ public actor PlaceNameQueue {
     private var counts = (named: 0, eligible: 0)
 
     static let maxBoosted = 200
+    static let thermalPause: Duration = .seconds(30)
 
     public init(database: IndexDatabase, maps: any MapsClient, budget: MapsBudget, clock: any AppClock, network: any NetworkStatus,
                 notify: @escaping @Sendable () async -> Void, policy: PlaceNamePolicy = .default) {
@@ -125,6 +126,11 @@ public actor PlaceNameQueue {
             if let until = await budget.backoffUntil, until > clock.now {
                 publish(.throttled(until: until))
                 do { try await clock.sleep(for: .seconds(until.timeIntervalSince(clock.now))) } catch { break }
+                continue
+            }
+            if ProcessInfo.processInfo.thermalState.rawValue >= ProcessInfo.ThermalState.serious.rawValue {
+                // A hot iPhone: naming waits; the library sync slows down on its own.
+                do { try await clock.sleep(for: Self.thermalPause) } catch { break }
                 continue
             }
             guard let candidate = await next() else { break }

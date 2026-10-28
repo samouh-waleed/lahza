@@ -40,6 +40,8 @@ import Observation
     /// The index version the latest place-naming run started at.
     @ObservationIgnored private var placeNamesVersion: Int64 = -1
     @ObservationIgnored private var queueProgress = PlaceNameProgress()
+    /// The session generation last repaired after damage.
+    @ObservationIgnored private var repairedGeneration = -1
     @ObservationIgnored private let log = Log("index")
 
     static let pausedKey = KVKey.device("index.paused")
@@ -293,11 +295,30 @@ import Observation
     }
 
     private func apply(_ indexer: IndexStatus, generation: Int) {
-        guard generation == self.generation, session != nil else { return }
+        guard generation == self.generation, let session else { return }
         var status = indexer
         status.placeNames = placeNameProgress
         self.status = status
         refreshPlaceNames()
+        if case .failed = status.phase, session.database.needsRebuild, repairedGeneration != generation {
+            repairedGeneration = generation
+            transition { [weak self] in await self?.repair() }
+        }
+    }
+
+    /// A job found the file damaged: closes it and opens it again, which rebuilds it (keeping saved places), then
+    /// reads the library. Once per session, so a file that stays damaged can't loop.
+    func repair() async {
+        guard let session else { return }
+        log.fault("Index damaged: reopening to rebuild", privacy: .public)
+        stopPlaceNames()
+        statusTask?.cancel()
+        progressTask?.cancel()
+        self.session = nil
+        reader = nil
+        await session.indexer.stop()
+        await session.database.close()
+        await evaluate(reason: .launch)
     }
 
     private func libraryChanged() {
