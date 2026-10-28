@@ -158,6 +158,7 @@ import Testing
         let before = try await allMoments()
         let lastPark = try #require(before.first { $0.key.day == LocalTime.day(year: 2026, month: 8, day: 22) && $0.itemCount == 8 })
         #expect(lastPark.label == "Riyadh", "before Apple Maps: the city")
+        #expect(lastPark.cell.map { GeoHash.center($0).distance(to: Fixture.nakheel) < 250 } == true)
         #expect(lastPark.photoCount == 8)
 
         await Fixture.placeNames(database, indexer, maps: SeedMaps.client()).run()

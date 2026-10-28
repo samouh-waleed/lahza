@@ -51,6 +51,8 @@ public struct MomentRow: Sendable, Hashable, Identifiable {
     public var countryCode: String?
     public var tripID: Int64?
     public var coverLocalID: String?
+    /// The geohash-7 cell most of its located items are in (``IndexStore/prioritizePlaceNames(cells:)``).
+    public var cell: String?
 }
 
 /// One trip as lists show it.

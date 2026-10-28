@@ -208,7 +208,7 @@ enum IndexQueries {
     static let momentSelect = """
         SELECT m.id, m.day, m.start_utc, m.end_utc, m.start_wall, m.end_wall, zone.name AS zone, m.item_count, m.photo_count,
                m.video_count, m.located_count, m.borrowed_count, label.name AS label, city.name AS city, country.country_code AS country,
-               m.trip_id, cover.local_id AS cover
+               m.trip_id, cover.local_id AS cover, m.cell
         FROM moment m
         LEFT JOIN zone ON zone.id = m.tz
         LEFT JOIN place label ON label.id = m.label_place
@@ -221,7 +221,7 @@ enum IndexQueries {
         MomentRow(id: row["id"], key: MomentKey(day: row["day"], startUTC: row["start_utc"]), endUTC: row["end_utc"], startWall: row["start_wall"],
                   endWall: row["end_wall"], timeZone: row["zone"], itemCount: row["item_count"], photoCount: row["photo_count"],
                   videoCount: row["video_count"], locatedCount: row["located_count"], borrowedCount: row["borrowed_count"], label: row["label"],
-                  cityName: row["city"], countryCode: row["country"], tripID: row["trip_id"], coverLocalID: row["cover"])
+                  cityName: row["city"], countryCode: row["country"], tripID: row["trip_id"], coverLocalID: row["cover"], cell: row["cell"])
     }
 
     static func summary(_ db: Database) throws -> LibrarySummary {
