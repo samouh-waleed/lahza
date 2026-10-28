@@ -4,7 +4,7 @@ import SQLite3
 import Testing
 
 /// The search index on the iOS runtime: its folder keeps data protection until first unlock and stays out of
-/// backups, and the system SQLite runs the schema's FTS5 place search.
+/// backups, the system SQLite runs the schema's FTS5 place search, and GRDB's licence ships with the app.
 @Suite struct IndexStorageTests {
     private func withIndex<T>(_ body: (URL) async throws -> T) async throws -> T {
         let base = FileManager.default.temporaryDirectory.appendingPathComponent("index-\(UUID().uuidString)", isDirectory: true)
@@ -25,6 +25,11 @@ import Testing
             #endif
             #expect(try folder.resourceValues(forKeys: [.isExcludedFromBackupKey]).isExcludedFromBackup == true)
         }
+    }
+
+    @Test func theGRDBLicenceShipsWithTheApp() throws {
+        let url = try #require(Bundle.main.url(forResource: "GRDB-LICENSE", withExtension: "txt"))
+        #expect(try String(contentsOf: url, encoding: .utf8).contains("Gwendal Roué"))
     }
 
     @Test func placeNamesAreFoundWithFullTextSearch() async throws {

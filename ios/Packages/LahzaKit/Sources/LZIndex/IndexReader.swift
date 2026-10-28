@@ -33,6 +33,92 @@ public struct IndexReader: Sendable {
         }
     }
 
+    /// Moments newest first: the page after `key` (from the start when nil), at most `limit`.
+    public func moments(after key: MomentKey?, limit: Int, filter: MomentFilter = .all) async throws -> [MomentRow] {
+        try await database.read { db in
+            var conditions: [String] = []
+            var arguments: [(any DatabaseValueConvertible)?] = []
+            if let key {
+                conditions.append("(m.day, m.start_utc) < (?, ?)")
+                arguments += [key.day, key.startUTC]
+            }
+            if let year = filter.year {
+                conditions.append("m.day >= ? AND m.day < ?")
+                arguments += [LocalTime.day(year: year, month: 1, day: 1), LocalTime.day(year: year + 1, month: 1, day: 1)]
+            }
+            if let trip = filter.tripID {
+                conditions.append("m.trip_id = ?")
+                arguments.append(trip)
+            }
+            let condition = conditions.isEmpty ? "" : "WHERE " + conditions.joined(separator: " AND ")
+            arguments.append(max(0, limit))
+            return try Row.fetchAll(db, sql: "\(IndexQueries.momentSelect) \(condition) ORDER BY m.day DESC, m.start_utc DESC LIMIT ?",
+                                    arguments: StatementArguments(arguments)).map(IndexQueries.momentRow)
+        }
+    }
+
+    /// Moments by row id (search hits), newest first.
+    public func momentRows(ids: [Int64]) async throws -> [MomentRow] {
+        try await database.read { db in
+            var rows: [MomentRow] = []
+            for start in stride(from: 0, to: ids.count, by: 900) {
+                let chunk = ids[start..<min(ids.count, start + 900)]
+                let marks = Array(repeating: "?", count: chunk.count).joined(separator: ", ")
+                rows += try Row.fetchAll(db, sql: "\(IndexQueries.momentSelect) WHERE m.id IN (\(marks))", arguments: StatementArguments(chunk))
+                    .map(IndexQueries.momentRow)
+            }
+            return rows.sorted { ($0.key.day, $0.key.startUTC) > ($1.key.day, $1.key.startUTC) }
+        }
+    }
+
+    /// One moment and its items in time order; nil when no moment has that key (any more).
+    public func moment(_ key: MomentKey) async throws -> MomentDetailRows? {
+        try await database.read { db in
+            guard let moment = try Row.fetchOne(db, sql: "\(IndexQueries.momentSelect) WHERE m.day = ? AND m.start_utc = ?",
+                                                arguments: [key.day, key.startUTC]).map(IndexQueries.momentRow) else { return nil }
+            let members = try Row.fetchAll(db, sql: """
+                SELECT id, local_id, kind, created_utc, wall_s, duration, flags, place_src FROM asset WHERE moment_id = ? ORDER BY created_utc, id
+                """, arguments: [moment.id]).map { row in
+                MomentDetailRows.Member(id: row["id"], localID: row["local_id"], isVideo: row["kind"] == 1, utc: row["created_utc"], wall: row["wall_s"],
+                                        duration: row["duration"], isFavorite: (row["flags"] as Int) & AssetFlags.favorite.rawValue != 0,
+                                        hasBorrowedLocation: (row["place_src"] as Int) >= PlaceSource.momentNear.rawValue)
+            }
+            return MomentDetailRows(moment: moment, members: members)
+        }
+    }
+
+    /// Trips newest first.
+    public func trips() async throws -> [TripRow] {
+        try await database.read { db in
+            try Row.fetchAll(db, sql: """
+                SELECT t.id, t.start_day, t.end_day, t.label, country.country_code AS country, t.abroad, t.moment_count, t.item_count,
+                       t.video_count, t.max_km, cover.local_id AS cover
+                FROM trip t LEFT JOIN place country ON country.id = t.country_place LEFT JOIN asset cover ON cover.id = t.cover_asset
+                ORDER BY t.start_day DESC
+                """).map { row in
+                TripRow(id: row["id"], startDay: row["start_day"], endDay: row["end_day"], label: row["label"], countryCode: row["country"],
+                        abroad: row["abroad"], momentCount: row["moment_count"], itemCount: row["item_count"], videoCount: row["video_count"],
+                        maxKm: row["max_km"], coverLocalID: row["cover"])
+            }
+        }
+    }
+
+    /// The home base of a local year, or the latest one when `year` is nil.
+    public func homeBase(year: Int?) async throws -> HomeBaseRow? {
+        try await database.read { db in
+            let condition = year == nil ? "" : "WHERE h.year = ?"
+            let arguments: StatementArguments = year.map { [$0] } ?? []
+            return try Row.fetchOne(db, sql: """
+                SELECT h.year, h.lat, h.lon, h.tile, zone.name AS zone, h.country_code, h.nights, h.source
+                FROM home_base h LEFT JOIN zone ON zone.id = h.tz \(condition) ORDER BY h.year DESC LIMIT 1
+                """, arguments: arguments).map { row in
+                HomeBaseRow(year: row["year"], center: Coordinate(latitude: row["lat"], longitude: row["lon"]), tile: row["tile"],
+                            timeZone: row["zone"], countryCode: row["country_code"], nights: row["nights"],
+                            source: HomeBaseRow.Source(rawValue: row["source"]) ?? .estimated)
+            }
+        }
+    }
+
     /// The DEBUG index inspector's data: sync state, versions, row counts and the structure at a glance.
     /// Never the change token's bytes, coordinates or local identifiers.
     public func inspector() async throws -> IndexInspectorData {
@@ -101,6 +187,26 @@ public struct IndexInspectorData: Sendable, Hashable {
 
 /// The queries behind ``IndexReader``, usable inside any read or write.
 enum IndexQueries {
+    /// A moment row with its zone, label, city, country and cover; callers add WHERE and ORDER BY.
+    static let momentSelect = """
+        SELECT m.id, m.day, m.start_utc, m.end_utc, m.start_wall, m.end_wall, zone.name AS zone, m.item_count, m.photo_count,
+               m.video_count, m.located_count, m.borrowed_count, label.name AS label, city.name AS city, country.country_code AS country,
+               m.trip_id, cover.local_id AS cover
+        FROM moment m
+        LEFT JOIN zone ON zone.id = m.tz
+        LEFT JOIN place label ON label.id = m.label_place
+        LEFT JOIN place city ON city.id = m.city_place
+        LEFT JOIN place country ON country.id = m.country_place
+        LEFT JOIN asset cover ON cover.id = m.cover_asset
+        """
+
+    static func momentRow(_ row: Row) -> MomentRow {
+        MomentRow(id: row["id"], key: MomentKey(day: row["day"], startUTC: row["start_utc"]), endUTC: row["end_utc"], startWall: row["start_wall"],
+                  endWall: row["end_wall"], timeZone: row["zone"], itemCount: row["item_count"], photoCount: row["photo_count"],
+                  videoCount: row["video_count"], locatedCount: row["located_count"], borrowedCount: row["borrowed_count"], label: row["label"],
+                  cityName: row["city"], countryCode: row["country"], tripID: row["trip_id"], coverLocalID: row["cover"])
+    }
+
     static func summary(_ db: Database) throws -> LibrarySummary {
         var summary = LibrarySummary()
         // Unreliable dates (none, before 2000, in the future) don't stretch the year range.

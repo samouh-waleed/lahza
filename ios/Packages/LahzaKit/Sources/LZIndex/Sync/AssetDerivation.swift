@@ -24,9 +24,9 @@ enum PlaceSource: Int, Sendable {
 
 /// Gazetteer answers per geohash-7 cell (about 150 m), and `TimeZone` objects per identifier, shared across
 /// batches. Lookups use the cell's centre, so an asset's zone doesn't depend on which neighbour was read first.
+/// A cell keeps only small values (the zone now; place ids when placement lands), so the cache stays a few MB.
 final class GeoCache: Sendable {
     struct Cell: Sendable {
-        var placement: GeoPlacement
         var zone: String
         var zoneSource: ZoneSource
     }
@@ -49,9 +49,8 @@ final class GeoCache: Sendable {
     func cell(_ hash: String) -> Cell {
         if let cached = state.withLock({ $0.cells[hash] }) { return cached }
         let centre = GeoHash.center(hash)
-        let placement = gazetteer.locate(centre)
-        let cell = placement.timeZone.map { Cell(placement: placement, zone: $0, zoneSource: .gps) }
-            ?? Cell(placement: placement, zone: LocalTime.etcZoneIdentifier(longitude: centre.longitude), zoneSource: .etcFallback)
+        let cell = gazetteer.locate(centre).timeZone.map { Cell(zone: $0, zoneSource: .gps) }
+            ?? Cell(zone: LocalTime.etcZoneIdentifier(longitude: centre.longitude), zoneSource: .etcFallback)
         state.withLock { state in
             if state.cells.count >= Self.capacity { state.cells.removeAll(keepingCapacity: true) }
             state.cells[hash] = cell
