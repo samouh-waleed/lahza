@@ -3,8 +3,8 @@ import Synchronization
 /// The operation's result, or `onTimeout` thrown after `timeout`, whichever comes first; a cancelled
 /// caller gets `CancellationError` at once. The loser is cancelled but not awaited: MapKit's async calls
 /// are bridged from completion handlers and ignore cancellation, so waiting for them would defeat the
-/// timeout.
-func firstOf<T: Sendable>(timeout: Duration, orThrow onTimeout: any Error,
+/// timeout. Callers of any ``MapsClient`` use it so a cancelled request can never hang them.
+public func firstOf<T: Sendable>(timeout: Duration, orThrow onTimeout: any Error,
                           _ operation: @escaping @Sendable () async throws -> T) async throws -> T {
     try Task.checkCancellation()
     let race = Race<T>()

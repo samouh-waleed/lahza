@@ -119,6 +119,23 @@ public struct IndexReader: Sendable {
         }
     }
 
+    /// Moments per local month, newest first (the Moments tab's year strip and month headers).
+    public func momentMonths() async throws -> [MonthCount] {
+        try await database.read { db in
+            var months: [Int: Int] = [:]
+            for row in try Row.fetchAll(db, sql: "SELECT day, COUNT(*) AS moments FROM moment GROUP BY day") {
+                let date = LocalTime.civil(day: row["day"])
+                months[date.year * 100 + date.month, default: 0] += row["moments"] as Int
+            }
+            return months.sorted { $0.key > $1.key }.map { MonthCount(year: $0.key / 100, month: $0.key % 100, moments: $0.value) }
+        }
+    }
+
+    /// The index file's size (SQLite's page counters).
+    public func sizeBytes() async throws -> Int64 {
+        try await database.sizeBytes()
+    }
+
     /// The DEBUG index inspector's data: sync state, versions, row counts and the structure at a glance.
     /// Never the change token's bytes, coordinates or local identifiers.
     public func inspector() async throws -> IndexInspectorData {

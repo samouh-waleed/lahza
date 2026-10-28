@@ -23,20 +23,29 @@ enum PlaceSource: Int, Sendable {
 }
 
 /// Gazetteer answers per geohash-7 cell (about 150 m), and `TimeZone` objects per identifier, shared across
-/// batches. Lookups use the cell's centre, so an asset's zone doesn't depend on which neighbour was read first.
-/// A cell keeps only small values (the zone now; place ids when placement lands), so the cache stays a few MB.
+/// batches. Lookups use the cell's centre, so an asset's zone and places don't depend on which neighbour was read
+/// first. A cell keeps only its zone and place keys; each place's row values are kept once, by key.
 final class GeoCache: Sendable {
     struct Cell: Sendable {
         var zone: String
         var zoneSource: ZoneSource
+        /// `place.key`s from the gazetteer (``PlaceSpec``), nil where it has none.
+        var city: String?
+        var metro: String?
+        var locality: String?
+        var region: String?
+        var country: String?
+        /// The nearest place is within 50 km, or the 3 nearest within 150 km share the country.
+        var countryConfident: Bool
     }
 
     private struct State {
         var cells: [String: Cell] = [:]
+        var places: [String: PlaceSpec] = [:]
         var zones: [String: TimeZone] = [:]
     }
 
-    /// Bounds the cache (a cell entry holds a few names); it starts over when full.
+    /// Bounds the cache (a cell entry holds a few short keys); it starts over when full.
     static let capacity = 20_000
 
     let gazetteer: Gazetteer
@@ -49,13 +58,32 @@ final class GeoCache: Sendable {
     func cell(_ hash: String) -> Cell {
         if let cached = state.withLock({ $0.cells[hash] }) { return cached }
         let centre = GeoHash.center(hash)
-        let cell = gazetteer.locate(centre).timeZone.map { Cell(zone: $0, zoneSource: .gps) }
-            ?? Cell(zone: LocalTime.etcZoneIdentifier(longitude: centre.longitude), zoneSource: .etcFallback)
+        let placement = gazetteer.locate(centre)
+        var cell = placement.timeZone.map { Cell(zone: $0, zoneSource: .gps, countryConfident: placement.countryConfident) }
+            ?? Cell(zone: LocalTime.etcZoneIdentifier(longitude: centre.longitude), zoneSource: .etcFallback,
+                    countryConfident: placement.countryConfident)
+        var specs: [PlaceSpec] = []
+        func keep(_ spec: PlaceSpec?) -> String? {
+            guard let spec else { return nil }
+            specs.append(spec)
+            return spec.key
+        }
+        cell.city = keep(placement.city.map(PlaceSpec.init(city:)))
+        cell.metro = keep(placement.metro.map(PlaceSpec.init(city:)))
+        cell.locality = keep(placement.locality.map(PlaceSpec.init(city:)))
+        cell.region = keep(placement.admin1.flatMap(PlaceSpec.init(region:)))
+        cell.country = keep(placement.countryCode.map(PlaceSpec.init(country:)))
         state.withLock { state in
             if state.cells.count >= Self.capacity { state.cells.removeAll(keepingCapacity: true) }
             state.cells[hash] = cell
+            for spec in specs where state.places[spec.key] == nil { state.places[spec.key] = spec }
         }
         return cell
+    }
+
+    /// The row values of a gazetteer place key a ``Cell`` holds.
+    func place(_ key: String) -> PlaceSpec? {
+        state.withLock { $0.places[key] }
     }
 
     func timeZone(_ identifier: String) -> TimeZone {
@@ -67,7 +95,7 @@ final class GeoCache: Sendable {
 }
 
 /// The columns P0 derives inline for one asset: zone, wall time, moment day, cell and effective position.
-/// The place columns (city … country) stay nil until the structure pass's placement fills them.
+/// The place columns (city … country) are the structure pass's: it places every asset of a dirty day.
 struct DerivedColumns: Sendable, Hashable {
     var zone: Int64?
     var zoneSource: ZoneSource

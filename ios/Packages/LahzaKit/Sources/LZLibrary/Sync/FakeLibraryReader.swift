@@ -10,9 +10,9 @@ import Synchronization
 /// expired and change details made unavailable, to drive the full-scan paths.
 ///
 /// Access is scripted with ``setAccess(_:)``; under limited access only the assets in
-/// ``setLimitedSelection(_:)`` are visible. A synthetic library follows its
-/// ``FakePhotoLibraryClient`` instead: its access, and under limited access its first
-/// `count(for: .limited)` assets.
+/// ``setLimitedSelection(_:)`` are visible. A synthetic library, or any library made `following` a
+/// ``FakePhotoLibraryClient``, follows that client instead: its access, and under limited access its
+/// first `count(for: .limited)` assets by id (so the app's access store and the index agree).
 public final class FakeLibraryReader: LibraryReader {
     public enum Contents: Sendable {
         case empty
@@ -51,8 +51,8 @@ public final class FakeLibraryReader: LibraryReader {
     private let library: FakePhotoLibraryClient?
 
     /// A library holding `contents`, readable at `access` (ignored for a synthetic library, which
-    /// follows its client).
-    public init(_ contents: Contents, access: PhotoAccess = .full) {
+    /// follows its client, and when `client` is given, which it then follows the same way).
+    public init(_ contents: Contents, access: PhotoAccess = .full, following client: FakePhotoLibraryClient? = nil) {
         var assets: [LibraryAsset] = []
         var library: FakePhotoLibraryClient?
         switch contents {
@@ -72,7 +72,7 @@ public final class FakeLibraryReader: LibraryReader {
         case .explicit(let explicit):
             assets = explicit
         }
-        self.library = library
+        self.library = library ?? client
         state = Mutex(State(access: access, assets: Dictionary(assets.map { ($0.id, $0) }, uniquingKeysWith: { $1 })))
     }
 

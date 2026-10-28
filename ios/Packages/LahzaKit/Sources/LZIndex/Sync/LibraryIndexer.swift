@@ -51,7 +51,7 @@ public actor LibraryIndexer {
     public init(database: IndexDatabase, reader: any LibraryReader, gazetteer: Gazetteer, clock: any AppClock,
                 deviceTimeZone: @escaping @Sendable () -> TimeZone, settings: IndexerSettings = .init()) {
         self.init(database: database, reader: reader, gazetteer: gazetteer, clock: clock, deviceTimeZone: deviceTimeZone,
-                  settings: settings, structure: DeferredStructurePass(), faults: nil)
+                  settings: settings, structure: LiveStructurePass(), faults: nil)
     }
 
     init(database: IndexDatabase, reader: any LibraryReader, gazetteer: Gazetteer, clock: any AppClock,
@@ -127,9 +127,20 @@ public actor LibraryIndexer {
         await withCheckedContinuation { settleWaiters.append($0) }
     }
 
+    /// The latest status (what a new ``status`` subscriber gets first).
+    public func currentStatus() -> IndexStatus { current }
+
     /// Forgets the change token, so the next sync reads the whole library (the inspector's "Forget change token").
     public func forgetChangeToken() async throws {
         try await database.write { db in try Meta.set(db, .libraryToken, nil) }
+    }
+
+    /// Marks every day dirty and restructures (the inspector's "Re-run structure").
+    public func restructureAll() async throws {
+        try await database.write { db in
+            try db.execute(sql: "INSERT OR IGNORE INTO dirty_day SELECT DISTINCT day FROM asset WHERE day IS NOT NULL")
+        }
+        enqueue(.restructure)
     }
 
     private func startRunnerIfNeeded() {
@@ -225,7 +236,7 @@ public actor LibraryIndexer {
         changed = changed || scanned || stats.writes.changed != before.changed
         try checkInterruption()
         if scanned { publish(.organizing) }
-        changed = try await structure.run(database, daysAfter: nil, final: true) || changed
+        changed = try await structure.run(database, structureRun(daysAfter: nil, final: true)) || changed
         if changed { try await database.write { db in _ = try Meta.bumpVersion(db) } }
         if scanned { try await database.optimize() }
         try await refreshStatus(.ready)
@@ -397,10 +408,17 @@ public actor LibraryIndexer {
         guard due, let frontier = scan.frontier else { return }
         scan.sinceCheckpoint = 0
         scan.lastCheckpoint = now
-        _ = try await structure.run(database, daysAfter: Self.lastOpenDay(frontier: frontier), final: false)
+        _ = try await structure.run(database, structureRun(daysAfter: Self.lastOpenDay(frontier: frontier), final: false))
         try await database.write { db in _ = try Meta.bumpVersion(db) }
         stats.checkpoints += 1
         try await refreshStatus(current.phase)
+    }
+
+    /// The structure pass's inputs for the running job; it stops between transactions for a pause or a cancel.
+    private func structureRun(daysAfter: Int32?, final: Bool) -> StructureRun {
+        StructureRun(daysAfter: daysAfter, final: final, deviceZone: deviceZone, now: clock.now, geo: geo) { [weak self] in
+            try await self?.checkInterruption()
+        }
     }
 
     /// The latest moment day the rest of a scan can still add to (or borrow a zone into): assets not read yet were
@@ -709,57 +727,5 @@ extension Duration {
     var seconds: TimeInterval {
         let (seconds, attoseconds) = components
         return TimeInterval(seconds) + TimeInterval(attoseconds) / 1e18
-    }
-}
-
-/// Hands every status to each subscriber's stream (newest only when one lags); a new stream starts with the
-/// latest status.
-final class StatusBroadcaster: Sendable {
-    private struct State {
-        var latest: IndexStatus
-        var continuations: [UUID: AsyncStream<IndexStatus>.Continuation] = [:]
-        var finished = false
-    }
-
-    private let state: Mutex<State>
-
-    init(_ initial: IndexStatus) {
-        state = Mutex(State(latest: initial))
-    }
-
-    func stream() -> AsyncStream<IndexStatus> {
-        let id = UUID()
-        let (stream, continuation) = AsyncStream<IndexStatus>.makeStream(bufferingPolicy: .bufferingNewest(1))
-        let latest = state.withLock { state -> IndexStatus? in
-            guard !state.finished else { return nil }
-            state.continuations[id] = continuation
-            return state.latest
-        }
-        if let latest {
-            continuation.yield(latest)
-            continuation.onTermination = { [weak self] _ in
-                _ = self?.state.withLock { $0.continuations.removeValue(forKey: id) }
-            }
-        } else {
-            continuation.finish()
-        }
-        return stream
-    }
-
-    func send(_ status: IndexStatus) {
-        let continuations = state.withLock { state in
-            state.latest = status
-            return Array(state.continuations.values)
-        }
-        for continuation in continuations { continuation.yield(status) }
-    }
-
-    func finish() {
-        let continuations = state.withLock { state in
-            state.finished = true
-            defer { state.continuations.removeAll() }
-            return Array(state.continuations.values)
-        }
-        for continuation in continuations { continuation.finish() }
     }
 }

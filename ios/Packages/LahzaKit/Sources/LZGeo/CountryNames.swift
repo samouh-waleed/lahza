@@ -55,6 +55,15 @@ public enum CountryNames {
         return index
     }()
 
+    /// Code → every folded name and synonym that finds it (the reverse of ``index``).
+    private static let names: [String: [String]] = {
+        var names: [String: [String]] = [:]
+        for (name, codes) in index {
+            for code in codes { names[code, default: []].append(name) }
+        }
+        return names.mapValues { $0.sorted() }
+    }()
+
     /// "United Arab Emirates" for "AE"; the code itself if Locale has no name for it.
     public static func name(_ code: String) -> String {
         english.localizedString(forRegionCode: code) ?? code
@@ -64,5 +73,11 @@ public enum CountryNames {
     /// (pass ``PlaceNames/fold(_:)`` output). Several codes when the name is shared ("congo").
     public static func codes(matching folded: String) -> [String] {
         index[folded]?.sorted() ?? []
+    }
+
+    /// Every folded form ``codes(matching:)`` finds `code` by: its English name and parts, and the synonyms
+    /// ("AE" → `emirates`, `the emirates`, `uae`, `united arab emirates`), sorted.
+    public static func foldedNames(_ code: String) -> [String] {
+        names[code.uppercased()] ?? []
     }
 }

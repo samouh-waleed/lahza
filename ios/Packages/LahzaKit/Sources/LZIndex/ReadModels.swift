@@ -104,3 +104,19 @@ public struct HomeBaseRow: Sendable, Hashable {
     public var nights: Int
     public var source: Source
 }
+
+/// How many moments a local month holds.
+public struct MonthCount: Sendable, Hashable, Identifiable {
+    public var year: Int
+    public var month: Int
+    public var moments: Int
+
+    /// yyyymm.
+    public var id: Int { year * 100 + month }
+
+    public init(year: Int, month: Int, moments: Int) {
+        self.year = year
+        self.month = month
+        self.moments = moments
+    }
+}

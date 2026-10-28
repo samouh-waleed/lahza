@@ -40,8 +40,9 @@ let package = Package(
         // reader and image provider (live and fake); the library census for Phase 0 spike S2, whose screen exists only
         // in DEBUG builds; and the DEBUG seed scenario (library, artwork, fake Apple Maps, import capabilities).
         .target(name: "LZLibrary", dependencies: ["LZCore", "LZGeo"]),
-        // The search index: GRDB storage (one SQLite file, a rebuildable cache), library sync and read models. GRDB
-        // stays inside this module (`internal import`), so the app and later modules never see it.
+        // The search index: GRDB storage (one SQLite file, a rebuildable cache), library sync, the structure pass
+        // (zones, places, moments, home bases, trips), Apple Maps place names, read models and the stores the app
+        // observes. GRDB stays inside this module (`internal import`), so the app and later modules never see it.
         .target(name: "LZIndex", dependencies: ["LZCore", "LZGeo", "LZLibrary", .product(name: "GRDB", package: "GRDB.swift")]),
         // macOS host tools, never linked into the app: the gazetteer resource builder (`make gazetteer`) and the
         // seed library renderer (`make seed-photos`, debug builds only).
