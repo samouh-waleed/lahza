@@ -7,7 +7,8 @@ import Foundation
 /// - at every progressive checkpoint of a full scan, over the dirty days later than ``StructureRun/daysAfter``:
 ///   those days are complete, because the scan reads newest first;
 /// - at the end of every job (sync, rebuild, restructure), over every dirty day, with ``StructureRun/final``
-///   set so it also recomputes what spans the library (home bases, trips, cells, place counts).
+///   set so it also recomputes what spans the library (home bases, trips, cells, place counts) when anything
+///   those read changed since they last ran.
 ///
 /// It removes each day from `dirty_day` in the transaction that processes it, and adds the days its zone
 /// borrowing moves assets into. It returns whether readers would see a change.
