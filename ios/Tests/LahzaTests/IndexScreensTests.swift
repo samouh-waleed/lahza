@@ -77,21 +77,36 @@ import Testing
         #expect(state(.full, IndexStatus(phase: .off(.deletedByUser))) == .deleted)
     }
 
-    @Test func momentWordsReadDayFirst() {
+    @Test func momentDatesFollowTheRegion() {
         let day = LocalTime.day(year: 2026, month: 8, day: 22)
-        #expect(MomentCopy.dayTitle(day) == "Sat 22 Aug 2026")
-        #expect(MomentCopy.shortDay(day) == "Sat 22 Aug")
-        #expect(MomentCopy.spokenDay(day) == "Saturday 22 August 2026")
-        #expect(MomentCopy.monthHeader(year: 2026, month: 10, moments: 12) == "October 2026 · 12 moments")
-        #expect(MomentCopy.monthHeader(year: 2026, month: 1, moments: 1) == "January 2026 · 1 moment")
+        let uk = Locale(identifier: "en_GB"), us = Locale(identifier: "en_US")
+        // Interval formats put thin spaces around the dash.
+        let dash = "\u{2009}–\u{2009}"
+        #expect(MomentCopy.dayTitle(day, locale: uk) == "Sat, 22 Aug 2026")
+        #expect(MomentCopy.dayTitle(day, locale: us) == "Sat, Aug 22, 2026")
+        #expect(MomentCopy.shortDay(day, locale: uk) == "Sat 22 Aug")
+        #expect(MomentCopy.shortDay(day, locale: us) == "Sat, Aug 22")
+        #expect(MomentCopy.spokenDay(day, locale: uk) == "Saturday, 22 August 2026")
+        #expect(MomentCopy.monthHeader(year: 2026, month: 10, moments: 12, locale: uk) == "October 2026 · 12 moments")
+        #expect(MomentCopy.monthHeader(year: 2026, month: 1, moments: 1, locale: us) == "January 2026 · 1 moment")
+        #expect(MomentCopy.dayRange(LocalTime.day(year: 2023, month: 7, day: 2), LocalTime.day(year: 2023, month: 7, day: 8), locale: uk)
+                == "2\(dash)8 Jul 2023")
+        #expect(MomentCopy.dayRange(LocalTime.day(year: 2023, month: 7, day: 2), LocalTime.day(year: 2023, month: 7, day: 8), locale: us)
+                == "Jul 2\(dash)8, 2023")
+        #expect(MomentCopy.dayRange(LocalTime.day(year: 2021, month: 12, day: 30), LocalTime.day(year: 2022, month: 1, day: 3), locale: uk)
+                == "30 Dec 2021\(dash)3 Jan 2022")
+        #expect(MomentCopy.dayRange(LocalTime.day(year: 2024, month: 3, day: 30), LocalTime.day(year: 2024, month: 4, day: 2), locale: uk)
+                == "30 Mar\(dash)2 Apr 2024")
+        #expect(MomentCopy.dayRange(day, day, locale: uk) == "22 Aug 2026")
+        // The Gregorian calendar even where the region's default is another one.
+        #expect(MomentCopy.dayTitle(day, locale: Locale(identifier: "en_SA@calendar=islamic-umalqura")).hasSuffix("2026"))
+    }
+
+    @Test func otherMomentWords() {
         #expect(MomentCopy.yearPill(year: 2026, moments: 44) == "2026 · 44")
         #expect(MomentCopy.counts(photos: 10, videos: 1) == "10 photos · 1 video")
         #expect(MomentCopy.counts(photos: 0, videos: 2) == "2 videos")
         #expect(MomentCopy.counts(photos: 1, videos: 0) == "1 photo")
-        #expect(MomentCopy.dayRange(LocalTime.day(year: 2023, month: 7, day: 2), LocalTime.day(year: 2023, month: 7, day: 8)) == "2–8 Jul 2023")
-        #expect(MomentCopy.dayRange(LocalTime.day(year: 2021, month: 12, day: 30), LocalTime.day(year: 2022, month: 1, day: 3))
-                == "30 Dec 2021 – 3 Jan 2022")
-        #expect(MomentCopy.dayRange(LocalTime.day(year: 2024, month: 3, day: 30), LocalTime.day(year: 2024, month: 4, day: 2)) == "30 Mar – 2 Apr 2024")
         #expect(MomentCopy.duration(42) == "0:42")
         #expect(MomentCopy.duration(3_725) == "1:02:05")
         #expect(MomentCopy.places(["Athens", "Mykonos", "Oia", "Thira", "Fira", "Ios"]) == "Athens, Mykonos, Oia, Thira +2")
@@ -181,14 +196,15 @@ import Testing
         await moments.load()
         _ = await moments.loadThrough(year: 2021)
         let nakheel = try #require(moments.moments.first { $0.key.day == LocalTime.day(year: 2026, month: 8, day: 22) && $0.photoCount == 8 })
-        #expect("\(MomentCopy.dayTitle(nakheel.key.day)) · \(MomentCopy.place(nakheel)) · \(MomentCopy.counts(photos: nakheel.photoCount, videos: nakheel.videoCount))"
-                == "Sat 22 Aug 2026 · Al-Nakheel Park · 8 photos")
+        let uk = Locale(identifier: "en_GB")
+        #expect("\(MomentCopy.shortDay(nakheel.key.day, locale: uk)) · \(MomentCopy.place(nakheel)) · \(MomentCopy.counts(photos: nakheel.photoCount, videos: nakheel.videoCount))"
+                == "Sat 22 Aug · Al-Nakheel Park · 8 photos")
         #expect(nakheel.thumbnailLocalIDs.count == 3)
         #expect(moments.homeCountryCode == "SA")
         #expect(moments.trips.count == 6)
         let greece = try #require(moments.trips.first { $0.label == "Greece" })
-        #expect(MomentCopy.tripTitle(greece) == "Greece · 2–8 Jul 2023")
-        #expect(MomentCopy.tripDates(greece) == "2–8 Jul 2023 · 7 days")
+        #expect(MomentCopy.tripTitle(greece, locale: uk) == "Greece · 2\u{2009}–\u{2009}8 Jul 2023")
+        #expect(MomentCopy.tripDates(greece, locale: uk) == "2\u{2009}–\u{2009}8 Jul 2023 · 7 days")
         let scenario = SeedScenario.hero
         let greeceItems = scenario.items(.greece)
         #expect(MomentCopy.tripCaption(greece).hasPrefix(MomentCopy.counts(photos: greeceItems.count { !$0.isVideo }, videos: greeceItems.count(where: \.isVideo))))

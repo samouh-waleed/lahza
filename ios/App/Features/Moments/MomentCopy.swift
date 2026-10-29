@@ -2,8 +2,9 @@ import Foundation
 import LZGeo
 import LZIndex
 
-/// Moment and trip words shared by the Moments tab and the detail screens. Dates read day first in English ("Sat 22
-/// Aug 2026"), as the spec writes them; times follow the iPhone's 12- or 24-hour setting.
+/// Moment and trip words shared by the Moments tab and the detail screens. Dates and times follow the iPhone's region
+/// and 12- or 24-hour setting ("Sat 22 Aug 2026" in the UK, "Sat, Aug 22, 2026" in the US), always in the Gregorian
+/// calendar, so they agree with the year strip.
 nonisolated enum MomentCopy {
     static let navigationTitle = "Moments"
     static let momentTitle = "Moment"
@@ -34,33 +35,36 @@ nonisolated enum MomentCopy {
         return calendar
     }
 
-    private static let weekdays = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
-    private static let months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October",
-                                 "November", "December"]
+    /// A moment day as its UTC midnight; formatted in UTC, it stays that day everywhere.
+    private static func date(_ day: Int32) -> Date { Date(timeIntervalSince1970: TimeInterval(day) * 86_400) }
 
-    /// "Sat 22 Aug 2026".
-    static func dayTitle(_ day: Int32) -> String {
-        "\(shortDay(day)) \(LocalTime.civil(day: day).year)"
+    private static func dayStyle(_ locale: Locale) -> Date.FormatStyle {
+        Date.FormatStyle(locale: locale, calendar: utcCalendar, timeZone: .gmt)
     }
 
-    /// "Sat 22 Aug" (rows under a month heading).
-    static func shortDay(_ day: Int32) -> String {
-        let date = LocalTime.civil(day: day)
-        return "\(weekdays[LocalTime.weekday(day: day) - 1].prefix(3)) \(date.day) \(months[date.month - 1].prefix(3))"
+    /// "Sat, 22 Aug 2026" (UK), "Sat, Aug 22, 2026" (US).
+    static func dayTitle(_ day: Int32, locale: Locale = .autoupdatingCurrent) -> String {
+        date(day).formatted(dayStyle(locale).weekday(.abbreviated).day().month(.abbreviated).year())
     }
 
-    /// "Saturday 22 August 2026", for VoiceOver.
-    static func spokenDay(_ day: Int32) -> String {
-        let date = LocalTime.civil(day: day)
-        return "\(weekdays[LocalTime.weekday(day: day) - 1]) \(date.day) \(months[date.month - 1]) \(date.year)"
+    /// "Sat 22 Aug" (UK), "Sat, Aug 22" (US): rows under a month heading.
+    static func shortDay(_ day: Int32, locale: Locale = .autoupdatingCurrent) -> String {
+        date(day).formatted(dayStyle(locale).weekday(.abbreviated).day().month(.abbreviated))
+    }
+
+    /// "Saturday, 22 August 2026", for VoiceOver.
+    static func spokenDay(_ day: Int32, locale: Locale = .autoupdatingCurrent) -> String {
+        date(day).formatted(dayStyle(locale).weekday(.wide).day().month(.wide).year())
     }
 
     /// "August 2026".
-    static func monthTitle(year: Int, month: Int) -> String { "\(months[month - 1]) \(year)" }
+    static func monthTitle(year: Int, month: Int, locale: Locale = .autoupdatingCurrent) -> String {
+        date(LocalTime.day(year: year, month: month, day: 1)).formatted(dayStyle(locale).month(.wide).year())
+    }
 
     /// "August 2026 · 3 moments".
-    static func monthHeader(year: Int, month: Int, moments: Int) -> String {
-        "\(monthTitle(year: year, month: month)) · \(count(moments, "moment"))"
+    static func monthHeader(year: Int, month: Int, moments: Int, locale: Locale = .autoupdatingCurrent) -> String {
+        "\(monthTitle(year: year, month: month, locale: locale)) · \(count(moments, "moment"))"
     }
 
     /// "2026 · 41" (the year strip).
@@ -128,11 +132,13 @@ nonisolated enum MomentCopy {
     }
 
     /// "Greece · 2–8 Jul 2023".
-    static func tripTitle(_ trip: TripRow) -> String { "\(trip.label) · \(dayRange(trip.startDay, trip.endDay))" }
+    static func tripTitle(_ trip: TripRow, locale: Locale = .autoupdatingCurrent) -> String {
+        "\(trip.label) · \(dayRange(trip.startDay, trip.endDay, locale: locale))"
+    }
 
     /// "2–8 Jul 2023 · 7 days".
-    static func tripDates(_ trip: TripRow) -> String {
-        "\(dayRange(trip.startDay, trip.endDay)) · \(count(Int(trip.endDay - trip.startDay) + 1, "day"))"
+    static func tripDates(_ trip: TripRow, locale: Locale = .autoupdatingCurrent) -> String {
+        "\(dayRange(trip.startDay, trip.endDay, locale: locale)) · \(count(Int(trip.endDay - trip.startDay) + 1, "day"))"
     }
 
     /// "75 photos · 1 video · Athens, Mykonos, Oia".
@@ -156,13 +162,11 @@ nonisolated enum MomentCopy {
 
     static func allTitle(_ count: Int) -> String { "All · \(count.formatted())" }
 
-    static func dayRange(_ first: Int32, _ last: Int32) -> String {
-        let a = LocalTime.civil(day: first), b = LocalTime.civil(day: last)
-        let months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
-        if first == last { return "\(a.day) \(months[a.month - 1]) \(a.year)" }
-        if a.year != b.year { return "\(a.day) \(months[a.month - 1]) \(a.year) – \(b.day) \(months[b.month - 1]) \(b.year)" }
-        if a.month != b.month { return "\(a.day) \(months[a.month - 1]) – \(b.day) \(months[b.month - 1]) \(b.year)" }
-        return "\(a.day)–\(b.day) \(months[b.month - 1]) \(b.year)"
+    /// "2–8 Jul 2023" (UK), "Jul 2–8, 2023" (US); one date for a single day.
+    static func dayRange(_ first: Int32, _ last: Int32, locale: Locale = .autoupdatingCurrent) -> String {
+        guard first != last else { return date(first).formatted(dayStyle(locale).day().month(.abbreviated).year()) }
+        let style = Date.IntervalFormatStyle(locale: locale, calendar: utcCalendar, timeZone: .gmt).day().month(.abbreviated).year()
+        return (date(first)..<date(last)).formatted(style)
     }
 
     /// "1:05" or "0:42" (a video's length).
@@ -175,7 +179,7 @@ nonisolated enum MomentCopy {
 
     // MARK: VoiceOver
 
-    /// "Saturday 22 August 2026, Al-Nakheel Park, 8 photos, Greece trip".
+    /// "Saturday, 22 August 2026, Al-Nakheel Park, 8 photos, Greece trip".
     static func spokenRow(_ moment: MomentRow, trip: TripRow?) -> String {
         var parts = [spokenDay(moment.key.day), place(moment), counts(photos: moment.photoCount, videos: moment.videoCount)]
         if let trip { parts.append(tripBadge(trip)) }
