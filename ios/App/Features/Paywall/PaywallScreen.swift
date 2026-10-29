@@ -32,6 +32,8 @@ struct PaywallScreen: View {
             paywall = created
             await created.load()
         }
+        // A container, so the identifier doesn't replace the buttons' own (`paywall-purchase`, …).
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("paywall")
     }
 }
@@ -135,6 +137,8 @@ private struct FeatureCard<Trailing: View>: View {
     let features: [(symbol: String, text: String)]
     let highlighted: Bool
     @ViewBuilder let trailing: () -> Trailing
+    /// One icon column, so every line's text starts at the same edge.
+    @ScaledMetric(relativeTo: .subheadline) private var iconWidth: CGFloat = 24
 
     var body: some View {
         PaperCard(style: highlighted ? .raised : .recessed) {
@@ -152,7 +156,9 @@ private struct FeatureCard<Trailing: View>: View {
                         Label {
                             Text(feature.text).lzText(.subheadline).foregroundStyle(.lz(.ink))
                         } icon: {
-                            Image(systemName: feature.symbol).foregroundStyle(.lz(highlighted ? .accent : .muted))
+                            Image(systemName: feature.symbol)
+                                .foregroundStyle(.lz(highlighted ? .accent : .muted))
+                                .frame(width: iconWidth)
                         }
                     }
                 }
