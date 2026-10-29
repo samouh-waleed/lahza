@@ -34,7 +34,7 @@ struct AskScreen: View {
                     .lzPage()
                     .accessibilityIdentifier("ask-deleted")
                 } else if submitted != nil, state != .noAccess, model.search.state != .idle {
-                    SearchResultsView { search($0, proxy: proxy) }
+                    SearchResultsView(search: { search($0, proxy: proxy) }, scrollTo: { proxy.scrollTo($0, anchor: .top) })
                 } else {
                     home(state, status: status, access: access, proxy: proxy)
                 }
@@ -254,6 +254,15 @@ nonisolated enum AskCopy {
     static let seeTrip = "See trip"
     static let hideWeaker = "Hide weaker matches"
     static let noDate = "No date"
+    static let layoutLabel = "Show results as"
+
+    /// "Moments" or "Grid".
+    static func layoutName(_ layout: SearchStore.ResultsLayout) -> String {
+        switch layout {
+        case .moments: "Moments"
+        case .grid: "Grid"
+        }
+    }
 
     /// "moment" or "moments" after the header's number.
     static func momentsNoun(_ count: Int) -> String { count == 1 ? "moment" : "moments" }

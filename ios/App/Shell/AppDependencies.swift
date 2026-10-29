@@ -4,6 +4,7 @@ import Foundation
 import LZGeo
 import LZIndex
 import LZLibrary
+import LZSearch
 import UIKit
 
 /// Everything the composition root needs from the outside world. `live()` is production;
@@ -25,6 +26,8 @@ struct AppDependencies {
     var libraryReader: any LibraryReader
     /// Thumbnails and screen-size images, never from the network.
     var images: any AssetImageProvider
+    /// The viewer's videos, never from the network.
+    var videos: any VideoLoader
     /// Apple Maps (place names, and later place search).
     var maps: any MapsClient
     /// Apple Maps requests a minute, shared by place naming and search.
@@ -49,6 +52,8 @@ struct AppDependencies {
     var initialRoute: Route?
     /// DEBUG: forces an appearance (`-LZTheme light|dark`).
     var appearanceOverride: AppearanceMode?
+    /// DEBUG: the layout Ask's results start in, instead of the remembered one (`-LZResultsLayout`).
+    var resultsLayout: SearchStore.ResultsLayout?
 
     /// Production.
     static func live() -> AppDependencies {
@@ -64,6 +69,7 @@ struct AppDependencies {
             presentLimitedLibraryPicker: { await LimitedLibraryPicker.present() },
             libraryReader: LiveLibraryReader(),
             images: LiveAssetImageProvider(),
+            videos: LiveVideoLoader(),
             maps: LiveMapsClient(),
             network: LiveNetworkStatus()
         )
@@ -82,6 +88,7 @@ struct AppDependencies {
         dependencies.presentLimitedLibraryPicker = {}
         dependencies.libraryReader = FakeLibraryReader(.empty, following: photos)
         dependencies.images = FakeAssetImageProvider()
+        dependencies.videos = FakeVideoLoader()
         dependencies.maps = FakeMapsClient(.empty)
         dependencies.network = FakeNetworkStatus(reachable: false)
         dependencies.indexLocation = .inMemory

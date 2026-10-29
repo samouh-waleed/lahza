@@ -37,7 +37,7 @@ help:
 	@echo 'make grant-photos  give Lahza full photo access on the simulator'
 	@echo 'make probe-photos  check what PhotoKit kept of the seed library and print its PROBE facts (seeded simulator, after grant-photos)'
 	@echo 'make verify-search build the search index from the seeded simulator'"'"'s real PhotoKit and check it against the scenario'
-	@echo 'make screens   screenshots of Ask'"'"'s results for the review queries (unlocked, plus two free ones), light and dark, into .build/screens (hero seed, no PhotoKit)'
+	@echo 'make screens   screenshots of Ask'"'"'s results for the review queries (unlocked, two free ones, three as a grid), light and dark, into .build/screens (hero seed, no PhotoKit)'
 	@echo 'make sim-reset CONFIRM=1   DESTRUCTIVE: erases the simulator (every app, photo and setting on it)'
 
 project:            ## Regenerate Lahza.xcodeproj from project.yml

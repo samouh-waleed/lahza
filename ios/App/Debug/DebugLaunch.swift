@@ -4,6 +4,7 @@ import Foundation
 import LZGeo
 import LZIndex
 import LZLibrary
+import LZSearch
 
 /// DEBUG launch arguments for review and screenshots. Release builds ignore them all.
 ///
@@ -23,6 +24,7 @@ import LZLibrary
 /// | `-LZIndexPace <ms>`       | sleeps per scan batch of 50, to watch (and kill) a scan          |
 /// | `-LZNow <ISO 8601>`       | pins "now" (`2026-10-28T12:00:00+03:00`); time then runs on      |
 /// | `-LZQuery "<text>"`       | selects Ask and searches once the index is ready (or after 20 s)  |
+/// | `-LZResultsLayout moments\|grid` | Ask's results start as moment cards or the grid (not remembered) |
 /// | `-LZRoute <name>`         | opens a route once launch settles (see ``Route/debugName``)      |
 /// | `-LZTheme light\|dark`    | forces an appearance                                             |
 /// | `-LZReduceMotion 1`       | forces Reduce Motion                                             |
@@ -33,9 +35,9 @@ import LZLibrary
 /// limited), and Choose photos adds 12 more. The library census (Settings › Developer) then reads a
 /// synthetic library of the same size, and the search index (in memory) reads it too.
 ///
-/// `-LZSeed hero` serves the 561 items of ``SeedScenario/hero`` (seed artwork as thumbnails) with the seed's fake
-/// Apple Maps at 600 requests a minute, into an in-memory index. It implies `-LZPhotos full`; with
-/// `-LZPhotos limited` only the first 40 items are shared.
+/// `-LZSeed hero` serves the 561 items of ``SeedScenario/hero`` (seed artwork as thumbnails, seed clips as
+/// videos) with the seed's fake Apple Maps at 600 requests a minute, into an in-memory index. It implies
+/// `-LZPhotos full`; with `-LZPhotos limited` only the first 40 items are shared.
 ///
 /// Search depends on the unlock: a free search covers the last 12 months, so review launches state it. `make screens`
 /// and the review queries run with `-LZUnlocked 1` (the whole seed library); `-LZUnlocked 0` shows the free tier, and
@@ -63,6 +65,8 @@ struct DebugLaunch {
     var now: Date?
     /// `-LZQuery`: a search to run at launch.
     var query: String?
+    /// `-LZResultsLayout`: the layout Ask's results start in.
+    var resultsLayout: SearchStore.ResultsLayout?
     var route: Route?
     var theme: AppearanceMode?
     var reduceMotion = false
@@ -111,6 +115,7 @@ struct DebugLaunch {
             indexPace: value("LZIndexPace").flatMap(Int.init).map { max(0, $0) },
             now: value("LZNow").flatMap(Self.date),
             query: value("LZQuery").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.flatMap { $0.isEmpty ? nil : $0 },
+            resultsLayout: value("LZResultsLayout").flatMap { SearchStore.ResultsLayout(rawValue: $0.lowercased()) },
             route: value("LZRoute").flatMap(Route.init(debugName:)),
             theme: value("LZTheme").flatMap(AppearanceMode.init(rawValue:)),
             reduceMotion: flag("LZReduceMotion"),
@@ -204,6 +209,10 @@ struct DebugLaunch {
             labels.append("query")
         }
         #endif
+        if let resultsLayout {
+            dependencies.resultsLayout = resultsLayout
+            labels.append("layout-\(resultsLayout.rawValue)")
+        }
         if let route { dependencies.initialRoute = route }
         if let theme { dependencies.appearanceOverride = theme }
         if !labels.isEmpty { dependencies.label = "debug:" + labels.joined(separator: "+") }
@@ -222,6 +231,7 @@ struct DebugLaunch {
         dependencies.censusSource = FakeCensusSource(library: library)
         #endif
         dependencies.images = FakeAssetImageProvider()
+        dependencies.videos = FakeVideoLoader()
         dependencies.indexLocation = .inMemory
     }
 

@@ -42,6 +42,7 @@ nonisolated enum RootScreen: Hashable, Sendable {
     /// Ask's search (off when the gazetteer failed to load).
     let search: SearchStore
     @ObservationIgnored let images: any AssetImageProvider
+    @ObservationIgnored let videos: any VideoLoader
     /// The Apple Maps budget, shared by place naming and search.
     @ObservationIgnored let mapsBudget: MapsBudget
     #if DEBUG
@@ -82,8 +83,10 @@ nonisolated enum RootScreen: Hashable, Sendable {
         // A free search covers the last 12 months, read at every search (decision 34); Moments stays whole.
         let entitlement = entitlement, clock = dependencies.clock
         search = SearchStore(engine: engine, index: index, kv: dependencies.kv, clock: clock,
-                             scope: { entitlement.searchStart(now: clock.now).map(SearchScope.since) ?? .wholeLibrary })
+                             scope: { entitlement.searchStart(now: clock.now).map(SearchScope.since) ?? .wholeLibrary },
+                             initialLayout: dependencies.resultsLayout)
         images = dependencies.images
+        videos = dependencies.videos
         #if DEBUG
         censusRunner = CensusRunner(source: dependencies.censusSource)
         #endif

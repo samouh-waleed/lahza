@@ -6,12 +6,14 @@ import SwiftUI
 
 /// One moment: its day, place, time span (with the zone when it isn't this iPhone's), counts and every item in a
 /// grid. Shared by Ask and Moments: opened from a search, it shows the search's reasons and its matches first, then
-/// the rest of the moment dimmed. The viewer and Save place come later.
+/// the rest of the moment dimmed. A tile opens the viewer on its grid (a match with why it matched). Save place comes
+/// later.
 struct MomentDetailScreen: View {
     let ref: MomentRef
     @Environment(AppModel.self) private var model
     @State private var detail: MomentDetailRows?
     @State private var loaded = false
+    @State private var viewing: ViewerSession?
 
     var body: some View {
         ScrollView {
@@ -22,14 +24,14 @@ struct MomentDetailScreen: View {
                                  deviceZone: model.dependencies.deviceTimeZone(), reasons: card?.reasons ?? [])
                     if let card {
                         let split = MomentMatches(members: detail.members, card: card)
-                        gridSection(MomentCopy.matchesTitle(split.matches.count), members: split.matches)
+                        gridSection(MomentCopy.matchesTitle(split.matches.count), members: split.matches, moment: detail.moment, card: card)
                             .accessibilityIdentifier("moment-matches")
                         if !split.others.isEmpty {
-                            gridSection(MomentCopy.alsoTitle(split.others.count), members: split.others, dimmed: true)
+                            gridSection(MomentCopy.alsoTitle(split.others.count), members: split.others, moment: detail.moment, dimmed: true)
                                 .accessibilityIdentifier("moment-also")
                         }
                     } else {
-                        gridSection(MomentCopy.allTitle(detail.members.count), members: detail.members)
+                        gridSection(MomentCopy.allTitle(detail.members.count), members: detail.members, moment: detail.moment)
                     }
                 }
                 .lzPage()
@@ -40,6 +42,7 @@ struct MomentDetailScreen: View {
             }
         }
         .background(.lz(.bg))
+        .fullScreenCover(item: $viewing) { AssetViewer(session: $0) }
         .navigationTitle(detail.map { MomentCopy.shortDay($0.moment.key.day) } ?? MomentCopy.momentTitle)
         .navigationBarTitleDisplayMode(.inline)
         .accessibilityIdentifier("moment-detail")
@@ -61,15 +64,19 @@ struct MomentDetailScreen: View {
         return model.search.result?.cards.first { $0.id == ref.key }
     }
 
-    /// A titled grid; `dimmed` fades the photos (the rest of a moment opened from a search), never the title.
-    private func gridSection(_ title: String, members: [MomentDetailRows.Member], dimmed: Bool = false) -> some View {
+    /// A titled grid; `dimmed` fades the photos (the rest of a moment opened from a search), never the title. A tile
+    /// opens the viewer on this grid's items, with the search's reasons for matches (`card`).
+    private func gridSection(_ title: String, members: [MomentDetailRows.Member], moment: MomentRow, card: MomentCard? = nil,
+                             dimmed: Bool = false) -> some View {
         VStack(alignment: .leading, spacing: LZSpace.sm) {
             Text(title)
                 .lzText(.label)
                 .foregroundStyle(.lz(.muted))
                 .accessibilityAddTraits(.isHeader)
-            MomentGrid(members: members)
-                .opacity(dimmed ? 0.6 : 1)
+            MomentGrid(members: members) { position in
+                viewing = ViewerSession(items: MomentMatches.viewerItems(members, moment: moment, card: card), start: position)
+            }
+            .opacity(dimmed ? 0.6 : 1)
         }
     }
 }
@@ -83,6 +90,12 @@ nonisolated struct MomentMatches: Equatable {
         let hits = Set(card.hits.map(\.id))
         matches = members.filter { hits.contains($0.id) }
         others = members.filter { !hits.contains($0.id) }
+    }
+
+    /// A grid's items for the viewer, each match with its reasons from the search's card.
+    static func viewerItems(_ members: [MomentDetailRows.Member], moment: MomentRow, card: MomentCard?) -> [ViewerItem] {
+        let reasons = Dictionary((card?.hits ?? []).map { ($0.id, $0.reasons) }, uniquingKeysWith: { first, _ in first })
+        return members.map { ViewerItem(member: $0, moment: moment, reasons: reasons[$0.id] ?? []) }
     }
 }
 
@@ -130,48 +143,28 @@ private struct MomentHeader: View {
     }
 }
 
-/// Every item of a moment in time order: square tiles, a video's length, a favourite's heart.
+/// Every item of a moment in time order: square tiles, a video's length, a favourite's heart. A tile opens the viewer.
 private struct MomentGrid: View {
     let members: [MomentDetailRows.Member]
+    /// Opens the viewer at a position in `members`.
+    let open: (Int) -> Void
 
     var body: some View {
         LazyVGrid(columns: [GridItem(.adaptive(minimum: 96), spacing: 3)], spacing: 3) {
-            ForEach(members) { member in
-                AssetThumbnail(localID: member.localID, side: nil, radius: LZRadius.xs)
-                    .aspectRatio(1, contentMode: .fit)
-                    .overlay(alignment: .bottomLeading) {
-                        if member.isFavorite {
-                            Image(systemName: "heart.fill")
-                                .font(.caption2)
-                                .foregroundStyle(.white)
-                                .shadow(radius: 2)
-                                .padding(LZSpace.xs + 1)
-                        }
-                    }
-                    .overlay(alignment: .bottomTrailing) {
-                        if member.isVideo {
-                            Text(MomentCopy.duration(member.duration))
-                                .font(.caption2.weight(.semibold).monospacedDigit())
-                                .foregroundStyle(.white)
-                                .shadow(radius: 2)
-                                .padding(LZSpace.xs + 1)
-                        }
-                    }
-                    .accessibilityElement(children: .ignore)
-                    .accessibilityLabel(MomentGrid.label(member))
+            ForEach(Array(members.enumerated()), id: \.element.id) { position, member in
+                Button { open(position) } label: {
+                    AssetThumbnail(localID: member.localID, side: nil, radius: LZRadius.xs)
+                        .aspectRatio(1, contentMode: .fit)
+                        .assetTileBadges(isFavorite: member.isFavorite, videoDuration: member.isVideo ? member.duration : nil)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(LZPressStyle(scale: 0.97))
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(AssetTileCopy.label(isVideo: member.isVideo, duration: member.duration, isFavorite: member.isFavorite, wall: member.wall))
+                .accessibilityAddTraits(.isButton)
+                .accessibilityIdentifier("moment-tile-\(member.id)")
             }
         }
-    }
-
-    /// "Video, 0:42, favourite, 5:20 PM".
-    static func label(_ member: MomentDetailRows.Member) -> String {
-        var parts = [member.isVideo ? "Video, \(MomentCopy.duration(member.duration))" : "Photo"]
-        if member.isFavorite { parts.append("favourite") }
-        if let wall = member.wall {
-            parts.append(Date(timeIntervalSince1970: TimeInterval(wall))
-                .formatted(Date.FormatStyle(date: .omitted, time: .shortened, timeZone: .gmt)))
-        }
-        return parts.joined(separator: ", ")
     }
 }
 

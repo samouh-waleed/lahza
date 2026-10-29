@@ -130,7 +130,13 @@ nonisolated enum MomentCopy {
         guard let identifier = moment.timeZone, let zone = TimeZone(identifier: identifier) else { return nil }
         let instant = Date(timeIntervalSince1970: TimeInterval(moment.key.startUTC))
         guard zone.secondsFromGMT(for: instant) != deviceZone.secondsFromGMT(for: instant) else { return nil }
-        if identifier.hasPrefix("Etc/") || !identifier.contains("/") {
+        return zoneName(zone, at: instant)
+    }
+
+    /// "Athens time" (the zone's city), or "GMT+3 time" for a fixed offset.
+    static func zoneName(_ zone: TimeZone, at instant: Date) -> String {
+        let identifier = zone.identifier
+        if identifier.hasPrefix("Etc/") || identifier.hasPrefix("GMT") || !identifier.contains("/") {
             return "\(zone.abbreviation(for: instant) ?? identifier) time"
         }
         let city = identifier.split(separator: "/").last.map { $0.replacingOccurrences(of: "_", with: " ") } ?? identifier

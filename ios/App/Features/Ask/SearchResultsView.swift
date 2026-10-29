@@ -4,21 +4,27 @@ import LZSearch
 import SwiftUI
 
 /// Ask's results (search spec §7.1): what the query was understood as (each chip opens its editor), the picker for an
-/// ambiguous place, the counts and what was searched, then moment cards in sections (trips under their headers), or
-/// why nothing matched with taps that widen the search. A free search ends with how many older photos also match and
-/// the unlock. While it runs, skeleton cards; when it fails, a notice to try again.
+/// ambiguous place, the counts and what was searched, then moment cards in sections (trips under their headers) or a
+/// grid of every photo, or why nothing matched with taps that widen the search. A free search ends with how many older
+/// photos also match and the unlock. While it runs, skeleton cards; when it fails, a notice to try again. A grid tile
+/// opens the viewer.
 struct SearchResultsView: View {
     /// Searches typed words (an example search).
     let search: (String) -> Void
+    /// Scrolls the screen to a row or tile (switching layouts keeps the place).
+    let scrollTo: (String) -> Void
     @Environment(AppModel.self) private var model
     /// The chip whose editor is open (the sheet lives here, so it stays while an edit searches again).
     @State private var editing: EditedSlot?
+    /// The viewer, opened from a grid tile.
+    @State private var viewing: ViewerSession?
 
     var body: some View {
         Group { content }
             // Cards and moment detail name the country away from home, and trips by their rows.
             .task(id: model.index.version) { await model.moments.load() }
             .sheet(item: $editing) { ChipEditorSheet(slotID: $0.id) }
+            .fullScreenCover(item: $viewing) { AssetViewer(session: $0) }
     }
 
     private func edit(_ slot: Int) {
@@ -35,7 +41,7 @@ struct SearchResultsView: View {
                 .lzPage()
                 .padding(.vertical, LZSpace.lg)
         case .results(let result):
-            ResultsList(result: result, showsWeaker: store.request?.showWeaker ?? false, edit: edit)
+            ResultsList(result: result, showsWeaker: store.request?.showWeaker ?? false, edit: edit, scrollTo: scrollTo) { viewing = $0 }
         case .noMatch(let result):
             NoMatchView(result: result, showsWeaker: store.request?.showWeaker ?? false, search: search, edit: edit)
                 .lzPage()
@@ -61,9 +67,12 @@ nonisolated enum ResultRow: Identifiable, Hashable {
         switch self {
         case .section(let section): "s-\(section.tier)"
         case .trip(let group, let tier): "t-\(tier)-\(group.trip.startDay)"
-        case .card(let card): "c-\(card.id.day)-\(card.id.startUTC)"
+        case .card(let card): Self.cardID(card.id)
         }
     }
+
+    /// A card's row id.
+    static func cardID(_ key: MomentKey) -> String { "c-\(key.day)-\(key.startUTC)" }
 
     /// The result's sections as rows: each section's header, then its trips' headers and cards in order. Location
     /// unknown lists its cards only when opened.
@@ -86,41 +95,128 @@ nonisolated enum ResultRow: Identifiable, Hashable {
     }
 }
 
-/// The chips, notices and picker, the header, the sections, Show weaker, the older matches a free search leaves out
-/// and the coverage notes.
+/// The chips, notices and picker, the header, Moments | Grid (it stays at the top while the results scroll), the
+/// sections as cards or a grid, Show weaker, the older matches a free search leaves out and the coverage notes.
+/// Switching layouts keeps the result; scrolled into the results, the other layout opens at the same photos. While the
+/// grid scrolls, the next 60 thumbnails are prepared.
 private struct ResultsList: View {
     let result: SearchResult
     let showsWeaker: Bool
     let edit: (Int) -> Void
+    let scrollTo: (String) -> Void
+    let view: (ViewerSession) -> Void
+    @Environment(AppModel.self) private var model
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.displayScale) private var displayScale
     @State private var showsUnknown = false
+    @State private var anchor = ResultsAnchor()
+    @State private var width: CGFloat = 0
+    @State private var prefetch = GridPrefetch()
 
     var body: some View {
-        LazyVStack(alignment: .leading, spacing: LZSpace.md) {
+        let grid = ResultGrid(result, showsUnknown: showsUnknown)
+        let columns = GridRow.columns(width: width)
+        // At accessibility sizes the switch is a tall list: it scrolls away with the header.
+        LazyVStack(alignment: .leading, spacing: 0, pinnedViews: dynamicTypeSize.isAccessibilitySize ? [] : [.sectionHeaders]) {
             QueryTop(result: result, edit: edit)
-                .padding(.bottom, LZSpace.sm)
+                .padding(.bottom, LZSpace.sm + LZSpace.md)
             ResultsHeader(result: result)
-            ForEach(ResultRow.rows(result.sections, showsUnknown: showsUnknown)) { row in
-                ResultRowView(row: row, result: result, showsUnknown: $showsUnknown)
-            }
-            if result.weakerCount > 0 {
-                ShowWeakerButton(count: result.weakerCount, isShown: showsWeaker)
-            }
-            LockedResultsRow(count: result.lockedCount)
-                .padding(.top, LZSpace.sm)
-            if !result.coverage.notes.isEmpty {
-                VStack(alignment: .leading, spacing: LZSpace.xs) {
-                    ForEach(result.coverage.notes, id: \.self) { note in
-                        Label(note, systemImage: "info.circle")
-                            .lzText(.caption)
-                            .foregroundStyle(.lz(.muted))
+                .padding(.bottom, LZSpace.xs)
+                .onScrollVisibilityChange(threshold: 0.05) { anchor.isHeaderVisible = $0 }
+            Section {
+                switch model.search.layout {
+                case .moments:
+                    ForEach(ResultRow.rows(result.sections, showsUnknown: showsUnknown)) { row in
+                        ResultRowView(row: row, result: result, showsUnknown: $showsUnknown)
+                            .padding(.top, LZSpace.md)
+                            .onScrollVisibilityChange(threshold: 0.3) { visible in
+                                if case .card(let card) = row { anchor.card(card.id, isVisible: visible) }
+                            }
+                            // A row dropped after a jump never says it left the screen.
+                            .onDisappear { if case .card(let card) = row { anchor.card(card.id, isVisible: false) } }
+                    }
+                case .grid:
+                    ForEach(GridRow.rows(grid, columns: columns)) { row in
+                        GridRowView(row: row, columns: columns, showsUnknown: $showsUnknown) { tile in
+                            view(ViewerSession(items: ViewerItem.items(grid, result: result), start: tile.position))
+                        }
+                        .onScrollVisibilityChange(threshold: 0.5) { visible in
+                            if case .tiles(let tiles) = row, let first = tiles.first { anchor.tile(first.position, isVisible: visible) }
+                        }
+                        .onAppear {
+                            if case .tiles(let tiles) = row, let last = tiles.last { cacheAhead(of: last.position, in: grid) }
+                        }
+                        .onDisappear { if case .tiles(let tiles) = row, let first = tiles.first { anchor.tile(first.position, isVisible: false) } }
                     }
                 }
-                .padding(.top, LZSpace.md)
+                if result.weakerCount > 0 {
+                    ShowWeakerButton(count: result.weakerCount, isShown: showsWeaker)
+                        .padding(.top, LZSpace.md)
+                }
+                LockedResultsRow(count: result.lockedCount)
+                    .padding(.top, LZSpace.sm + LZSpace.md)
+                if !result.coverage.notes.isEmpty {
+                    VStack(alignment: .leading, spacing: LZSpace.xs) {
+                        ForEach(result.coverage.notes, id: \.self) { note in
+                            Label(note, systemImage: "info.circle")
+                                .lzText(.caption)
+                                .foregroundStyle(.lz(.muted))
+                        }
+                    }
+                    .padding(.top, LZSpace.md + LZSpace.md)
+                }
+            } header: {
+                LZSegmented(AskCopy.layoutLabel, options: SearchStore.ResultsLayout.allCases.map { LZChipOption($0, title: AskCopy.layoutName($0)) },
+                            selection: layoutBinding(grid, columns: columns))
+                    .padding(.vertical, LZSpace.sm)
+                    .background(.lz(.bg))
+                    .accessibilityIdentifier("ask-layout")
             }
         }
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
+        .onChange(of: model.search.layout) { stopCaching() }
+        .onChange(of: result.id) { stopCaching() }
+        .onDisappear { stopCaching() }
         .lzPage()
         .padding(.vertical, LZSpace.lg)
         .accessibilityIdentifier("ask-results")
+    }
+
+    /// Moments | Grid: remembers the choice; scrolled into the results, the new layout opens at the photos on screen.
+    private func layoutBinding(_ grid: ResultGrid, columns: Int) -> Binding<SearchStore.ResultsLayout> {
+        Binding(get: { model.search.layout }, set: { layout in
+            guard layout != model.search.layout else { return }
+            let target = anchor.target(for: layout, result: result, grid: grid, columns: columns, showsUnknown: showsUnknown)
+            anchor.reset()
+            model.search.setLayout(layout)
+            guard let target else { return }
+            Task {
+                // Once the new layout is laid out; then again, once the rows around the target are measured (rows not
+                // laid out yet are estimated, so the first scroll can land short).
+                try? await Task.sleep(for: .milliseconds(60))
+                scrollTo(target)
+                try? await Task.sleep(for: .milliseconds(150))
+                scrollTo(target)
+            }
+        })
+    }
+
+    // MARK: Thumbnails ahead
+
+    /// A tile's side in pixels (what each thumbnail asks for, so the prepared ones are used).
+    private var tilePixels: Int { Int((GridRow.side(width: width) * displayScale).rounded(.up)) }
+
+    private func cacheAhead(of position: Int, in grid: ResultGrid) {
+        guard width > 0 else { return }
+        let change = prefetch.appeared(position, total: grid.tiles.count)
+        let ids = { (range: Range<Int>) in grid.tiles[range].map(\.hit.localID) }
+        for range in change.stop { model.images.stopCaching(ids(range), side: tilePixels) }
+        for range in change.start { model.images.startCaching(ids(range), side: tilePixels) }
+    }
+
+    /// The grid left the screen, or its result changed: nothing is prepared any more (only the grid prepares).
+    private func stopCaching() {
+        if prefetch.reset() != nil { model.images.stopAll() }
     }
 }
 
