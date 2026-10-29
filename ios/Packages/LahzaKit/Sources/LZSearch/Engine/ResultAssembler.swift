@@ -177,20 +177,23 @@ struct ResultAssembler {
         return reasons
     }
 
-    /// Up to two slot reasons at least half the hits share (most shared first), then the borrowed-location line.
+    /// Up to two slot reasons at least half the hits share (most shared first, then in the hits' own order: place,
+    /// time, trip, photo type), then the borrowed-location line.
     private func cardReasons(_ hits: [AssetHit], borrowed: Int) -> [Reason] {
         var counts: [Reason: Int] = [:]
-        var first: [Reason: Int] = [:]
+        var first: [Reason: (hit: Int, index: Int)] = [:]
         for (position, hit) in hits.enumerated() {
             // Borrowed locations get their own line below.
-            for reason in Set(hit.reasons) where reason.kind != .neutral && reason.systemImage != "link" {
+            var seen: Set<Reason> = []
+            for (index, reason) in hit.reasons.enumerated() where reason.kind != .neutral && reason.systemImage != "link" {
+                guard seen.insert(reason).inserted else { continue }
                 counts[reason, default: 0] += 1
-                if first[reason] == nil { first[reason] = position }
+                if first[reason] == nil { first[reason] = (position, index) }
             }
         }
         let needed = Double(hits.count) * Self.sharedReasonShare
         var reasons = counts.filter { Double($0.value) >= needed }.keys
-            .sorted { (counts[$0]!, -first[$0]!) > (counts[$1]!, -first[$1]!) }
+            .sorted { (-counts[$0]!, first[$0]!.hit, first[$0]!.index) < (-counts[$1]!, first[$1]!.hit, first[$1]!.index) }
             .prefix(2).map { $0 }
         if borrowed > 0 { reasons.append(SearchCopy.borrowedCardReason(borrowed)) }
         return reasons

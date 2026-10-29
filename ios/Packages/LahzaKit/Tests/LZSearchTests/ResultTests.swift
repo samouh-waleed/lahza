@@ -52,6 +52,10 @@ import Testing
         let eid = try #require(Self.hero.items(.eid).first)
         #expect(ramadan.reasons(of: eid) == ["Day after Ramadan 1445"])
 
+        // A card's shared reasons in the hits' order (place before photo type), the same on every run.
+        let parkVideos = try await search.search("videos at Al-Nakheel Park")
+        #expect(parkVideos.cards.allSatisfy { $0.reasons.map(\.text) == ["In Al-Nakheel Park", "Video · 0:03"] })
+
         let videos = try await search.search("videos")
         let video = try #require(Self.hero.items.filter(\.isVideo).first)
         #expect(videos.reasons(of: video) == ["Video · 0:03"])
