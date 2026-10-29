@@ -48,9 +48,10 @@ iPhone users, mostly on iPhone 15 Pro or newer, with large libraries, who rememb
 **In the MVP:**
 - Typed search in English.
 - Matching on activities, objects and scenes.
-- Places (including saved places like "home") and dates.
+- Places and dates, including places you name from a moment ("my pitch") and home.
 - Names, read from albums you create in Apple Photos' People view.
 - Moment cards with a grid toggle, showing every match in tiers.
+- A Moments tab: the whole library as a timeline of moments and trips, labelled with their places and your saved places.
 - Text inside photos (receipts, signs).
 - Videos.
 - A reason on every result, plus corrections.
