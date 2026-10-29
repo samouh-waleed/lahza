@@ -85,9 +85,9 @@ struct HeroSearch: Sendable {
     /// The engine's clock (searches read "now" from it).
     let clock: FixedClock
 
-    init(reachable: Bool = true, placeNames: Bool = true, budget: MapsBudget? = nil) async throws {
+    init(reachable: Bool = true, placeNames: Bool = true, budget: MapsBudget? = nil, table: FakeMapsClient.Table = SeedMaps.hero) async throws {
         index = try await SearchFixture.heroIndex(placeNames: placeNames)
-        maps = SeedMaps.client()
+        maps = FakeMapsClient(table)
         let clock = FixedClock(SearchFixture.now)
         self.clock = clock
         engine = SearchEngine(gazetteer: SearchFixture.gazetteer, maps: maps, budget: budget ?? MapsBudget(clock: clock), clock: clock,

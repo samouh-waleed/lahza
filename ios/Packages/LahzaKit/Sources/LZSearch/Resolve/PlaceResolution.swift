@@ -106,8 +106,10 @@ public enum PlaceNotFound: String, Sendable, Hashable {
     case notFound
     /// "at the beach" when no place of that category has photos.
     case noPlacesOfCategory
-    /// Maybe-place words that match no place exactly ("shawarma"): they are words about what's in photos.
-    case notAPlace
+    /// Words that only might be a place match no place exactly, Apple Maps included ("Louvre" when Apple names it
+    /// "Musée du Louvre"). Search shows them as a place it couldn't find when no other place is found, else as words
+    /// about what's in photos.
+    case unconfirmed
 }
 
 /// What a place expression resolves to.

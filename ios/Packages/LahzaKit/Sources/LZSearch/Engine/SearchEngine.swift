@@ -215,8 +215,10 @@ public actor SearchEngine {
     /// The place slots, one place per query in v0. Known places are resolved first, then names a preposition
     /// introduced, then leftover words that only might be a place, so a leftover word ("kebab at Al-Nakheel Park")
     /// neither blocks the place nor spends the query's Apple Maps search. Once a place is searched, the other place
-    /// slots are left out: a leftover word as words about what's in the photos, a name as a second place. A leftover
-    /// word that couldn't be looked up is the query's failing place only when no other place was found.
+    /// slots are left out: a leftover word as words about what's in the photos, a name as a second place. Words that
+    /// only might be a place and couldn't be looked up or confirmed ("Louvre" when Apple Maps names no place exactly
+    /// that) are the query's failing place only when no other place was found; otherwise an unconfirmed name is words
+    /// about what's in the photos.
     private func preparePlaces(_ parsed: ParsedQuery, overrides: ResolutionOverrides, environment: PlaceEnvironment, query: inout PreparedQuery,
                                reader: IndexReader, context: EngineContext, isRerun: Bool,
                                progress: (@Sendable (SearchProgress) -> Void)?) async throws -> [Int: ResolvedSlot] {
@@ -243,11 +245,8 @@ public actor SearchEngine {
                                                     version: context.version, isRerun: isRerun)
             if environment.allowance.searched { query.searchedAppleMaps = true }
             switch resolution {
-            case .notFound(.notAPlace):
-                // Words that only might be a place and match none are about what's in the photos.
-                outcomes[slot.id] = Self.visual(slot, phrase)
             case .notFound(let reason):
-                if case .named(_, _, .maybe) = expression {
+                if reason == .unconfirmed || expression.isMaybe {
                     unresolved.append((slot, expression, reason, phrase, rank))
                 } else {
                     query.placeFailure = (slot.id, reason, phrase)
@@ -271,6 +270,8 @@ public actor SearchEngine {
                 query.placeFailure = (item.slot.id, item.reason, item.phrase)
                 outcomes[item.slot.id] = ResolvedSlot(slot: item.slot, resolution: .place(.notFound(item.reason)), chip: item.expression.phrase.capitalizedFirst,
                                                       systemImage: "mappin")
+            } else if item.reason == .unconfirmed {
+                outcomes[item.slot.id] = Self.visual(item.slot, item.phrase)
             } else {
                 outcomes[item.slot.id] = leftOut(item.slot, item.expression, rank: item.rank, phrase: item.phrase)
             }

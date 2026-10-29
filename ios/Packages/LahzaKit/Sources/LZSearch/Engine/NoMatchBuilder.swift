@@ -88,7 +88,7 @@ struct NoMatchBuilder {
         case .appleMapsOff: ("Couldn’t find \(words) in your photos.", "Apple Maps place names are off in Settings › Search index.")
         case .noHome: ("Lahza hasn’t worked out your home yet.", "Save it from a photo.")
         case .noPlacesOfCategory: ("Lahza hasn’t found \(words) among your places yet.", nil)
-        case .notFound, .notAPlace: ("Couldn’t find \(words) in your photos or on the map.", nil)
+        case .notFound, .unconfirmed: ("Couldn’t find \(words) in your photos or on the map.", nil)
         }
         return NoMatch(kind: .placeNotFound(failure.reason), headline: headline, detail: detail,
                        offers: offer("Search without the place", removing: [failure.id], plan: query.plan), examples: [])

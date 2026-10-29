@@ -4,7 +4,8 @@ import LZGeo
 /// Where the photos were taken, as the query says it.
 public indirect enum PlaceExpression: Sendable, Hashable, Codable {
     /// A typed name ("Al-Nakheel Park", "Greece"). `.maybe` when only its position in the query suggests a place:
-    /// it then resolves only to an exact name, and otherwise becomes words about what's in the photos.
+    /// it then resolves only to an exact name. Otherwise it is the place search couldn't find, or, when another place
+    /// is searched, words about what's in the photos.
     case named(String, relation: PlaceRelation, confidence: Confidence)
     /// "home", or a saved place's name.
     case alias(PlaceAlias, relation: PlaceRelation)
@@ -20,6 +21,11 @@ public indirect enum PlaceExpression: Sendable, Hashable, Codable {
         case .named(_, let relation, _), .alias(_, let relation), .category(_, let relation), .picked(_, _, let relation): relation
         case .anyOf(let parts): parts.first?.relation ?? .in
         }
+    }
+
+    /// A name that only might be a place.
+    var isMaybe: Bool {
+        if case .named(_, _, .maybe) = self { true } else { false }
     }
 
     /// The same place with another relation ("near" doubles an area's radius).

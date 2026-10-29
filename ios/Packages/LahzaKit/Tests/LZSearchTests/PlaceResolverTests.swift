@@ -237,8 +237,8 @@ import Testing
         let kept = try await setup.index.reader.places(keys: ["mk:seed.sufra-grill"])["mk:seed.sufra-grill"]
         #expect(kept?.kind == .mapResult)
         // An empty answer is cached too.
-        #expect(try await setup.resolve("Narnia Gardens") == .notFound(.notAPlace))
-        #expect(try await setup.resolve("Narnia Gardens") == .notFound(.notAPlace))
+        #expect(try await setup.resolve("Narnia Gardens") == .notFound(.unconfirmed))
+        #expect(try await setup.resolve("Narnia Gardens") == .notFound(.unconfirmed))
         #expect(setup.maps.calls.count == 2)
     }
 
@@ -256,7 +256,7 @@ import Testing
         // "shawarma" is a content word, so it is never a place; resolving it as one still refuses Shawarma House.
         #expect(SearchFixture.parse("shawarma").values == [.visual("shawarma")])
         let shawarma = try await setup.resolver.resolve(.named("shawarma", relation: .in, confidence: .maybe), in: setup.environment())
-        #expect(shawarma == .notFound(.notAPlace))
+        #expect(shawarma == .notFound(.unconfirmed))
         #expect(PlaceResolver.acceptsMaybe("Al Nakheel Park", phrase: ["nakheel"]) && PlaceResolver.acceptsMaybe("Santorini", phrase: ["santorini"]))
         #expect(!PlaceResolver.acceptsMaybe("Shawarma House", phrase: ["shawarma"]))
         // "sunset" never reaches Apple Maps: it is a content word, not a place slot.

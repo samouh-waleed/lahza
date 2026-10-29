@@ -151,7 +151,7 @@ public actor PlaceResolver {
 
     private func named(_ text: String, confidence: Confidence, in environment: PlaceEnvironment) async throws -> PlaceResolution {
         let folded = PlaceNames.fold(text)
-        guard !folded.isEmpty else { return .notFound(confidence == .maybe ? .notAPlace : .notFound) }
+        guard !folded.isEmpty else { return .notFound(confidence == .maybe ? .unconfirmed : .notFound) }
         let variants = PlaceNames.variants(text)
         var pool = CandidatePool()
 
@@ -161,7 +161,11 @@ public actor PlaceResolver {
         for row in rows {
             let match = MatchQuality(row.match ?? .prefix)
             if confidence == .maybe, match == .prefix { continue }
-            pool.add(try await ownCandidate(row, match: match, in: environment))
+            let candidate = try await ownCandidate(row, match: match, in: environment)
+            // An Apple Maps place kept from an earlier search, without photos, takes maybe words only as a fresh answer
+            // would: "Louvre" stays unconfirmed every time when Apple named it "Musée du Louvre".
+            if confidence == .maybe, row.kind == .mapResult, candidate.photoCount == 0, !Self.acceptsMaybe(row.name, phrase: variants) { continue }
+            pool.add(candidate)
         }
 
         // Gazetteer cities, regions and countries (offline; they may have no photos: "No photos in Paris, France").
@@ -198,8 +202,8 @@ public actor PlaceResolver {
     private func pick(_ pool: CandidatePool, confidence: Confidence, unavailable: PlaceNotFound?) -> PlaceResolution {
         let sorted = pool.sorted
         guard let top = sorted.first else {
-            // Words that might be a place and match nothing, Apple Maps included, are about what's in the photos.
-            if confidence == .maybe, unavailable == nil { return .notFound(.notAPlace) }
+            // Words that only might be a place and match nothing exactly, Apple Maps included, are unconfirmed.
+            if confidence == .maybe, unavailable == nil { return .notFound(.unconfirmed) }
             return .notFound(unavailable ?? .notFound)
         }
         let alternatives = Array(sorted.dropFirst())
