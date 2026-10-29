@@ -3,11 +3,12 @@ import LZCore
 import LZGeo
 import LZIndex
 import LZLibrary
+import LZSearch
 import Testing
 
 /// The search index built from real PhotoKit on the seeded Simulator (search spec §9.2): the counts, trips and
 /// home base the hero scenario promises, with the seed's fake Apple Maps and Riyadh as the device zone, into a
-/// temporary folder. Opt-in, like the probe:
+/// temporary folder; then the search goldens (HeroSuite) whose facts PhotoKit keeps. Opt-in, like the probe:
 ///
 ///     make sim-reset CONFIRM=1 && make seed-photos
 ///     make verify-search
@@ -53,5 +54,19 @@ struct SeededLibraryTests {
         #expect(home.center.distance(to: scenario.home.coordinate) < 150)
         #expect(home.countryCode == "SA")
         print("SEEDED \(summary.assets) items, \(summary.located) located, \(summary.moments) moments, \(trips.count) trips, home \(home.year)")
+
+        // The goldens over real PhotoKit, at the spec's fixed now (a case whose fact didn't import is skipped).
+        let maps = SeedMaps.client()
+        let fixed = FixedClock(HeroSuite.now)
+        let engine = SearchEngine(gazetteer: try Gazetteer.bundled(), maps: maps, budget: MapsBudget(clock: fixed), clock: fixed,
+                                  network: FakeNetworkStatus(reachable: true), locale: HeroSuite.locale,
+                                  deviceTimeZone: { TimeZone(identifier: "Asia/Riyadh")! })
+        let outcomes = try await HeroSuite.run(engine: engine, reader: index, writer: store.writer, facts: .photoKit(.hero)) {
+            maps.calls.count { if case .search = $0 { true } else { false } }
+        }
+        for outcome in outcomes { print("SEEDED hero \(outcome)") }
+        let ran = outcomes.filter { $0.skipped == nil }
+        print("SEEDED HeroSuite \(ran.count(where: \.passed))/\(ran.count) pass, \(outcomes.count - ran.count) skipped")
+        for outcome in ran where !outcome.passed { Issue.record("\(outcome)") }
     }
 }

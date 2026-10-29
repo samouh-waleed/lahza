@@ -20,6 +20,7 @@ import LZLibrary
 /// | `-LZIndex memory\|reset`  | an in-memory index, or delete the index on disk at launch        |
 /// | `-LZIndexPace <ms>`       | sleeps per scan batch of 50, to watch (and kill) a scan          |
 /// | `-LZNow <ISO 8601>`       | pins "now" (`2026-10-28T12:00:00+03:00`); time then runs on      |
+/// | `-LZQuery "<text>"`       | selects Ask and searches once the index is ready (or after 20 s)  |
 /// | `-LZRoute <name>`         | opens a route once launch settles (see ``Route/debugName``)      |
 /// | `-LZTheme light\|dark`    | forces an appearance                                             |
 /// | `-LZReduceMotion 1`       | forces Reduce Motion                                             |
@@ -47,6 +48,8 @@ struct DebugLaunch {
     var indexPace: Int?
     /// `-LZNow`.
     var now: Date?
+    /// `-LZQuery`: a search to run at launch.
+    var query: String?
     var route: Route?
     var theme: AppearanceMode?
     var reduceMotion = false
@@ -85,6 +88,7 @@ struct DebugLaunch {
             index: value("LZIndex").flatMap { IndexMode(rawValue: $0.lowercased()) },
             indexPace: value("LZIndexPace").flatMap(Int.init).map { max(0, $0) },
             now: value("LZNow").flatMap(Self.date),
+            query: value("LZQuery").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.flatMap { $0.isEmpty ? nil : $0 },
             route: value("LZRoute").flatMap(Route.init(debugName:)),
             theme: value("LZTheme").flatMap(AppearanceMode.init(rawValue:)),
             reduceMotion: flag("LZReduceMotion"),
@@ -160,6 +164,12 @@ struct DebugLaunch {
             dependencies.clock = OffsetClock(pinnedNow: now)
             labels.append("now")
         }
+        #if DEBUG
+        if let query {
+            dependencies.queryAtLaunch = query
+            labels.append("query")
+        }
+        #endif
         if let route { dependencies.initialRoute = route }
         if let theme { dependencies.appearanceOverride = theme }
         if !labels.isEmpty { dependencies.label = "debug:" + labels.joined(separator: "+") }

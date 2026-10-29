@@ -5,6 +5,7 @@ import Foundation
 import LZGeo
 import LZIndex
 import LZLibrary
+import LZSearch
 import Observation
 import SwiftUI
 import UIKit
@@ -38,8 +39,10 @@ nonisolated enum RootScreen: Hashable, Sendable {
     let index: IndexStore
     /// The Moments tab's data.
     let moments: MomentsStore
+    /// Ask's search (off when the gazetteer failed to load).
+    let search: SearchStore
     @ObservationIgnored let images: any AssetImageProvider
-    /// The Apple Maps budget, shared by place naming and (later) search.
+    /// The Apple Maps budget, shared by place naming and search.
     @ObservationIgnored let mapsBudget: MapsBudget
     #if DEBUG
     /// DEBUG: Settings › Developer › Library census (Phase 0 spike S2). It lives here so a run
@@ -70,6 +73,12 @@ nonisolated enum RootScreen: Hashable, Sendable {
         mapsBudget = MapsBudget(perMinute: dependencies.mapsPerMinute, clock: dependencies.clock)
         index = IndexStore(dependencies.makeIndexDependencies(gazetteer: gazetteer, budget: mapsBudget))
         moments = MomentsStore(index: index)
+        let budget = mapsBudget
+        let engine = gazetteer.map {
+            SearchEngine(gazetteer: $0, maps: dependencies.maps, budget: budget, clock: dependencies.clock, network: dependencies.network,
+                         deviceTimeZone: dependencies.deviceTimeZone)
+        }
+        search = SearchStore(engine: engine, index: index, kv: dependencies.kv, clock: dependencies.clock)
         images = dependencies.images
         #if DEBUG
         censusRunner = CensusRunner(source: dependencies.censusSource)
@@ -103,6 +112,9 @@ nonisolated enum RootScreen: Hashable, Sendable {
         refreshPhotoAccess()
         startIndex()
         if let route = dependencies.initialRoute { open(route) }
+        #if DEBUG
+        if let query = dependencies.queryAtLaunch { searchAtLaunch(query) }
+        #endif
     }
 
     /// The bundled gazetteer. A failure is a build error: a crash in DEBUG, a logged fault in Release (search off).
@@ -119,13 +131,16 @@ nonisolated enum RootScreen: Hashable, Sendable {
         }
     }
 
-    /// Starts the index (it opens or purges by photo access), refreshes Moments when the index changes and
-    /// releases caches on a memory warning.
+    /// Starts the index (it opens or purges by photo access), refreshes Moments and the shown search when the index
+    /// changes and releases caches on a memory warning.
     private func startIndex() {
         index.start(observing: photoAccess)
-        let index = index, moments = moments
+        let index = index, moments = moments, search = search
         indexVersions = Task {
-            for await _ in Observations({ index.version }) { await moments.indexChanged() }
+            for await _ in Observations({ index.version }) {
+                search.indexChanged()
+                await moments.indexChanged()
+            }
         }
         memoryWarnings = Task { [weak self] in
             for await _ in NotificationCenter.default.notifications(named: UIApplication.didReceiveMemoryWarningNotification) {
@@ -134,12 +149,28 @@ nonisolated enum RootScreen: Hashable, Sendable {
         }
     }
 
-    /// Drops what can be rebuilt: the gazetteer's name index and cached thumbnails.
+    /// Drops what can be rebuilt: search's caches and the index snapshot, the gazetteer's name index and cached
+    /// thumbnails.
     func didReceiveMemoryWarning() {
+        search.releaseCaches()
         gazetteer?.releaseNameIndex()
         images.stopAll()
         log.notice("Memory warning: caches released", privacy: .public)
     }
+
+    #if DEBUG
+    /// `-LZQuery`: selects Ask and searches once the index is ready, or after 20 s whatever its state.
+    private func searchAtLaunch(_ query: String) {
+        router.select(.ask)
+        let index = index, search = search, clock = dependencies.clock
+        Task {
+            for _ in 0..<200 where index.status.phase != .ready || index.reader == nil {
+                try? await clock.sleep(for: .milliseconds(100))
+            }
+            search.submit(query)
+        }
+    }
+    #endif
 
     // MARK: Navigation
 

@@ -2,11 +2,12 @@ import LZCore
 import LZDesign
 import LZIndex
 import LZLibrary
+import LZSearch
 import SwiftUI
 
-/// Ask: describe a moment and get back the matching photos. Search arrives with the next milestone (search spec
-/// PR 3), so this is the field, the index's progress, the library at a glance once it is built, the library
-/// card when photo access is missing or limited, and the privacy promise. It never fakes results.
+/// Ask: describe a moment and get back the matching photos. The field searches the index (places, dates, photo
+/// types); around it, the index's progress, the library at a glance once it is built, the library card when photo
+/// access is missing or limited, and the privacy promise. It never fakes results.
 struct AskScreen: View {
     @Environment(AppModel.self) private var model
     @State private var query = ""
@@ -32,11 +33,11 @@ struct AskScreen: View {
                         Text(AskCopy.title).lzText(.displayLarge).foregroundStyle(.lz(.ink))
                         Text(AskCopy.subtitle).lzText(.body).foregroundStyle(.lz(.muted))
                     }
-                    if let submitted {
+                    if submitted != nil {
                         if state == .noAccess {
                             Notice(.info, message: AskCopy.needsAccess)
                         } else {
-                            Notice(.info, title: AskCopy.comingSoonTitle, message: AskCopy.comingSoon(submitted))
+                            SearchStatusCard(state: model.search.state)
                         }
                     }
                     content(state, status: status, access: access)
@@ -53,9 +54,27 @@ struct AskScreen: View {
         .navigationTitle(AskCopy.navigationTitle)
         .navigationBarTitleDisplayMode(.inline)
         .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: AskCopy.prompt)
-        .onSubmit(of: .search) { submitted = query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : query }
-        .onChange(of: query) { _, value in if value.isEmpty { submitted = nil } }
+        .onSubmit(of: .search) { submit(query) }
+        .onChange(of: query) { _, value in
+            if value.isEmpty {
+                submitted = nil
+                model.search.clear()
+            }
+        }
+        // A search started elsewhere (-LZQuery) shows its words in the field.
+        .onChange(of: model.search.text) { _, text in
+            guard !text.isEmpty, text != query else { return }
+            query = text
+            submitted = text
+        }
         .accessibilityIdentifier("ask")
+    }
+
+    private func submit(_ text: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        submitted = trimmed.isEmpty ? nil : trimmed
+        guard !trimmed.isEmpty, model.photoAccess.access.canRead else { return }
+        model.search.submit(trimmed)
     }
 
     @ViewBuilder
@@ -127,14 +146,15 @@ nonisolated enum AskCopy {
     static let subtitle = "Describe a moment the way you'd tell a friend. Lahza finds the photos."
     static let prompt = "Soccer at the park last summer…"
     static let privacy = "Your photos stay on this iPhone."
-    static let comingSoonTitle = "Search is coming soon"
+    static let searching = "Searching your photos…"
     static let needsAccess = "Lahza needs photo access to search."
     static let needsIndex = "Build the search index to search your photos."
     static let deletedTitle = "Search index deleted"
     static let deletedBody = "Build it again to search."
 
-    static func comingSoon(_ query: String) -> String {
-        "“\(query)” will search your photos in the next update."
+    /// While a typed place is looked up: "Looking up “Sufra Grill”…".
+    static func lookingUp(_ place: String) -> String {
+        "Looking up “\(place)”…"
     }
 
     // MARK: Indexing card

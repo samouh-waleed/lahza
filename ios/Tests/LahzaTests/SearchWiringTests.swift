@@ -1,0 +1,95 @@
+import Foundation
+import LZCore
+import LZGeo
+import LZIndex
+import LZLibrary
+import LZSearch
+import Testing
+@testable import Lahza
+
+/// Search in the app (search spec §9.2): the store over the fake seed library and an in-memory index, `-LZQuery`,
+/// and the memory warning.
+@MainActor @Suite struct SearchWiringTests {
+    private func app(query: String? = nil) -> AppModel {
+        var dependencies = AppDependencies.testHost()
+        let photos = FakePhotoLibraryClient(access: .full, answer: .full, counts: [.full: 561, .limited: 40])
+        dependencies.photoLibrary = photos
+        dependencies.libraryReader = FakeLibraryReader(.seed(.hero), following: photos)
+        dependencies.maps = SeedMaps.client()
+        dependencies.mapsPerMinute = 60_000
+        dependencies.network = FakeNetworkStatus(reachable: true)
+        dependencies.deviceTimeZone = { TimeZone(identifier: "Asia/Riyadh")! }
+        dependencies.clock = OffsetClock(pinnedNow: HeroSuite.now)
+        dependencies.queryAtLaunch = query
+        AppPreferences(kv: dependencies.kv).markOnboardingCompleted(at: Date())
+        return AppModel(dependencies: dependencies)
+    }
+
+    /// Waits up to 10 s for `condition`.
+    private func eventually(_ app: AppModel, _ condition: () -> Bool) async -> Bool {
+        for _ in 0..<500 {
+            await app.index.settled()
+            await app.search.settled()
+            if condition() { return true }
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        return condition()
+    }
+
+    private func bestCount(_ app: AppModel) -> Int {
+        app.search.result?.hits.count { $0.tier == .best } ?? 0
+    }
+
+    @Test func theQueryArgumentParses() {
+        let launch = DebugLaunch.parse { ["LZQuery": "  Al-Nakheel Park ", "LZSeed": "hero"][$0] }
+        #expect(launch.query == "Al-Nakheel Park")
+        #expect(DebugLaunch.parse { $0 == "LZQuery" ? "  " : nil }.query == nil)
+        var dependencies = AppDependencies.live()
+        launch.apply(to: &dependencies)
+        #expect(dependencies.queryAtLaunch == "Al-Nakheel Park")
+        #expect(dependencies.label == "debug:seed-hero+query")
+    }
+
+    @Test func aQueryAtLaunchSearchesOnceTheIndexIsReady() async {
+        let app = app(query: "Al-Nakheel Park")
+        app.start()
+        #expect(app.router.selectedTab == .ask)
+        #expect(await eventually(app) { if case .results = app.search.state { true } else { false } })
+        #expect(app.search.text == "Al-Nakheel Park")
+        #expect(bestCount(app) == SeedScenario.hero.items(.nakheel).count)
+    }
+
+    @Test func searchingEditingAndWideningRunAgain() async {
+        let app = app()
+        app.start()
+        #expect(await eventually(app) { app.index.status.phase == .ready })
+        await app.index.placeNamesSettled()
+        app.search.submit("Al-Nakheel Park during Ramadan 2024")
+        #expect(await eventually(app) { if case .noMatch = app.search.state { true } else { false } })
+        guard let offer = app.search.result?.noMatch?.offers.first else {
+            Issue.record("no widening offer")
+            return
+        }
+        app.search.widen(offer)
+        #expect(await eventually(app) { if case .results = app.search.state { true } else { false } })
+        #expect(app.search.text == "Al-Nakheel Park")
+        #expect(bestCount(app) == SeedScenario.hero.items(.nakheel).count)
+
+        app.search.apply([.add(.media(.videos))])
+        #expect(await eventually(app) { app.search.text == "Al-Nakheel Park videos" && bestCount(app) == 3 })
+
+        app.search.setLayout(.grid)
+        #expect(SearchStore(engine: nil, index: app.index, kv: app.dependencies.kv, clock: SystemClock()).layout == .grid)
+    }
+
+    @Test func aMemoryWarningReleasesSearchCaches() async {
+        let app = app()
+        app.start()
+        #expect(await eventually(app) { app.index.status.phase == .ready })
+        app.search.submit("Greece")
+        #expect(await eventually(app) { if case .results = app.search.state { true } else { false } })
+        app.didReceiveMemoryWarning()
+        app.search.submit("Greece")
+        #expect(await eventually(app) { if case .results = app.search.state { true } else { false } }, "searches again after dropping its caches")
+    }
+}

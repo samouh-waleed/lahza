@@ -232,7 +232,8 @@ extension HeroSuite.Golden {
                 best: p.riyadh.filter(year2025),
                 moreMust: facts.receivedPhotos ? p.received.filter(year2025) : [],
                 moreAllowed: p.riyadh.filter(p.days(2024, 11, 1, through: 2026, 2, 28)),
-                locationUnknown: p.tagged(.orphans).filter(year2025) + (facts.receivedPhotos ? [] : p.received.filter(year2025)),
+                // Received photos that don't look received are plain photos without a location.
+                locationUnknown: p.tagged(.orphans).filter(year2025) + (facts.receivedPhotos ? [] : p.tagged(.received).filter(year2025)),
                 checks: [p.absent(p.tagged(.screens))])),
             Self(22, "Paris", Expectation(best: [], checks: [p.noMatch(.placeEmpty, headline: "No photos in Paris, France.",
                                                                        offerLabels: Set(["SA", "AE", "GR", "GB", "AU"].map(CountryNames.name)))])),
@@ -446,9 +447,12 @@ private struct Predicates {
                 let got = noMatch.offers[index]
                 if got.label != offer.0 || got.count != offer.1 { problems.append("offer “\(got.label) · \(got.count)”, expected “\(offer.0) · \(offer.1)”") }
             }
+            // The Simulator's own samples may add countries; the seed's must all be offered.
             if let offerLabels {
                 let labels = Set(noMatch.offers.map(\.label))
-                if labels != offerLabels || noMatch.offers.contains(where: { $0.count <= 0 }) { problems.append("offers \(noMatch.offers.map { "\($0.label) · \($0.count)" })") }
+                if !offerLabels.isSubset(of: labels) || noMatch.offers.contains(where: { $0.count <= 0 }) {
+                    problems.append("offers \(noMatch.offers.map { "\($0.label) · \($0.count)" })")
+                }
             }
             return problems.isEmpty ? nil : problems.joined(separator: ", ")
         }
