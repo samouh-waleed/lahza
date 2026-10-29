@@ -1,64 +1,95 @@
 import LZCore
 import Foundation
 
-/// Every user-facing billing string. Placeholder product copy until the paywall is designed.
+/// Every user-facing billing string. Lahza sells one thing: a one-time unlock of the whole library
+/// (decision 32). Never subscription or trial wording.
 public enum BillingCopy {
+    private static let freeMonths = Brand.Limits.freeSearchMonths
+
     // MARK: Store service
 
     /// The configured key has the wrong prefix or characters (never echoes the key).
     public static let sdkKeyMismatch = "This build needs the matching public store SDK key."
     /// The configured key changed while the SDK was already configured with another one.
-    public static let storeSettingChanged = "The store setting changed. Fully close and reopen the app to load prices."
+    public static let storeSettingChanged = "The store setting changed. Fully close and reopen the app to load the price."
     /// The 20 s price deadline passed (the native read keeps going; a retry joins it).
-    public static let pricesTimedOut = "Loading store prices took too long. Try again."
-    /// No usable SDK key while loading prices.
-    public static let missingStoreForPrices = "This build isn’t connected to the App Store yet, so plans can’t load. Free search keeps working."
+    public static let pricesTimedOut = "Loading the price took too long. Try again."
+    /// No usable SDK key while loading the price.
+    public static let missingStoreForPrices = "This build isn’t connected to the App Store yet, so the price can’t load. Search over the last \(freeMonths) months keeps working."
     /// No usable SDK key while purchasing or restoring.
     public static let missingStoreForAction = "This build isn’t connected to the App Store yet."
-    /// The offer's product id no longer matches its period's product.
-    public static let selectedPlanUnavailable = "The selected plan is unavailable. Reload store prices."
+    /// The offer's product is no longer the full-library unlock.
+    public static let unlockUnavailable = "The unlock is unavailable right now. Reload the price."
 
     // MARK: Paywall
 
-    /// Provider or configuration errors (``StoreMessage``).
-    public static let storePlansUnavailable = "Store plans are unavailable right now. Try again. Free search keeps working."
-    public static let purchaseCancelled = "Purchase cancelled. Your plan is unchanged."
-    public static let plusActiveNotice = "\(plusName) is active."
+    /// Provider or configuration errors, and an offering without the unlock (``StoreMessage``).
+    public static let storeUnavailable = "The App Store is unavailable right now. Try again. Search over the last \(freeMonths) months keeps working."
+    public static let purchaseCancelled = "Purchase cancelled. Nothing was charged."
+    public static let unlockedNotice = "Your whole library is unlocked."
     /// The store accepted a purchase but the entitlement is not active yet.
     public static let purchaseReceivedNotActive = "Your purchase was received but isn’t active yet. Try Restore purchases in a moment."
-    public static let noActiveSubscription = "No active purchase was found for this Apple Account."
-    /// No App Store management sheet could be shown.
-    public static let manageFallback = "Open Settings › Apple Account › Subscriptions to manage your plan."
+    public static let nothingToRestore = "No earlier purchase was found for this Apple Account."
     /// Ask to Buy / a deferred payment.
-    public static let purchasePending = "Your purchase is waiting for approval. \(plusName) starts as soon as it’s approved."
+    public static let purchasePending = "Your purchase is waiting for approval. Your whole library unlocks as soon as it’s approved."
 
-    public static let plusName = "\(Brand.name) Plus"
+    /// The product's name in Settings.
+    public static let productName = "Full library"
     public static let closeLabel = "Close"
-    public static let paywallTitle = "Your whole library,\none question away."
-    public static let paywallSubtitle = "Free search covers the last \(Brand.Limits.freeSearchMonths) months. \(plusName) searches every year of your photos."
-    public static let benefits: [(symbol: String, title: String, detail: String)] = [
-        ("calendar", "Every year", "Search your entire library, not just the last \(Brand.Limits.freeSearchMonths) months."),
-        ("lock.shield", "Still private", "Your photos never leave your iPhone."),
-        ("sparkles", "Every new feature", "New ways to find and relive your moments as they arrive."),
+    public static let eyebrow = "One-time purchase"
+    public static let paywallTitle = "Unlock your\nwhole library."
+    public static let paywallSubtitle = "\(Brand.name) searches the last \(freeMonths) months for free. One purchase opens every year before that."
+    public static let freeTitle = "Free"
+    public static let freeFeatures: [(symbol: String, text: String)] = [
+        ("magnifyingglass", "Search the last \(freeMonths) months"),
+        ("calendar", "Moments and trips from every year"),
+        ("lock.shield", "Your photos never leave your iPhone"),
     ]
-    public static let subscribe = "Continue"
-    public static func startTrial(_ duration: String) -> String { "Start \(duration) free" }
-    public static let loadingPrices = "Loading prices…"
+    public static let unlockTitle = "Full library"
+    public static let unlockFeatures: [(symbol: String, text: String)] = [
+        ("clock.arrow.circlepath", "Search every year of your photos"),
+        ("checkmark.seal", "Pay once. No subscription"),
+        ("arrow.clockwise", "Restore it with your Apple Account"),
+    ]
+    /// Under the price in the unlock card.
+    public static let priceCaption = "one time"
+    /// Under the purchase button.
+    public static let purchaseFootnote = "Charged once to your Apple Account. Nothing renews."
+    /// The purchase button, with the store's price verbatim: `"Unlock for $9.99"`.
+    public static func unlock(price: String) -> String { "Unlock for \(price)" }
+    /// The purchase button before the price is known (disabled).
+    public static let unlockWithoutPrice = "Unlock"
+    public static let loadingPrice = "Loading price…"
     public static let tryAgain = "Try again"
     public static let restorePurchases = "Restore purchases"
     public static let restoring = "Restoring…"
-    public static let manageSubscription = "Manage subscription"
     public static let termsOfUse = "Terms of use"
     public static let privacyPolicy = "Privacy policy"
     public static let testStoreNotice = "Test purchases only. No money will be charged."
-    public static let plusIsActive = "\(plusName) is active"
-    public static let freePlan = "Free: last \(Brand.Limits.freeSearchMonths) months"
 
-    /// `"Renews {date}"` or `"Available until {date}"`.
-    public static func renewalLine(willRenew: Bool, date: String) -> String {
-        "\(willRenew ? "Renews" : "Available until") \(date)"
+    // MARK: Settings
+
+    public static let unlockedStatus = "Full library unlocked"
+    public static let unlockedDetail = "Search covers every year of your photos."
+    public static let freeStatus = "Free: last \(freeMonths) months"
+    public static let freeDetail = "Search covers the last \(freeMonths) months. Moments and trips show every year."
+    public static let seeUnlock = "Unlock your whole library"
+    /// The Settings row's value.
+    public static func settingsValue(isUnlocked: Bool) -> String { isUnlocked ? "Unlocked" : "Free" }
+
+    // MARK: Locked results
+
+    /// The row after a free search's results: `"2,431 more from earlier years"`.
+    public static func moreFromEarlierYears(_ count: Int, locale: Locale = .autoupdatingCurrent) -> String {
+        "\(count.formatted(.number.locale(locale))) more from earlier years"
     }
 
-    /// Apple's required auto-renewal disclosure under the purchase button.
-    public static let renewalDisclosure = "Subscriptions renew automatically unless cancelled at least 24 hours before the end of the period. Manage or cancel anytime in Settings."
+    /// VoiceOver's label for that row: `"2,431 more results from earlier years"`.
+    public static func moreFromEarlierYearsLabel(_ count: Int, locale: Locale = .autoupdatingCurrent) -> String {
+        "\(count.formatted(.number.locale(locale))) more \(count == 1 ? "result" : "results") from earlier years"
+    }
+
+    public static let lockedResultsDetail = "Unlock your whole library to see them."
+    public static let lockedResultsAction = "Unlock"
+    public static let lockedResultsHint = "Opens the one-time unlock."
 }

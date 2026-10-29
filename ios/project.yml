@@ -35,6 +35,9 @@ targets:
       - path: App
       - path: Resources
         buildPhase: resources
+      # The local StoreKit products for Simulator purchases (the scheme's Run action); never shipped.
+      - path: Config/Lahza.storekit
+        buildPhase: none
     dependencies:
       - package: LahzaKit
         products: [LZCore, LZBilling, LZDesign, LZLibrary, LZGeo, LZIndex, LZSearch]
@@ -79,7 +82,11 @@ targets:
   LahzaTests:
     type: bundle.unit-test
     platform: iOS
-    sources: [Tests/LahzaTests]
+    sources:
+      - path: Tests/LahzaTests
+      # Read by the StoreKit purchase tests (`SKTestSession`).
+      - path: Config/Lahza.storekit
+        buildPhase: resources
     dependencies:
       - target: Lahza
     settings:
@@ -98,6 +105,8 @@ schemes:
         LahzaTests: [test]
     run:
       config: Debug
+      # Purchases in the Simulator use these local products, without App Store Connect.
+      storeKitConfiguration: Config/Lahza.storekit
     test:
       config: Debug
       targets:

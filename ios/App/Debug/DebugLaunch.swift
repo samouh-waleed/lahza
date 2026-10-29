@@ -13,7 +13,8 @@ import LZLibrary
 /// |---------------------------|-----------------------------------------------------------------|
 /// | `-LZFreshInstall 1`       | in-memory storage, so onboarding shows and nothing is remembered |
 /// | `-LZSkipOnboarding 1`     | in-memory storage with onboarding already done                   |
-/// | `-LZFakeStore 1`          | a fake store with sample prices (no RevenueCat; in-memory storage) |
+/// | `-LZFakeStore 1`          | a fake store with the sample $9.99 unlock (no RevenueCat; in-memory storage) |
+/// | `-LZStoreKit 1`           | StoreKit directly, no RevenueCat (in-memory storage): the scheme's `Config/Lahza.storekit` when Xcode runs it |
 /// | `-LZPhotos <access>`      | a fake photo library starting at that access (see below)         |
 /// | `-LZSeed hero`            | the hero seed library without PhotoKit, fake Apple Maps (see below) |
 /// | `-LZFakeMaps 1\|throttle\|offline` | the seed's fake Apple Maps over real PhotoKit, or throttled, or offline |
@@ -38,6 +39,8 @@ struct DebugLaunch {
     var freshInstall = false
     var skipOnboarding = false
     var fakeStore = false
+    /// `-LZStoreKit`: purchases straight over StoreKit (``StoreKitPurchasesClient``).
+    var storeKit = false
     /// `-LZPhotos`: the fake photo library's starting access.
     var photos: PhotoAccess?
     /// `-LZSeed`: a seed scenario's name.
@@ -82,6 +85,7 @@ struct DebugLaunch {
             freshInstall: flag("LZFreshInstall"),
             skipOnboarding: flag("LZSkipOnboarding"),
             fakeStore: flag("LZFakeStore"),
+            storeKit: flag("LZStoreKit"),
             photos: value("LZPhotos").flatMap { name in PhotoAccess.allCases.first { $0.rawValue.lowercased() == name.lowercased() } },
             seed: value("LZSeed")?.lowercased(),
             fakeMaps: value("LZFakeMaps").flatMap { flag("LZFakeMaps") ? .on : FakeMaps(rawValue: $0.lowercased()) },
@@ -104,18 +108,23 @@ struct DebugLaunch {
             dependencies.kv = kv
             labels.append(freshInstall ? "fresh-install" : "skip-onboarding")
         }
-        if fakeStore {
-            // Fake purchases never touch the real defaults: run on in-memory storage, carrying over
-            // only whether onboarding was done.
+        if fakeStore || storeKit {
+            // Test purchases never touch the real defaults (the cached unlock): run on in-memory
+            // storage, carrying over only whether onboarding was done.
             if !(freshInstall || skipOnboarding) {
                 let kv = InMemoryKeyValueStore([:])
                 if AppPreferences(kv: dependencies.kv).onboardingCompleted { AppPreferences(kv: kv).markOnboardingCompleted(at: Date()) }
                 dependencies.kv = kv
             }
-            dependencies.purchases = FakePurchasesClient()
             // A Test Store key, so the paywall says "Test purchases only".
-            dependencies.billingEnvironment = BillingEnvironment(apiKey: "test_fake_store", configuration: .debug)
+            dependencies.billingEnvironment = BillingEnvironment(apiKey: "test_local_store", configuration: .debug)
+        }
+        if fakeStore {
+            dependencies.purchases = FakePurchasesClient()
             labels.append("fake-store")
+        } else if storeKit {
+            dependencies.purchases = StoreKitPurchasesClient()
+            labels.append("storekit")
         }
         if let photos, seed == nil {
             let library = FakePhotoLibraryClient(access: photos, answer: .full)

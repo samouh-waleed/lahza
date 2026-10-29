@@ -19,7 +19,8 @@ struct SettingsHomeScreen: View {
                 }
                 .padding(.bottom, 8)
                 group("PLAN") {
-                    row(BillingCopy.plusName, "sparkles", .subscription, value: model.entitlement.isUnlocked ? "Active" : "Free")
+                    row(BillingCopy.productName, "sparkles", .fullLibrary, value: BillingCopy.settingsValue(isUnlocked: model.entitlement.isUnlocked))
+                        .accessibilityIdentifier("settings-full-library")
                 }
                 group("LIBRARY") {
                     row(PhotoAccessCopy.screenTitle, "photo.on.rectangle", .photoAccess, value: PhotoAccessCopy.status(model.photoAccess.access))
@@ -40,6 +41,8 @@ struct SettingsHomeScreen: View {
                     LZToggleRow("Sample store prices", subtitle: "Fake store, nothing is charged. Restart Lahza to apply.",
                                 systemImage: "hammer", isOn: $sampleStorePrices)
                         .accessibilityIdentifier("developer-sample-prices")
+                    row("Locked results row", "lock", .lockedResults)
+                        .accessibilityIdentifier("developer-locked-results")
                     row(LibraryCensusCopy.screenTitle, "chart.bar.doc.horizontal", .libraryCensus)
                         .accessibilityIdentifier("developer-library-census")
                     row("Index inspector", "tablecells", .indexInspector)

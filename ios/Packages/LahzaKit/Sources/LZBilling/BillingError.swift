@@ -9,12 +9,12 @@ public enum BillingError: Error, Sendable, Equatable, LocalizedError {
     case storeSettingChanged
     /// The 20 s price deadline passed.
     case pricesTimedOut
-    /// No usable SDK key while loading prices.
+    /// No usable SDK key while loading the price.
     case missingStoreForPrices
     /// No usable SDK key while purchasing or restoring.
     case missingStoreForAction
-    /// The offer's product no longer matches its period.
-    case selectedPlanUnavailable
+    /// The offer's product is no longer the full-library unlock.
+    case unlockUnavailable
 
     public var message: String {
         switch self {
@@ -23,7 +23,7 @@ public enum BillingError: Error, Sendable, Equatable, LocalizedError {
         case .pricesTimedOut: BillingCopy.pricesTimedOut
         case .missingStoreForPrices: BillingCopy.missingStoreForPrices
         case .missingStoreForAction: BillingCopy.missingStoreForAction
-        case .selectedPlanUnavailable: BillingCopy.selectedPlanUnavailable
+        case .unlockUnavailable: BillingCopy.unlockUnavailable
         }
     }
 
@@ -31,7 +31,7 @@ public enum BillingError: Error, Sendable, Equatable, LocalizedError {
 }
 
 /// The copy for a store failure: the error's own description, except that provider and
-/// configuration failures read as "Store plans are unavailable right now…".
+/// configuration failures read as "The App Store is unavailable right now…".
 public enum StoreMessage {
     /// The copy for any thrown value.
     public static func text(for error: any Error) -> String {
@@ -41,7 +41,7 @@ public enum StoreMessage {
     /// A case-insensitive match of `revenuecat|rev\.cat|app store connect|configuration|offerings|products.*fetch`
     /// in `detail` → the unavailable copy, else `detail` unchanged.
     public static func map(_ detail: String) -> String {
-        matchesProviderFailure(detail) ? BillingCopy.storePlansUnavailable : detail
+        matchesProviderFailure(detail) ? BillingCopy.storeUnavailable : detail
     }
 
     /// That pattern: case folding covers only ASCII letters (a non-ASCII character never folds to

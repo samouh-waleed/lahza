@@ -2,16 +2,15 @@ import LZCore
 import Foundation
 import Synchronization
 
-/// The store side of Lahza Plus: RevenueCat configuration, prices, purchase, restore and the
-/// management sheet. Lahza has no accounts, so RevenueCat runs with its anonymous app user and the
-/// active entitlement it reports is the gate (``EntitlementStore``).
+/// The store side of the full-library unlock: RevenueCat configuration, the price, purchase and
+/// restore. Lahza has no accounts, so RevenueCat runs with its anonymous app user and the active
+/// entitlement it reports is the gate (``EntitlementStore``).
 ///
 /// Rules:
 /// - **One queue.** Store operations run strictly in order (``SerialQueue``).
-/// - **Prices.** At most one read in flight per key; the caller waits at most 20 s ("Loading store
-///   prices took too long. Try again."), while the read keeps its place in the queue and a retry
+/// - **Price.** At most one read in flight per key; the caller waits at most 20 s ("Loading the
+///   price took too long. Try again."), while the read keeps its place in the queue and a retry
 ///   joins it.
-/// - **Trials** are reported only for a free introduction that StoreKit confirms eligible.
 /// - **Cancel** is a neutral ``PurchaseOutcome/cancelled``.
 /// - **Key.** The SDK is configured once; a key change mid-process is refused.
 public final class PurchasesService: Sendable {
@@ -21,7 +20,7 @@ public final class PurchasesService: Sendable {
     private struct Flight {
         var id: UInt64
         var key: String?
-        var task: Task<PlusCatalog, any Error>
+        var task: Task<UnlockOffer?, any Error>
     }
 
     private struct State {
@@ -74,14 +73,14 @@ public final class PurchasesService: Sendable {
 
     // MARK: Prices
 
-    /// The offering's monthly and annual packages, with confirmed trials.
-    public func offers() async throws -> PlusCatalog {
+    /// The offering's full-library unlock, or nil when the offering does not sell it.
+    public func unlockOffer() async throws -> UnlockOffer? {
         let key = try sdkKey()
-        let flight = state.withLock { inner -> Task<PlusCatalog, any Error> in
+        let flight = state.withLock { inner -> Task<UnlockOffer?, any Error> in
             if let pending = inner.pendingOffers, pending.key == key { return pending.task }
             inner.nextFlight += 1
             let id = inner.nextFlight
-            let task = queue.enqueue { [self] in try await readOffers() }
+            let task = queue.enqueue { [self] in try await readOffer() }
             inner.pendingOffers = Flight(id: id, key: key, task: task)
             Task { [self] in
                 _ = await task.result
@@ -92,24 +91,16 @@ public final class PurchasesService: Sendable {
         return try await waitForPrices(flight)
     }
 
-    private func readOffers() async throws -> PlusCatalog {
+    private func readOffer() async throws -> UnlockOffer? {
         guard try await configureIfNeeded() else { throw BillingError.missingStoreForPrices }
         let all = try await client.offerings()
-        let wanted = offeringIdentifier()
-        var offers = PlusCatalog.packages(in: all[wanted])
-        let trialIds = PlusCatalog.freeIntroProductIds(offers)
-        if !trialIds.isEmpty {
-            // Unknown eligibility and a failed eligibility read keep ordinary store prices.
-            let eligibility = (try? await client.checkTrialOrIntroDiscountEligibility(productIdentifiers: trialIds)) ?? [:]
-            offers = PlusCatalog.applyingEligibility(offers, eligibility)
-        }
-        return PlusCatalog(offers: offers)
+        return UnlockOffer.find(in: all[offeringIdentifier()])
     }
 
     /// Only the caller stops waiting: the native read keeps its place in the queue until it settles,
     /// and a retry rejoins it. The timer is cancelled as soon as the read settles.
-    private func waitForPrices(_ flight: Task<PlusCatalog, any Error>) async throws -> PlusCatalog {
-        let outcome = OneShot<PlusCatalog>()
+    private func waitForPrices(_ flight: Task<UnlockOffer?, any Error>) async throws -> UnlockOffer? {
+        let outcome = OneShot<UnlockOffer?>()
         let clock = self.clock
         let timer = Task {
             do { try await clock.sleep(for: Self.priceDeadline) } catch { return }
@@ -123,14 +114,14 @@ public final class PurchasesService: Sendable {
         return try await outcome.wait(onCancel: { timer.cancel() })
     }
 
-    // MARK: Purchase, restore, manage
+    // MARK: Purchase and restore
 
-    /// Buys `offer`, re-checking that its product still matches its period.
-    public func purchase(_ offer: PlusOffer) async throws -> PurchaseOutcome {
+    /// Buys `offer`, re-checking that its product is still the full-library unlock.
+    public func purchase(_ offer: UnlockOffer) async throws -> PurchaseOutcome {
         try await queue.enqueue { [self] () async throws -> PurchaseOutcome in
             guard try await configureIfNeeded() else { throw BillingError.missingStoreForAction }
-            guard RevenueCatKey.matchesStoreProduct(offer.productIdentifier, offer.period.productIdentifier) else {
-                throw BillingError.selectedPlanUnavailable
+            guard RevenueCatKey.matchesStoreProduct(offer.productIdentifier, Brand.Products.fullLibrary) else {
+                throw BillingError.unlockUnavailable
             }
             do {
                 return .completed(try await client.purchase(offer.package))
@@ -158,19 +149,7 @@ public final class PurchasesService: Sendable {
         }.value
     }
 
-    /// The App Store's manage-subscriptions sheet. Any failure to show it throws
-    /// ``PurchasesClientError/manageSubscriptionsUnavailable`` (the caller shows the fallback text).
-    public func showManageSubscriptions() async throws {
-        let configured = try await queue.enqueue { [self] in try await configureIfNeeded() }.value
-        guard configured else { throw PurchasesClientError.manageSubscriptionsUnavailable }
-        do {
-            try await client.showManageSubscriptions()
-        } catch PurchasesClientError.store {
-            throw PurchasesClientError.manageSubscriptionsUnavailable
-        }
-    }
-
-    /// RevenueCat's CustomerInfo updates (renewals, Ask to Buy approvals, promoted purchases).
+    /// RevenueCat's CustomerInfo updates (Ask to Buy approvals, refunds, promoted purchases).
     /// Finishes at once when the SDK is not configured, so call ``start()`` first.
     public func customerInfoUpdates() async -> AsyncStream<CustomerSnapshot> {
         await client.customerInfoUpdates()

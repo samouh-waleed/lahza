@@ -39,7 +39,7 @@ public struct AppEnvironment: Sendable, Equatable {
     /// Public RevenueCat SDK key (trimmed), or nil. In release a `test_` key is dropped here,
     /// because the RevenueCat SDK calls `fatalError` for Test Store keys outside DEBUG.
     public let revenueCatAPIKey: String?
-    /// Entitlement id (default ``Brand/plusEntitlement``).
+    /// Entitlement id (default ``Brand/fullLibraryEntitlement``).
     public let revenueCatEntitlement: String
     /// Offering id (default ``Brand/Products/offering``).
     public let revenueCatOffering: String
@@ -66,7 +66,7 @@ public struct AppEnvironment: Sendable, Equatable {
         webURLString = (web?.isEmpty == false ? web : nil) ?? Brand.websiteURL
         let key = value(InfoKey.revenueCatAPIKey)
         revenueCatAPIKey = (configuration == .release && key?.hasPrefix("test_") == true) ? nil : key
-        revenueCatEntitlement = value(InfoKey.revenueCatEntitlement) ?? Brand.plusEntitlement
+        revenueCatEntitlement = value(InfoKey.revenueCatEntitlement) ?? Brand.fullLibraryEntitlement
         revenueCatOffering = value(InfoKey.revenueCatOffering) ?? Brand.Products.offering
         revenueCatTestStore = flag(InfoKey.revenueCatTestStore) ?? false
     }

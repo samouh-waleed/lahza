@@ -14,7 +14,7 @@ struct RouteScreen: View {
         case .photoAccess: PhotoAccessSettingsScreen()
         case .appearance: AppearanceSettingsScreen()
         case .privacy: PrivacySettingsScreen()
-        case .subscription: SubscriptionSettingsScreen()
+        case .fullLibrary: FullLibrarySettingsScreen()
         case .acknowledgements: AcknowledgementsScreen()
         case .searchIndex: SearchIndexScreen()
         case .moment(let ref): MomentDetailScreen(ref: ref)
@@ -22,6 +22,7 @@ struct RouteScreen: View {
         #if DEBUG
         case .libraryCensus: LibraryCensusScreen()
         case .indexInspector: IndexInspectorScreen()
+        case .lockedResults: LockedResultsPreviewScreen()
         #endif
         case .paywall: PaywallScreen()
         case .onboarding: OnboardingView(revisit: true)
