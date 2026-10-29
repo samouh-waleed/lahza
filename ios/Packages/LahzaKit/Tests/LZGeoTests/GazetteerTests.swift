@@ -205,6 +205,19 @@ private let bundled = Result { try Gazetteer.bundled() }
         #expect(first("heraklion") == 261745)
     }
 
+    /// The query parser's bare names: a prefix never counts.
+    @Test func exactNamesOnly() throws {
+        let gazetteer = try bundled.get()
+        #expect(gazetteer.cities(exactlyNamed: "riya", limit: 5).isEmpty)
+        #expect(gazetteer.cities(exactlyNamed: "Riyadh", limit: 5).first?.geonameID == Self.riyadh)
+        #expect(gazetteer.cities(exactlyNamed: "diriyah", limit: 5).first?.geonameID == 110312)
+        #expect(gazetteer.cities(exactlyNamed: "athens", limit: 5).first?.countryCode == "GR")
+        #expect(gazetteer.cities(exactlyNamed: "athens", limit: 5).allSatisfy { PlaceNames.fold($0.name) == "athens" })
+        #expect(gazetteer.cities(exactlyNamed: "paris", limit: 1).first?.population ?? 0 > 2_000_000)
+        #expect(gazetteer.admin1s(exactlyNamed: "dubai", limit: 3).first?.countryCode == "AE")
+        #expect(gazetteer.admin1s(exactlyNamed: "duba", limit: 3).isEmpty)
+    }
+
     // MARK: Helpers
 
     private nonisolated func unitVector(_ c: Coordinate) -> (x: Double, y: Double, z: Double) {

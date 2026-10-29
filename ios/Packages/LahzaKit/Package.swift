@@ -14,6 +14,7 @@ let package = Package(
         .library(name: "LZLibrary", targets: ["LZLibrary"]),
         .library(name: "LZGeo", targets: ["LZGeo"]),
         .library(name: "LZIndex", targets: ["LZIndex"]),
+        .library(name: "LZSearch", targets: ["LZSearch"]),
         .executable(name: "lz-gazetteer", targets: ["LZGazetteerTool"]),
         .executable(name: "lz-seed", targets: ["LZSeedTool"]),
     ],
@@ -44,6 +45,10 @@ let package = Package(
         // (zones, places, moments, home bases, trips), Apple Maps place names, read models and the stores the app
         // observes. GRDB stays inside this module (`internal import`), so the app and later modules never see it.
         .target(name: "LZIndex", dependencies: ["LZCore", "LZGeo", "LZLibrary", .product(name: "GRDB", package: "GRDB.swift")]),
+        // Search: the query model (slots tied to spans, ready for a Foundation Models parser later), the English rules
+        // parser, and the time and place resolvers; then scoring, tiers, grouping and reasons over the index.
+        .target(name: "LZSearch", dependencies: ["LZCore", "LZGeo", "LZLibrary", "LZIndex"],
+                resources: [.copy("Resources/ContentWords.txt")]),
         // macOS host tools, never linked into the app: the gazetteer resource builder (`make gazetteer`) and the
         // seed library renderer (`make seed-photos`, debug builds only).
         .executableTarget(name: "LZGazetteerTool", dependencies: ["LZGeo"]),
@@ -55,5 +60,6 @@ let package = Package(
         .testTarget(name: "LZLibraryTests", dependencies: ["LZLibrary", "LZGeo"]),
         .testTarget(name: "LZGeoTests", dependencies: ["LZGeo"]),
         .testTarget(name: "LZIndexTests", dependencies: ["LZIndex", "LZLibrary", "LZGeo", "LZCore", .product(name: "GRDB", package: "GRDB.swift")]),
+        .testTarget(name: "LZSearchTests", dependencies: ["LZSearch", "LZIndex", "LZLibrary", "LZGeo", "LZCore", .product(name: "GRDB", package: "GRDB.swift")]),
     ]
 )

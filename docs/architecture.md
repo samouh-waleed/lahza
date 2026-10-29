@@ -73,6 +73,8 @@ Pipeline:
 7. Group into moment cards (with a grid toggle).
 8. Attach reason chips.
 
+In search v0 (`LZSearch`), English rules do all the parsing. They fill the same slot model a Foundation Models parser will later, each slot tied to the words it came from. Words about what's in photos ("soccer", "sunset") become "not yet" chips; nothing is dropped. Places resolve from the own index first (names, then a typo pass), then the offline place list, and only then from one Apple Maps search per query, cached on the iPhone for 30 days.
+
 ### Embedding model
 - SigLIP 2 B/16, vocabulary trimmed to English, 8-bit (about 200 MB), downloaded through Apple-hosted Background Assets.
 - Search on dates and places works while the model downloads.
@@ -127,7 +129,7 @@ Pipeline:
 |---|---|
 | `ios/project.yml` | XcodeGen spec; the Xcode project is generated (`make project`) and not committed |
 | `ios/App/` | The app: `Shell/` (composition root, dependencies, preferences), `Navigation/`, `Chrome/`, `Features/` (Ask, Moments, Library, Onboarding, Settings, Paywall), `Debug/` (launch arguments, developer screens) |
-| `ios/Packages/LahzaKit/` | Swift package: `LZCore` (brand, environment, storage, clock, log), `LZBilling` (RevenueCat, entitlement, paywall model), `LZDesign` (tokens, type, components, motion), `LZLibrary` (photo access: PhotoKit client, fake, access store, the shared fetch rules; the library reader and image provider the index uses, live and fake; the library census for spike S2, whose screen is DEBUG-only; the DEBUG seed library), `LZGeo` (coordinates, local time and the moment rule, the offline GeoNames gazetteer, place-name folding, the Apple Maps client), `LZIndex` (the on-device search index: GRDB storage, library sync, the structure pass, the Apple Maps place-name queue, read queries and the stores the Ask, Moments and Settings screens observe; GRDB stays inside it). Modules use the `LZ` prefix |
+| `ios/Packages/LahzaKit/` | Swift package: `LZCore` (brand, environment, storage, clock, log), `LZBilling` (RevenueCat, entitlement, paywall model), `LZDesign` (tokens, type, components, motion), `LZLibrary` (photo access: PhotoKit client, fake, access store, the shared fetch rules; the library reader and image provider the index uses, live and fake; the library census for spike S2, whose screen is DEBUG-only; the DEBUG seed library), `LZGeo` (coordinates, local time and the moment rule, the offline GeoNames gazetteer, place-name folding, the Apple Maps client), `LZIndex` (the on-device search index: GRDB storage, library sync, the structure pass, the Apple Maps place-name queue, read queries and the stores the Ask, Moments and Settings screens observe; GRDB stays inside it), `LZSearch` (the query model, the rules parser, and the time and place resolvers). Modules use the `LZ` prefix |
 | `ios/Tools/gazetteer/` | Source, licence and curated aliases of the bundled GeoNames place list; `make gazetteer` rebuilds it with the `lz-gazetteer` package tool |
 | `ios/Config/` | xcconfig files; secrets go only in the git-ignored `Local.xcconfig` |
 | `ios/Tests/` | App-hosted tests |
