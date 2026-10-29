@@ -5,7 +5,8 @@ import LZGeo
 public indirect enum PlaceExpression: Sendable, Hashable, Codable {
     /// A typed name ("Al-Nakheel Park", "Greece"). `.maybe` when only its position in the query suggests a place:
     /// it then resolves only to an exact name. Otherwise it is the place search couldn't find, or, when another place
-    /// is searched, words about what's in the photos.
+    /// is searched, left out: leftover words as words about what's in the photos, a name after a preposition ("at the
+    /// Louvre") as a second place.
     case named(String, relation: PlaceRelation, confidence: Confidence)
     /// "home", or a saved place's name.
     case alias(PlaceAlias, relation: PlaceRelation)

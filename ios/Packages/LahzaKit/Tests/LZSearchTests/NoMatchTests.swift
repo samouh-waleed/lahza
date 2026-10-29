@@ -227,6 +227,24 @@ import Testing
         #expect(search.mapsSearches == 1)
     }
 
+    @Test func anUnconfirmedNameNextToAFoundPlaceIsASecondPlace() async throws {
+        // "Louvre" (after "at") is looked up first and isn't confirmed; the leftover "nakheel" then finds the park
+        // without Apple Maps. The name is left out as a second place, as when the park is typed in full, never as
+        // words about what's in the photos.
+        let search = try await HeroSearch(table: Self.louvreTable)
+        for text in ["nakheel at the Louvre", "Al-Nakheel Park at the Louvre"] {
+            let result = try await search.search(text)
+            #expect(result.noMatch == nil, "\(text)")
+            #expect(Set(result.items(.best).map(\.id)) == Set(Self.hero.items(.nakheel).map(\.id)), "\(text)")
+            #expect(result.query.slots.map(\.chip) == ["Al-Nakheel Park", "Louvre"], "\(text)")
+            #expect(result.query.slots.map(\.slot.kind) == [.place, .place], "\(text)")
+            #expect(result.query.slots.map(\.isSupported) == [true, false], "\(text)")
+            #expect(result.unsupportedNotice
+                == "Lahza can’t search for everything you asked yet, so “Louvre” was left out. Showing all your photos at Al-Nakheel Park.", "\(text)")
+        }
+        #expect(search.mapsSearches == 1, "only the first query looks the name up")
+    }
+
     @Test func aBusyAppleMapsIsntCalledOffline() async throws {
         let clock = FixedClock(SearchFixture.now)
         let search = try await HeroSearch(budget: MapsBudget(perMinute: 30, capacity: 1, interactiveReserve: 0, clock: clock))

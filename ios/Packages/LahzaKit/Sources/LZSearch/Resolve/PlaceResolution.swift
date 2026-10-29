@@ -107,8 +107,8 @@ public enum PlaceNotFound: String, Sendable, Hashable {
     /// "at the beach" when no place of that category has photos.
     case noPlacesOfCategory
     /// Words that only might be a place match no place exactly, Apple Maps included ("Louvre" when Apple names it
-    /// "Musée du Louvre"). Search shows them as a place it couldn't find when no other place is found, else as words
-    /// about what's in photos.
+    /// "Musée du Louvre"). Search shows them as a place it couldn't find when no other place is found, else leaves
+    /// them out like any other place slot.
     case unconfirmed
 }
 
