@@ -1,3 +1,4 @@
+import AVFoundation
 import Foundation
 import LZGeo
 import Synchronization
@@ -227,6 +228,39 @@ import Photos
         #expect(images.cachedIDs == ["a", "c"])
         images.stopAll()
         #expect(images.cachedIDs.isEmpty)
+    }
+
+    @Test func screenImagesFallBackToTheLocalVersionOfAnICloudOriginal() async throws {
+        let images = FakeAssetImageProvider(reduced: ["seed/0001"])
+        guard case .reduced(let reduced) = await images.displayImage(for: "seed/0001", maxPixel: 800) else {
+            Issue.record("expected the smaller local version")
+            return
+        }
+        #expect(max(reduced.width, reduced.height) == 200)
+        guard case .image = await images.thumbnail(for: "seed/0001", side: 120) else {
+            Issue.record("thumbnails are local")
+            return
+        }
+    }
+
+    @Test func fakeVideosPlaySeedClipsAndScriptedFailures() async throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("lz-videos-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let video = try #require(SeedScenario.hero.items.first { $0.isVideo })
+        let videos = FakeVideoLoader(missing: ["gone"], inCloud: ["cloud"], folder: folder)
+        guard case .item = await videos.playerItem(for: video.id), case .item = await videos.playerItem(for: video.id) else {
+            Issue.record("expected the seed clip, then the clip written before")
+            return
+        }
+        let clips = try FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)
+        #expect(clips.count == 1, "one clip, written once")
+        let duration = try await AVURLAsset(url: try #require(clips.first)).load(.duration)
+        #expect(abs(duration.seconds - video.duration) < 0.2)
+        guard case .inCloud = await videos.playerItem(for: "cloud"), case .missing = await videos.playerItem(for: "gone"),
+              case .missing = await videos.playerItem(for: try #require(SeedScenario.hero.items.first { !$0.isVideo }).id) else {
+            Issue.record("expected the scripted answers, and photos missing")
+            return
+        }
     }
 
     @Test func seedMapsAnswerTheHeroQuestions() async throws {

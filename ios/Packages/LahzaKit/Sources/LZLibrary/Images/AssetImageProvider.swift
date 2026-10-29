@@ -9,6 +9,8 @@ import UIKit
 /// What an image request gave back.
 public enum AssetImage: Sendable {
     case image(CGImage)
+    /// A smaller version the iPhone holds: the full-quality original is only in iCloud (screen-size images only).
+    case reduced(CGImage)
     /// The data is only in iCloud, and Lahza never downloads it.
     case inCloud
     /// No such asset (deleted, hidden, no access) or no image.
@@ -21,7 +23,8 @@ public enum AssetImage: Sendable {
 public protocol AssetImageProvider: Sendable {
     /// A thumbnail whose short side is about `side` pixels (aspect fill).
     func thumbnail(for localID: String, side: Int) async -> AssetImage
-    /// An image whose long side is at most `maxPixel` pixels (aspect fit).
+    /// An image whose long side is at most `maxPixel` pixels (aspect fit). When the original is only in iCloud, the
+    /// best version the iPhone holds, ``AssetImage/reduced(_:)``.
     func displayImage(for localID: String, maxPixel: Int) async -> AssetImage
     /// Starts preparing thumbnails of `ids` at `side` (a grid about to scroll into view).
     func startCaching(_ ids: [String], side: Int)
@@ -30,18 +33,21 @@ public protocol AssetImageProvider: Sendable {
 }
 
 /// An ``AssetImageProvider`` that draws a gradient with the asset's date (when known), or the seed
-/// artwork for seed library ids in DEBUG builds. Ids can be scripted as missing or only in iCloud,
-/// and caching calls are recorded.
+/// artwork for seed library ids in DEBUG builds. Ids can be scripted as missing, only in iCloud, or
+/// with only a smaller version on the iPhone (`reduced`: a quarter-size screen image); caching calls
+/// are recorded.
 public final class FakeAssetImageProvider: AssetImageProvider {
     private let dates: [String: Date]
     private let missing: Set<String>
     private let inCloud: Set<String>
+    private let reduced: Set<String>
     private let cached = Mutex<Set<String>>([])
 
-    public init(dates: [String: Date] = [:], missing: Set<String> = [], inCloud: Set<String> = []) {
+    public init(dates: [String: Date] = [:], missing: Set<String> = [], inCloud: Set<String> = [], reduced: Set<String> = []) {
         self.dates = dates
         self.missing = missing
         self.inCloud = inCloud
+        self.reduced = reduced
     }
 
     /// Ids being cached now.
@@ -55,10 +61,13 @@ public final class FakeAssetImageProvider: AssetImageProvider {
     }
 
     public func displayImage(for localID: String, maxPixel: Int) async -> AssetImage {
-        render(localID) { width, height in
-            let scale = min(1, Double(maxPixel) / Double(max(1, max(width, height))))
+        let side = reduced.contains(localID) ? max(1, maxPixel / 4) : maxPixel
+        let image = render(localID) { width, height in
+            let scale = min(1, Double(side) / Double(max(1, max(width, height))))
             return (Int((Double(width) * scale).rounded()), Int((Double(height) * scale).rounded()))
         }
+        if reduced.contains(localID), case .image(let cgImage) = image { return .reduced(cgImage) }
+        return image
     }
 
     public func startCaching(_ ids: [String], side: Int) {
@@ -102,8 +111,14 @@ public final class LiveAssetImageProvider: AssetImageProvider {
         await request(localID, size: CGSize(width: side, height: side), mode: .aspectFill)
     }
 
+    /// The original at screen size; when it is only in iCloud, the best version the iPhone holds (fast delivery
+    /// answers once, with whatever is local).
     public func displayImage(for localID: String, maxPixel: Int) async -> AssetImage {
-        await request(localID, size: CGSize(width: maxPixel, height: maxPixel), mode: .aspectFit)
+        let size = CGSize(width: maxPixel, height: maxPixel)
+        let full = await request(localID, size: size, mode: .aspectFit)
+        guard case .inCloud = full, !Task.isCancelled else { return full }
+        if case .image(let cgImage) = await request(localID, size: size, mode: .aspectFit, delivery: .fastFormat) { return .reduced(cgImage) }
+        return full
     }
 
     public func startCaching(_ ids: [String], side: Int) {
@@ -128,7 +143,7 @@ public final class LiveAssetImageProvider: AssetImageProvider {
 
     /// One image request; cancelling the task cancels it in PhotoKit too (a row scrolled away) and returns
     /// ``AssetImage/missing``.
-    private func request(_ localID: String, size: CGSize, mode: PHImageContentMode) async -> AssetImage {
+    private func request(_ localID: String, size: CGSize, mode: PHImageContentMode, delivery: PHImageRequestOptionsDeliveryMode = .highQualityFormat) async -> AssetImage {
         guard !Task.isCancelled, let asset = Self.assets([localID]).first else { return .missing }
         let pending = PendingRequest()
         return await withTaskCancellationHandler {
@@ -136,7 +151,7 @@ public final class LiveAssetImageProvider: AssetImageProvider {
                 let once = ResumeOnce(continuation)
                 let id = manager.withLock {
                     // High-quality delivery answers once, with the best local image or none.
-                    $0.requestImage(for: asset, targetSize: size, contentMode: mode, options: Self.options()) { image, info in
+                    $0.requestImage(for: asset, targetSize: size, contentMode: mode, options: Self.options(delivery)) { image, info in
                         if let cgImage = image?.cgImage {
                             once.resume(.image(cgImage))
                         } else {
@@ -187,10 +202,10 @@ public final class LiveAssetImageProvider: AssetImageProvider {
         return assets
     }
 
-    private static func options() -> PHImageRequestOptions {
+    private static func options(_ delivery: PHImageRequestOptionsDeliveryMode = .highQualityFormat) -> PHImageRequestOptions {
         let options = PHImageRequestOptions()
         options.isNetworkAccessAllowed = false
-        options.deliveryMode = .highQualityFormat
+        options.deliveryMode = delivery
         options.resizeMode = .fast
         options.version = .current
         return options

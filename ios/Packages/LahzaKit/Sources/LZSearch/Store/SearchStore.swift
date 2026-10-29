@@ -29,7 +29,7 @@ import Observation
         }
     }
 
-    /// How results are laid out (the `lahza.search.layout` preference; the grid comes with chip editing).
+    /// How results are laid out: moment cards, or every photo in a grid (the `lahza.search.layout` preference).
     public enum ResultsLayout: String, Sendable, CaseIterable {
         case moments, grid
     }
@@ -80,9 +80,11 @@ import Observation
     static let unavailableMessage = "Search is unavailable"
     static let failedMessage = "Couldn’t search your photos"
 
+    /// `initialLayout` starts in that layout instead of the remembered one, without remembering it (DEBUG
+    /// `-LZResultsLayout`).
     public init(engine: SearchEngine?, index: IndexStore, kv: any KeyValueStore, clock: any AppClock,
-                scope: @escaping @MainActor () -> SearchScope = { .wholeLibrary }, rerunDelay: Duration = .seconds(2),
-                examplesDelay: Duration = .seconds(3), previewDelay: Duration = .milliseconds(150)) {
+                scope: @escaping @MainActor () -> SearchScope = { .wholeLibrary }, initialLayout: ResultsLayout? = nil,
+                rerunDelay: Duration = .seconds(2), examplesDelay: Duration = .seconds(3), previewDelay: Duration = .milliseconds(150)) {
         self.engine = engine
         self.index = index
         self.kv = kv
@@ -91,7 +93,7 @@ import Observation
         self.rerunDelay = rerunDelay
         self.examplesDelay = examplesDelay
         self.previewDelay = previewDelay
-        layout = kv.string(forKey: Self.layoutKey).flatMap(ResultsLayout.init(rawValue:)) ?? .moments
+        layout = initialLayout ?? kv.string(forKey: Self.layoutKey).flatMap(ResultsLayout.init(rawValue:)) ?? .moments
     }
 
     // MARK: Typing and submitting
@@ -195,6 +197,7 @@ import Observation
         run(request, keepsResult: true)
     }
 
+    /// Switches between moment cards and the grid (the result stays; the screen keeps its place) and remembers it.
     public func setLayout(_ layout: ResultsLayout) {
         self.layout = layout
         kv.setString(layout.rawValue, forKey: Self.layoutKey)

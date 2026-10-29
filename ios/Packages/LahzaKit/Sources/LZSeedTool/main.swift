@@ -110,22 +110,8 @@ func writeImage(_ item: SeedItem, to url: URL) throws {
     guard CGImageDestinationFinalize(destination) else { throw Failure(description: "could not write \(url.lastPathComponent)") }
 }
 
+/// The seed clip (``SeedVideo``) with the QuickTime creation date and ISO 6709 position PhotoKit reads.
 func writeVideo(_ item: SeedItem, to url: URL) async throws {
-    let width = item.pixelWidth, height = item.pixelHeight
-    let framesPerSecond: Int32 = 10
-    let frames = Int(item.duration) * Int(framesPerSecond)
-    let writer = try AVAssetWriter(outputURL: url, fileType: .mov)
-    let input = AVAssetWriterInput(mediaType: .video, outputSettings: [
-        AVVideoCodecKey: AVVideoCodecType.h264, AVVideoWidthKey: width, AVVideoHeightKey: height,
-        AVVideoCompressionPropertiesKey: [AVVideoAverageBitRateKey: 500_000],
-    ])
-    input.expectsMediaDataInRealTime = false
-    let adaptor = AVAssetWriterInputPixelBufferAdaptor(assetWriterInput: input, sourcePixelBufferAttributes: [
-        kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA, kCVPixelBufferWidthKey as String: width,
-        kCVPixelBufferHeightKey as String: height,
-    ])
-    writer.add(input)
-    guard let space = CGColorSpace(name: CGColorSpace.sRGB) else { throw Failure(description: "no sRGB colour space") }
     var metadata: [AVMetadataItem] = []
     if let offset = item.offsetSeconds {
         let created = AVMutableMetadataItem()
@@ -141,30 +127,7 @@ func writeVideo(_ item: SeedItem, to url: URL) async throws {
         location.value = String(format: "%+010.6f%+011.6f/", coordinate.latitude, coordinate.longitude) as NSString
         metadata.append(location)
     }
-    writer.metadata = metadata
-    guard writer.startWriting() else { throw Failure(description: "could not start \(url.lastPathComponent): \(String(describing: writer.error))") }
-    writer.startSession(atSourceTime: .zero)
-    for frame in 0..<frames {
-        while !input.isReadyForMoreMediaData { try await Task.sleep(for: .milliseconds(2)) }
-        var buffer: CVPixelBuffer?
-        guard let pool = adaptor.pixelBufferPool, CVPixelBufferPoolCreatePixelBuffer(nil, pool, &buffer) == kCVReturnSuccess, let buffer else {
-            throw Failure(description: "no pixel buffer for \(url.lastPathComponent)")
-        }
-        CVPixelBufferLockBaseAddress(buffer, [])
-        if let context = CGContext(data: CVPixelBufferGetBaseAddress(buffer), width: width, height: height, bitsPerComponent: 8,
-                                   bytesPerRow: CVPixelBufferGetBytesPerRow(buffer), space: space,
-                                   bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue) {
-            SeedArtwork.draw(item, in: context, width: CGFloat(width), height: CGFloat(height), progress: Double(frame) / Double(max(1, frames - 1)))
-        }
-        CVPixelBufferUnlockBaseAddress(buffer, [])
-        guard adaptor.append(buffer, withPresentationTime: CMTime(value: CMTimeValue(frame), timescale: framesPerSecond)) else {
-            throw Failure(description: "could not append a frame to \(url.lastPathComponent)")
-        }
-    }
-    input.markAsFinished()
-    writer.endSession(atSourceTime: CMTime(value: CMTimeValue(frames), timescale: framesPerSecond))
-    await writer.finishWriting()
-    guard writer.status == .completed else { throw Failure(description: "could not finish \(url.lastPathComponent): \(String(describing: writer.error))") }
+    try await SeedVideo.write(item, to: url, metadata: metadata)
 }
 
 // MARK: Render

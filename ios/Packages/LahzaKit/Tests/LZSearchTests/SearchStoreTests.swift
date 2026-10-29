@@ -199,6 +199,9 @@ import Testing
         #expect(search.layout == .moments)
         search.setLayout(.grid)
         #expect(SearchStore(engine: nil, index: index, kv: kv, clock: SystemClock()).layout == .grid)
+        // A starting layout (-LZResultsLayout) wins over the remembered one and isn't remembered.
+        #expect(SearchStore(engine: nil, index: index, kv: kv, clock: SystemClock(), initialLayout: .moments).layout == .moments)
+        #expect(SearchStore(engine: nil, index: index, kv: kv, clock: SystemClock()).layout == .grid)
     }
 
     @Test func withoutAnIndexSearchSaysSo() async {

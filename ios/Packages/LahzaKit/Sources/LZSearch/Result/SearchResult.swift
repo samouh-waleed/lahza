@@ -216,22 +216,45 @@ public struct AssetHit: Sendable, Hashable, Identifiable {
     public var reasons: [Reason]
     /// A More member of a better card ("nearby").
     public var isNearby: Bool
+    public var isFavorite: Bool
+
+    public init(id: Int64, localID: String, kind: MediaKind, duration: Double = 0, utc: Int64?, wall: Int64?, tier: Tier, score: Double = 1,
+                slotScores: [SlotKind: Double] = [:], reasons: [Reason] = [], isNearby: Bool = false, isFavorite: Bool = false) {
+        self.id = id
+        self.localID = localID
+        self.kind = kind
+        self.duration = duration
+        self.utc = utc
+        self.wall = wall
+        self.tier = tier
+        self.score = score
+        self.slotScores = slotScores
+        self.reasons = reasons
+        self.isNearby = isNearby
+        self.isFavorite = isFavorite
+    }
 }
 
-/// Why something matched, from fixed templates (never generated).
+/// Why something matched, from fixed templates (never generated): a pill's few words, and the sentence "Why this
+/// matched" says ("No GPS in this photo. Location comes from a photo taken 3 min earlier in the same outing.").
 public struct Reason: Sendable, Hashable {
     public enum Kind: String, Sendable, Hashable {
         case place, time, media, event, borrowed, caution, neutral
     }
 
     public var kind: Kind
+    /// The pill: "In Al-Nakheel Park", "Summer 2025", "Location from the same outing".
     public var text: String
     public var systemImage: String
+    /// The sentence: "Taken inside Al-Nakheel Park.", "Taken in summer 2025."
+    public var detail: String
 
-    public init(_ kind: Kind, _ text: String, _ systemImage: String) {
+    /// `detail` defaults to the pill's words as a sentence.
+    public init(_ kind: Kind, _ text: String, _ systemImage: String, detail: String? = nil) {
         self.kind = kind
         self.text = text
         self.systemImage = systemImage
+        self.detail = detail ?? "\(text)."
     }
 }
 

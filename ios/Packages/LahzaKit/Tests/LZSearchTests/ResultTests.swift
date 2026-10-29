@@ -84,6 +84,88 @@ import Testing
         #expect(greece.reasons(of: unlocated) == ["During your Greece trip"])
     }
 
+    @Test func reasonsSayWhyInSentences() async throws {
+        let search = try await HeroSearch.shared.value
+        let park = try await search.search("Al-Nakheel Park")
+        // The borrowed position names the photo it came from: the located one 5 minutes earlier in the session.
+        let borrowed = try #require(Self.hero.items(.nakheel).first { $0.borrowing == .moment })
+        #expect(park.hits.first { $0.utc == borrowed.utc }?.reasons.map(\.detail) == [
+            "Taken inside Al-Nakheel Park.", "No GPS in this photo. Location comes from a photo taken 5 min earlier in the same outing.",
+        ])
+        let received = try #require(Self.hero.items(.received).first)
+        #expect(park.hits.first { $0.utc == received.utc }?.reasons.map(\.detail)
+            == ["No location in this photo. It was saved the day you were at Al-Nakheel Park."])
+        // A card's reasons are counted by their pills: a session's video shares "In Al-Nakheel Park" with its photos.
+        let videoCard = try #require(park.cards.first { $0.videoCount > 0 })
+        #expect(videoCard.reasons.map(\.text) == ["In Al-Nakheel Park"])
+
+        let kingdom = try await search.search("near Kingdom Centre")
+        let sufra = try #require(Self.hero.items(.sufra).first)
+        let near = try #require(kingdom.hits.first { $0.utc == sufra.utc }?.reasons.first?.detail)
+        #expect(near.hasPrefix("Taken 6") && near.hasSuffix(" m from the middle of Kingdom Centre, just outside the area searched."), "\(near)")
+
+        let years = try await search.search("3 years ago")
+        let greek = try #require(Self.hero.items(.greece).first)
+        #expect(years.hits.first { $0.utc == greek.utc }?.reasons.map(\.detail) == ["Taken in 2023, 3 years ago."])
+        let ramadan = try await search.search("Ramadan 2024")
+        let eid = try #require(Self.hero.items(.eid).first)
+        #expect(ramadan.hits.first { $0.utc == eid.utc }?.reasons.map(\.detail)
+            == ["Taken the day after Ramadan 1445, just outside the dates you asked for."])
+        let videos = try await search.search("videos")
+        let video = try #require(Self.hero.items.filter(\.isVideo).first)
+        #expect(videos.hits.first { $0.utc == video.utc }?.reasons.map(\.detail) == ["A video, 0:03 long."])
+        let greece = try await search.search("Greece")
+        let unlocated = try #require(Self.hero.items(.greece).filter { !$0.isLocated }.first)
+        #expect(greece.hits.first { $0.utc == unlocated.utc }?.reasons.map(\.detail) == ["No location in this photo. It was taken during your Greece trip."])
+        let riyadh = try await search.search("Riyadh 2025")
+        let orphan = try #require(Self.hero.items(.orphans).first)
+        #expect(riyadh.hits.first { $0.utc == orphan.utc }?.reasons.map(\.detail) == ["No location in this photo, but everything else matches.", "Taken in 2025."])
+    }
+
+    @Test func timeReasonsReadAsSentences() {
+        let copy = SearchCopy(locale: SearchFixture.uk, resolver: SearchFixture.saudi())
+        let cases: [(TimeExpression, String)] = [
+            (.season(.summer, .year(2025)), "Taken in summer 2025."),
+            (.season(.summer, .last), "Taken in summer 2026."),
+            (.month(12, .last), "Taken in December 2025."),
+            (.month(6, .every), "Taken in June."),
+            (.year(2023), "Taken in 2023."),
+            (.hijri(.ramadan, .year(2024), hijriYear: nil), "Taken during Ramadan 1445."),
+            (.hijri(.ramadan, .every, hijriYear: nil), "Taken during Ramadan."),
+            (.holiday(.christmas, .every), "Taken on Christmas."),
+            (.relativeDay(-1), "Taken yesterday."),
+            (.calendarUnit(.month, offset: -1), "Taken last month."),
+            (.rolling(.week, count: 3), "Taken in the past 3 weeks."),
+            (.ago(.year, count: 3, onThisDay: false), "Taken in 2023, 3 years ago."),
+            (.ago(.month, count: 2, onThisDay: false), "Taken in August 2026, 2 months ago."),
+            (.weekday(7, .every), "Taken on a Saturday."),
+            (.weekday(7, .last), "Taken last Saturday."),
+            (.weekend(.every), "Taken on a weekend."),
+            (.partOfDay(.evening), "Taken in the evening."),
+            (.partOfDay(.night), "Taken at night."),
+            (.all([.weekday(7, .every), .partOfDay(.evening)]), "Taken in the dates you asked for: Saturday evening."),
+        ]
+        for (expression, sentence) in cases {
+            #expect(copy.timeSentence(expression) == sentence, "\(expression)")
+        }
+        #expect(copy.timeReason(.minutesOff(20), expression: .partOfDay(.evening))?.detail
+            == "Taken 20 min after evening, just outside the time of day you asked for.")
+        #expect(copy.timeReason(.unreliable, expression: .year(2023), noun: "video")?.detail == "This video has no reliable date.")
+    }
+
+    @Test func borrowedLocationsSayHowFarInTime() {
+        #expect(SearchCopy.gapPhrase(-180) == "3 min earlier")
+        #expect(SearchCopy.gapPhrase(4_800) == "1 hr 20 min later")
+        #expect(SearchCopy.gapPhrase(-3_600) == "1 hr earlier")
+        #expect(SearchCopy.gapPhrase(20) == "seconds later")
+        #expect(SearchCopy.gapPhrase(0) == "at the same moment")
+        let copy = SearchCopy(locale: SearchFixture.uk, resolver: SearchFixture.saudi())
+        #expect(copy.borrowedReason(.momentFar, noun: "video", from: "photo", gap: 5_400)?.detail
+            == "No GPS in this video. Location comes from a photo taken 1 hr 30 min later in the same outing.")
+        #expect(copy.borrowedReason(.momentNear)?.text == "Location from the same outing")
+        #expect(copy.borrowedReason(.gps) == nil)
+    }
+
     @Test func totalsAndCoverage() async throws {
         let search = try await HeroSearch()
         let park = try await search.search("Al-Nakheel Park")
