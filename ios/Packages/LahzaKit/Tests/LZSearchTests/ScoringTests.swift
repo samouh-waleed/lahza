@@ -1,4 +1,5 @@
 import Foundation
+import GRDB
 import LZCore
 import LZGeo
 import LZLibrary
@@ -67,6 +68,18 @@ import Testing
         }
         let home = try #require(Self.hero.items(.home).first)
         #expect(greece.placeScore(index(of: home, in: snapshot), try #require(greece.plan.place)).0.value == 0.05, "located elsewhere: 0.05")
+
+        // The seed has no position borrowed from further than 10 minutes away: move one there.
+        let far = try #require(borrowed.first?.utc)
+        try await search.index.database.write { db in
+            try db.execute(sql: "UPDATE asset SET place_src = ? WHERE created_utc = ?",
+                           arguments: [SearchSnapshot.PositionSource.momentFar.rawValue, far])
+            _ = try Meta.bumpVersion(db)
+        }
+        await search.index.reader.releaseSnapshot()
+        (park, snapshot) = try await scorer(search, "Al-Nakheel Park")
+        let farScore = park.placeScore(try #require(snapshot.utc.firstIndex(of: far)), target).0
+        #expect(abs(farScore.value - 0.6) < 1e-9, "position from up to 2 hours away: × 0.6")
     }
 
     // MARK: Time

@@ -105,6 +105,17 @@ import Testing
         #expect(result.noMatch?.offers.first?.count == Self.hero.items(.nakheel).count)
     }
 
+    @Test func tripsAtAPlaceAtHomeOfferEachSlotAlone() async throws {
+        let search = try await HeroSearch()
+        // The park is in the home city, so no trip goes there; trips and the park each find photos alone.
+        let result = try await search.search("trips at Al-Nakheel Park")
+        #expect(result.noMatch?.kind == .nothing)
+        #expect(result.noMatch?.headline == "Nothing matches all of that.")
+        let onTrips = Self.hero.items.count { item in item.momentDay.map { day in Self.hero.trips.contains { $0.contains(day: day) } } == true }
+        #expect(result.noMatch?.offers.map(\.label) == ["Anywhere", "Not only trips"])
+        #expect(result.noMatch?.offers.map(\.count) == [onTrips, Self.hero.items(.nakheel).count])
+    }
+
     @Test func aLeftoverWordNeitherBlocksThePlaceNorSpendsItsAppleMapsSearch() async throws {
         // Offline and with Apple Maps off, "kebab" can't be looked up; the park is still searched.
         for (reachable, appleMaps) in [(false, true), (true, false)] {
