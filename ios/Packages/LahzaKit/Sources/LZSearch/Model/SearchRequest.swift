@@ -7,7 +7,8 @@ public struct SearchRequest: Sendable, Hashable {
     public var parsed: ParsedQuery?
     /// Picked places and radii, per slot.
     public var overrides: ResolutionOverrides
-    /// The freemium seam: `.since(date)` later drops older hits after tiering and reports how many.
+    /// What a search covers: the whole library, or since a date (a free search: hits taken before it are counted as
+    /// locked after tiering, never shown).
     public var scope: SearchScope
     public var showWeaker: Bool
 
@@ -23,6 +24,7 @@ public struct SearchRequest: Sendable, Hashable {
 
 public enum SearchScope: Sendable, Hashable {
     case wholeLibrary
+    /// Photos taken on or after the date (undated ones too: nothing says they are older).
     case since(Date)
 }
 
@@ -43,10 +45,13 @@ public struct PlaceOverride: Sendable, Hashable, Codable {
     public var radius: Double?
     /// Doubles an area's radius.
     public var near: Bool?
+    /// Look the words up on Apple Maps even when a place in the library matches (the place editor asked).
+    public var searchesAppleMaps: Bool?
 
-    public init(placeKey: String? = nil, radius: Double? = nil, near: Bool? = nil) {
+    public init(placeKey: String? = nil, radius: Double? = nil, near: Bool? = nil, searchesAppleMaps: Bool? = nil) {
         self.placeKey = placeKey
         self.radius = radius
         self.near = near
+        self.searchesAppleMaps = searchesAppleMaps
     }
 }

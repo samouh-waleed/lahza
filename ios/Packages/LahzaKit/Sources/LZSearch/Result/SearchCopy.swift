@@ -155,16 +155,20 @@ struct SearchCopy {
         return total >= 3600 ? String(format: "%d:%02d:%02d", total / 3600, total / 60 % 60, total % 60) : String(format: "%d:%02d", total / 60, total % 60)
     }
 
+    /// "No matches in the last 12 months." — a free search whose matches are all older than it covers.
+    func onlyEarlier(since: Date, now: Date) -> String {
+        let days = max(0, now.timeIntervalSince(since) / 86_400)
+        let months = Int((days / 30.436875).rounded())
+        return switch months {
+        case 0: "No matches in the last \(Int(days.rounded())) days."
+        case 1: "No matches in the last month."
+        default: "No matches in the last \(months) months."
+        }
+    }
+
     /// "520 m", "2 km", "2.1 km".
     func distance(_ metres: Double) -> String {
-        if metres < 1_000 {
-            let rounded = (metres / 10).rounded() * 10
-            return Measurement(value: rounded, unit: UnitLength.meters)
-                .formatted(.measurement(width: .abbreviated, usage: .asProvided, numberFormatStyle: .number.precision(.fractionLength(0))).locale(locale))
-        }
-        let kilometres = metres / 1_000
-        return Measurement(value: kilometres, unit: UnitLength.kilometers)
-            .formatted(.measurement(width: .abbreviated, usage: .asProvided, numberFormatStyle: .number.precision(.fractionLength(0...1))).locale(locale))
+        SearchFormat.distance(metres, locale: locale)
     }
 
     // MARK: Sections
@@ -265,5 +269,20 @@ struct PlaceDescription: Sendable, Hashable {
             isUnion = true
             fullName = candidate.name
         }
+    }
+}
+
+/// Formats search shares with the app (the place editor's radii).
+public enum SearchFormat {
+    /// "520 m", "2 km", "2.1 km".
+    public static func distance(_ metres: Double, locale: Locale = .autoupdatingCurrent) -> String {
+        if metres < 1_000 {
+            let rounded = (metres / 10).rounded() * 10
+            return Measurement(value: rounded, unit: UnitLength.meters)
+                .formatted(.measurement(width: .abbreviated, usage: .asProvided, numberFormatStyle: .number.precision(.fractionLength(0))).locale(locale))
+        }
+        let kilometres = metres / 1_000
+        return Measurement(value: kilometres, unit: UnitLength.kilometers)
+            .formatted(.measurement(width: .abbreviated, usage: .asProvided, numberFormatStyle: .number.precision(.fractionLength(0...1))).locale(locale))
     }
 }

@@ -130,6 +130,17 @@ import Testing
         entitlement.stop()
     }
 
+    /// The DEBUG `-LZUnlocked 1` store: already bought, so launch reads it unlocked and restore finds it.
+    @Test func aFakeStoreCanStartUnlocked() async throws {
+        let client = FakePurchasesClient(unlocked: true)
+        let entitlement = EntitlementStore(kv: InMemoryKeyValueStore([:]))
+        await entitlement.start(with: PurchasesService(client: client, sdkKey: { "test_fake" }))
+        #expect(entitlement.isUnlocked)
+        #expect(try await client.restorePurchases().unlocks())
+        entitlement.stop()
+        #expect(try await FakePurchasesClient().customerInfo().unlocks() == false)
+    }
+
     @Test func purchaseUnlocksAndRestoreFindsIt() async {
         let (paywall, entitlement) = paywall()
         #expect(paywall.purchaseTitle == BillingCopy.unlockWithoutPrice)

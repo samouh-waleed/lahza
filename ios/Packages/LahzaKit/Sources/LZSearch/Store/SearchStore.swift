@@ -6,7 +6,9 @@ import Observation
 /// Ask's search, as the screen sees it (search spec §7.1): the chips previewed while typing, the state of the search in
 /// flight, its result, and the library's example searches. A new submit cancels the one in flight; a chip edit, a
 /// picker choice or a widening tap edits the slots and searches again; when the index changes, the shown search runs
-/// again after 2 s (cards keep their moment keys, so the list keeps its place).
+/// again after 2 s (cards keep their moment keys, so the list keeps its place). Every search, and the examples, cover
+/// the scope read at that moment (a free search, the last 12 months); when it changes (an unlock), the shown search
+/// runs again at once.
 @MainActor @Observable public final class SearchStore {
     public enum State: Sendable, Equatable {
         case idle
@@ -58,6 +60,8 @@ import Observation
     @ObservationIgnored private let index: IndexStore
     @ObservationIgnored private let kv: any KeyValueStore
     @ObservationIgnored private let clock: any AppClock
+    /// What searches cover now: the whole library, or a free search's months (read at every search).
+    @ObservationIgnored private let scope: @MainActor () -> SearchScope
     @ObservationIgnored private let rerunDelay: Duration
     @ObservationIgnored private let examplesDelay: Duration
     @ObservationIgnored private let previewDelay: Duration
@@ -76,12 +80,14 @@ import Observation
     static let unavailableMessage = "Search is unavailable"
     static let failedMessage = "Couldn’t search your photos"
 
-    public init(engine: SearchEngine?, index: IndexStore, kv: any KeyValueStore, clock: any AppClock, rerunDelay: Duration = .seconds(2),
+    public init(engine: SearchEngine?, index: IndexStore, kv: any KeyValueStore, clock: any AppClock,
+                scope: @escaping @MainActor () -> SearchScope = { .wholeLibrary }, rerunDelay: Duration = .seconds(2),
                 examplesDelay: Duration = .seconds(3), previewDelay: Duration = .milliseconds(150)) {
         self.engine = engine
         self.index = index
         self.kv = kv
         self.clock = clock
+        self.scope = scope
         self.rerunDelay = rerunDelay
         self.examplesDelay = examplesDelay
         self.previewDelay = previewDelay
@@ -137,10 +143,15 @@ import Observation
 
     // MARK: Editing
 
-    /// Applies chip edits to the shown query's slots (the text is rendered from them) and searches again.
+    /// Applies chip edits to the shown query's slots (the text is rendered from them) and searches again. Removing the
+    /// last chip goes back to the start, as clearing the field does.
     public func apply(_ edits: [SlotEdit]) {
         guard !edits.isEmpty, var request, let current = request.parsed ?? result?.query.parsed ?? parsed else { return }
         let edited = current.applying(edits)
+        guard !edited.slots.isEmpty else {
+            clear()
+            return
+        }
         for edit in edits { request.overrides.apply(edit) }
         request.parsed = edited
         request.text = edited.text
@@ -152,15 +163,24 @@ import Observation
     /// with the choice ticked (a mis-tap is undone with another tap); typed again, the remembered place is searched
     /// without asking.
     public func choose(_ choice: PlacePicker.Choice) {
-        guard var picker = result?.query.picker else { return }
-        let candidate = choice.candidate
-        if let writer = index.writer {
-            let phrase = picker.phrase
+        guard let picker = result?.query.picker else { return }
+        choose(choice.candidate, forSlot: picker.slot)
+    }
+
+    /// A place picked for a slot (the picker or the place editor): replaces the place, remembers it for the words typed
+    /// for it, and searches again. A picker for the slot stays, the choice ticked.
+    public func choose(_ candidate: PlaceCandidate, forSlot slot: Int) {
+        guard let query = result?.query else { return }
+        if let writer = index.writer, let phrase = query.picker?.slot == slot ? query.picker?.phrase : query.typedWords(slot: slot) {
             Task { try? await writer.rememberChoice(phrase: phrase, placeKey: candidate.id, radius: nil) }
         }
-        picker.chosen = candidate.id
-        chosenPicker = picker
-        apply([.replacePlace(slot: picker.slot, placeKey: candidate.id, name: candidate.name)])
+        if var picker = query.picker, picker.slot == slot, picker.choices.contains(where: { $0.id == candidate.id }) {
+            picker.chosen = candidate.id
+            chosenPicker = picker
+        } else if chosenPicker?.slot == slot {
+            chosenPicker = nil
+        }
+        apply([.replacePlace(slot: slot, placeKey: candidate.id, name: candidate.name)])
     }
 
     /// A no-match's widening tap.
@@ -178,6 +198,16 @@ import Observation
     public func setLayout(_ layout: ResultsLayout) {
         self.layout = layout
         kv.setString(layout.rawValue, forKey: Self.layoutKey)
+    }
+
+    // MARK: Scope
+
+    /// What searches cover changed (the full library was unlocked, or is free again): the shown search runs again at
+    /// once, keeping its result on screen meanwhile, and the examples are counted again.
+    public func scopeChanged() {
+        refreshExamples(after: .zero)
+        guard let request, result != nil else { return }
+        run(request, keepsResult: true)
     }
 
     // MARK: Index changes
@@ -200,14 +230,15 @@ import Observation
     public func refreshExamples(after delay: Duration? = nil) {
         examplesTask?.cancel()
         guard let engine else { return }
-        let clock = clock, wait = delay ?? examplesDelay, index = index
+        let clock = clock, wait = delay ?? examplesDelay, index = index, scope = scope()
         examplesTask = Task { [weak self] in
             if wait > .zero { guard (try? await clock.sleep(for: wait)) != nil else { return } }
             guard let reader = index.reader else {
                 self?.examples = []
                 return
             }
-            let examples = (try? await engine.examples(reader: reader, index: SearchIndexContext(index.status, appleMapsEnabled: index.appleMapsNames))) ?? []
+            let context = SearchIndexContext(index.status, appleMapsEnabled: index.appleMapsNames)
+            let examples = (try? await engine.examples(reader: reader, index: context, scope: scope)) ?? []
             guard !Task.isCancelled else { return }
             self?.examples = examples
         }
@@ -236,6 +267,8 @@ import Observation
         if !isRerun { rerunTask?.cancel() }
         runs += 1
         let run = runs
+        var request = request
+        request.scope = scope()
         self.request = request
         guard let engine else {
             state = .failed(Self.unavailableMessage)

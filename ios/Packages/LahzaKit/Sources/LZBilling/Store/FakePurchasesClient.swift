@@ -46,10 +46,12 @@ public final class FakePurchasesClient: PurchasesClient {
     public let ownership = CustomerInfoOwnership()
 
     /// A client whose offerings are `offerings` (default: ``sampleOfferings(offeringIdentifier:)``).
-    /// A purchase grants `entitlement`.
+    /// A purchase grants `entitlement`; `unlocked` starts with it already bought (restore and
+    /// customerInfo report it).
     public init(
         offerings: [String: StoreOffering] = FakePurchasesClient.sampleOfferings(),
-        entitlement: String = Brand.fullLibraryEntitlement
+        entitlement: String = Brand.fullLibraryEntitlement,
+        unlocked: Bool = false
     ) {
         let handlers = Handlers(
             logIn: { _ in },
@@ -59,7 +61,7 @@ public final class FakePurchasesClient: PurchasesClient {
             restore: { CustomerSnapshot(appUserID: "") },
             customerInfo: { CustomerSnapshot(appUserID: "") }
         )
-        state = Mutex(State(handlers: handlers))
+        state = Mutex(State(handlers: handlers, granted: unlocked ? [entitlement] : []))
     }
 
     // MARK: Test controls

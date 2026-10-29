@@ -94,6 +94,9 @@ struct HeroSearch: Sendable {
                               network: FakeNetworkStatus(reachable: reachable), locale: SearchFixture.uk, deviceTimeZone: { SearchFixture.riyadh })
     }
 
+    /// One hero search for tests that only read (built once, so fewer indexes are built side by side).
+    static let shared = Task { try await HeroSearch() }
+
     func search(_ text: String, index context: SearchIndexContext = SearchIndexContext()) async throws -> SearchResult {
         try await engine.search(SearchRequest(text: text), reader: index.reader, writer: index.writer, index: context)
     }

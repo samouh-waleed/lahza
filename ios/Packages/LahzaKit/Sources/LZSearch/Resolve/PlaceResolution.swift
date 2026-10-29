@@ -78,6 +78,8 @@ public struct PlaceCandidate: Sendable, Hashable, Identifiable {
     public var match: MatchQuality
     public var source: CandidateSource
     public var resolved: ResolvedPlace
+    /// An area's own radius in metres, before the person's radius and "near" (the place editor's Normal).
+    public var naturalRadius: Double?
 
     public init(id: String, name: String, subtitle: String, context: String? = nil, photoCount: Int, match: MatchQuality, source: CandidateSource,
                 resolved: ResolvedPlace) {

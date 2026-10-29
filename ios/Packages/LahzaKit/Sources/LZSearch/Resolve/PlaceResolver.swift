@@ -106,8 +106,11 @@ public actor PlaceResolver {
     public func resolve(_ expression: PlaceExpression, override: PlaceOverride? = nil, in environment: PlaceEnvironment) async throws -> PlaceResolution {
         let started = ContinuousClock.now
         var resolution: PlaceResolution
+        let asksAppleMaps = override?.searchesAppleMaps == true
         if let key = override?.placeKey, let picked = try await candidate(forKey: key, in: environment) {
-            resolution = .resolved(picked, alternatives: [])
+            resolution = .resolved(picked, alternatives: try await alternatives(to: picked, for: expression, asksAppleMaps: asksAppleMaps, in: environment))
+        } else if asksAppleMaps, let words = expression.words {
+            resolution = try await named(words, confidence: .certain, asksAppleMaps: true, in: environment)
         } else {
             resolution = try await resolveExpression(expression, in: environment)
         }
@@ -128,7 +131,8 @@ public actor PlaceResolver {
         case .category(let category, _):
             return try await categoryUnion(category, in: environment)
         case .picked(let key, _, _):
-            return try await candidate(forKey: key, in: environment).map { .resolved($0, alternatives: []) } ?? .notFound(.notFound)
+            guard let picked = try await candidate(forKey: key, in: environment) else { return .notFound(.notFound) }
+            return .resolved(picked, alternatives: try await alternatives(to: picked, for: expression, asksAppleMaps: false, in: environment))
         case .named(let text, _, let confidence):
             return try await named(text, confidence: confidence, in: environment)
         case .anyOf(let parts):
@@ -147,9 +151,21 @@ public actor PlaceResolver {
         }
     }
 
+    /// The other places the words of a picked place may mean (the place editor lists them), without asking Apple Maps
+    /// unless the person asked to: cached answers only.
+    private func alternatives(to picked: PlaceCandidate, for expression: PlaceExpression, asksAppleMaps: Bool,
+                              in environment: PlaceEnvironment) async throws -> [PlaceCandidate] {
+        guard let words = expression.words else { return [] }
+        var environment = environment
+        if !asksAppleMaps { environment.allowance = MapsAllowance(spent: true) }
+        return try await named(words, confidence: .certain, asksAppleMaps: asksAppleMaps, in: environment).candidates.filter { $0.id != picked.id }
+    }
+
     // MARK: Named places
 
-    private func named(_ text: String, confidence: Confidence, in environment: PlaceEnvironment) async throws -> PlaceResolution {
+    /// `asksAppleMaps`: the person asked for an Apple Maps search of these words (the place editor), so it is made
+    /// whatever the library holds, and every place it names is a candidate.
+    private func named(_ text: String, confidence: Confidence, asksAppleMaps: Bool = false, in environment: PlaceEnvironment) async throws -> PlaceResolution {
         let folded = PlaceNames.fold(text)
         guard !folded.isEmpty else { return .notFound(confidence == .maybe ? .unconfirmed : .notFound) }
         let variants = PlaceNames.variants(text)
@@ -171,6 +187,16 @@ public actor PlaceResolver {
         // Gazetteer cities, regions and countries (offline; they may have no photos: "No photos in Paris, France").
         try await addGazetteerCandidates(variants: variants, folded: folded, confidence: confidence, to: &pool, in: environment)
 
+        var unavailable: PlaceNotFound?
+        if asksAppleMaps {
+            switch try await searchAppleMaps(text, folded: folded, in: environment) {
+            case .places(let places):
+                for place in places { pool.add(try await mapCandidate(place, variants: variants, in: environment)) }
+            case .unavailable(let reason):
+                unavailable = reason
+            }
+        }
+
         // A remembered pick wins; the rest stay as alternatives.
         if let choice = try await environment.reader.placeChoice(for: folded), var picked = try await candidate(forKey: choice.placeKey, in: environment) {
             if let radius = choice.radius { picked.resolved = Self.withRadius(picked.resolved, radius) }
@@ -181,8 +207,7 @@ public actor PlaceResolver {
         }
 
         // At most one Apple Maps search per query, only when nothing found is a good match with photos.
-        var unavailable: PlaceNotFound?
-        if !pool.candidates.contains(where: { $0.match >= .allTokens && $0.photoCount >= 1 }) {
+        if !asksAppleMaps, !pool.candidates.contains(where: { $0.match >= .allTokens && $0.photoCount >= 1 }) {
             switch try await searchAppleMaps(text, folded: folded, in: environment) {
             case .places(let places):
                 for place in places where confidence == .certain || Self.acceptsMaybe(place.name, phrase: variants) {
@@ -482,6 +507,7 @@ public actor PlaceResolver {
     private func adjusted(_ resolution: PlaceResolution, radius: Double?, near: Bool) -> PlaceResolution {
         func adjust(_ candidate: PlaceCandidate) -> PlaceCandidate {
             var candidate = candidate
+            if candidate.naturalRadius == nil, case .area(_, let natural, _, _) = candidate.resolved { candidate.naturalRadius = natural }
             if let radius { candidate.resolved = Self.withRadius(candidate.resolved, radius) }
             if near { candidate.resolved = candidate.resolved.scaled(by: 2) }
             return candidate

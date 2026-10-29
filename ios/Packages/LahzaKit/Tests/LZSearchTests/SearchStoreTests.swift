@@ -12,7 +12,8 @@ import Testing
 @MainActor @Suite struct SearchStoreTests {
     static let hero = SeedScenario.hero
 
-    private func stores(kv: any KeyValueStore = InMemoryKeyValueStore(), start: Bool = true) async -> (IndexStore, SearchStore) {
+    private func stores(kv: any KeyValueStore = InMemoryKeyValueStore(), start: Bool = true,
+                        scope: @escaping @MainActor () -> SearchScope = { .wholeLibrary }) async -> (IndexStore, SearchStore) {
         let clock = OffsetClock(pinnedNow: SearchFixture.now)
         let index = IndexStore(IndexDependencies(
             location: .inMemory, reader: FakeLibraryReader(.seed(.hero)), gazetteer: SearchFixture.gazetteer, maps: SeedMaps.client(),
@@ -20,8 +21,8 @@ import Testing
             deviceTimeZone: { SearchFixture.riyadh }, changes: { AsyncStream { $0.finish() } }))
         let engine = SearchEngine(gazetteer: SearchFixture.gazetteer, maps: SeedMaps.client(), budget: MapsBudget(clock: clock), clock: clock,
                                   network: FakeNetworkStatus(reachable: true), locale: SearchFixture.uk, deviceTimeZone: { SearchFixture.riyadh })
-        let search = SearchStore(engine: engine, index: index, kv: kv, clock: clock, rerunDelay: .milliseconds(20), examplesDelay: .milliseconds(20),
-                                 previewDelay: .milliseconds(10))
+        let search = SearchStore(engine: engine, index: index, kv: kv, clock: clock, scope: scope, rerunDelay: .milliseconds(20),
+                                 examplesDelay: .milliseconds(20), previewDelay: .milliseconds(10))
         if start {
             index.start()
             await index.placeNamesSettled()
@@ -128,6 +129,68 @@ import Testing
         await search.settled()
         guard case .results(let result) = search.state else { Issue.record("state \(search.state)"); return }
         #expect(result.totals.moments > 0)
+    }
+
+    /// Chip edits: the text is rendered from the edited slots and the search runs again (acceptance 1 through the store).
+    @Test func chipEditsRenderTheTextAndSearchAgain() async throws {
+        let (_, search) = await stores()
+        search.submit("Al-Nakheel Park last summer")
+        await search.settled()
+        let time = try #require(search.result?.query.slots.first { $0.slot.kind == .time })
+        search.apply([.replaceTime(slot: time.id, try #require(time.timePresets.first?.expression))])
+        #expect(search.state == .searching, "an edit searches at once")
+        await search.settled()
+        #expect(search.text == "Al-Nakheel Park summer 2025")
+        #expect(best(search.result) == Set(Self.hero.items(.nakheel).filter { $0.momentDay == LocalTime.day(year: 2025, month: 6, day: 14) }.map(\.id)))
+        search.apply([.remove(slot: time.id)])
+        await search.settled()
+        #expect(search.text == "Al-Nakheel Park")
+        #expect(best(search.result) == Set(Self.hero.items(.nakheel).map(\.id)))
+
+        // Removing the last chip goes back to the start.
+        let place = try #require(search.result?.query.slots.first)
+        search.apply([.remove(slot: place.id)])
+        #expect(search.state == .idle && search.text.isEmpty && search.result == nil)
+    }
+
+    /// A place picked in the place editor is remembered for the words typed, like the picker's.
+    @Test func aPlaceEditorPickIsRemembered() async throws {
+        let (index, search) = await stores()
+        search.submit("Salam Park")
+        await search.settled()
+        let place = try #require(search.result?.query.slots.first { $0.slot.kind == .place })
+        guard case .place(let resolution) = place.resolution, let dubai = resolution.candidates.first(where: { $0.context == "Dubai" }) else {
+            Issue.record("no Dubai candidate")
+            return
+        }
+        search.choose(dubai, forSlot: place.id)
+        await search.settled()
+        #expect(search.result?.query.picker?.chosen == dubai.id, "the picker row ticks the editor's choice")
+        for _ in 0..<50 where try await index.reader?.placeChoice(for: "salam park") == nil { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(try await index.reader?.placeChoice(for: "salam park")?.placeKey == dubai.id)
+    }
+
+    /// The scope is read at every search; an unlock runs the shown search again at once and recounts the examples.
+    @Test func anUnlockRunsTheShownSearchAgain() async throws {
+        final class Box { var scope = SearchScope.since(Date(timeIntervalSince1970: 1_761_642_000)) }
+        let box = Box()
+        let (_, search) = await stores(scope: { box.scope })
+        search.refreshExamples(after: .zero)
+        search.submit("Greece")
+        await search.settled()
+        #expect(search.request?.scope == box.scope)
+        guard case .noMatch(let free) = search.state else { Issue.record("state \(search.state)"); return }
+        #expect(free.noMatch?.kind == .onlyEarlier && free.lockedCount == Self.hero.items(.greece).count)
+        #expect(!search.examples.isEmpty && !search.examples.map(\.text).contains("Dubai trip"))
+
+        box.scope = .wholeLibrary
+        search.scopeChanged()
+        #expect(search.state == .noMatch(free), "the result stays on screen while it runs again")
+        await search.settled()
+        guard case .results(let unlocked) = search.state else { Issue.record("state \(search.state)"); return }
+        #expect(unlocked.lockedCount == 0)
+        #expect(best(unlocked) == Set(Self.hero.items(.greece).filter(\.isLocated).map(\.id)))
+        #expect(search.examples.first?.text == "Dubai trip")
     }
 
     @Test func theLayoutIsRemembered() async {

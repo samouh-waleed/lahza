@@ -5,12 +5,17 @@ import LZIndex
 /// Says why a search found nothing and offers taps that widen it (search spec §6.8), from per-slot counts on the
 /// snapshot: each slot alone, with the photo-type filter applied. Counts are Best matches, so a chip's number is what
 /// is inside the place or the dates. An offer is shown only with a count above 0; widening is never automatic.
+///
+/// A free search (`since`): what it says about the library counts every year ("57 in Dubai"), so it never reads as if
+/// the photos didn't exist; an offer counts what its tap shows, the photos since `since`, and goes at 0.
 struct NoMatchBuilder {
     let snapshot: SearchSnapshot
     let query: PreparedQuery
     let copy: SearchCopy
     let context: EngineContext
     let index: SearchIndexContext
+    /// A free search's start (Unix seconds): offers count the photos taken since (and undated ones).
+    var since: Int64?
 
     /// Areas count their photos this many radii out for the "widen" offer.
     static let widenFactor = 5.0
@@ -57,10 +62,20 @@ struct NoMatchBuilder {
 
     // MARK: Counting
 
-    /// Best matches of a plan.
+    /// Best matches of a plan in the whole library (what a headline says).
     func count(_ plan: ScoringPlan) -> Int {
         var scorer = Scorer(snapshot: snapshot, plan: plan)
         return scorer.run().hits.count(where: { $0.tier == .best })
+    }
+
+    /// Best matches of a plan its tap shows: the whole library, or a free search's photos since its start.
+    func shown(_ plan: ScoringPlan) -> Int {
+        guard let since else { return count(plan) }
+        var scorer = Scorer(snapshot: snapshot, plan: plan)
+        return scorer.run().hits.count { hit in
+            let i = Int(hit.index)
+            return hit.tier == .best && (!snapshot.isDated(i) || snapshot.utc[i] >= since)
+        }
     }
 
     private func without(place: Bool = false, time: Bool = false, event: Bool = false) -> ScoringPlan {
@@ -74,7 +89,7 @@ struct NoMatchBuilder {
     /// An offer that removes slots, if what is left finds something.
     private func offer(_ label: String, removing slots: [Int], plan: ScoringPlan) -> [WideningOffer] {
         guard !slots.isEmpty, !plan.isEmpty else { return [] }
-        let found = count(plan)
+        let found = shown(plan)
         return found > 0 ? [WideningOffer(label: label, count: found, edits: slots.map { .remove(slot: $0) })] : []
     }
 
@@ -112,9 +127,11 @@ struct NoMatchBuilder {
             plan.event = query.plan.event
             let found = count(plan)
             if found > 0 {
+                let visible = shown(plan)
                 return NoMatch(kind: .onlyBeyondRadius,
                                headline: "None within \(copy.distance(radius)) of \(place.description.name). \(found.formatted(.number.locale(copy.locale))) within \(copy.distance(wider)).",
-                               detail: nil, offers: [WideningOffer(label: "Widen to \(copy.distance(wider))", count: found, edits: [.setRadius(slot: place.id, metres: wider)])],
+                               detail: nil,
+                               offers: visible > 0 ? [WideningOffer(label: "Widen to \(copy.distance(wider))", count: visible, edits: [.setRadius(slot: place.id, metres: wider)])] : [],
                                examples: [])
             }
         }
@@ -123,7 +140,7 @@ struct NoMatchBuilder {
         for country in countries {
             var plan = query.plan
             plan.place = PlaceTarget(.membership(level: .country, placeID: country.id, placeKey: country.key, center: nil))
-            let found = count(plan)
+            let found = shown(plan)
             if found > 0 { offers.append(WideningOffer(label: country.name, count: found, edits: [.replacePlace(slot: place.id, placeKey: country.key, name: country.name)])) }
         }
         offers.sort { $0.count > $1.count }
@@ -185,11 +202,13 @@ struct NoMatchBuilder {
         let name = copy.sentenceName(time)
         let headline = "\(placeCount.formatted(.number.locale(copy.locale))) \(place.description.phrase), none \(copy.preposition(time)) \(name)."
         var offers: [WideningOffer] = []
-        if placeCount > 0 {
-            offers.append(WideningOffer(label: "\(place.description.isHome ? "Home" : place.description.name), any time", count: placeCount,
+        let placeShown = since == nil ? placeCount : shown(ScoringPlan(place: query.plan.place, media: query.plan.media))
+        let timeShown = since == nil ? timeCount : shown(ScoringPlan(time: query.plan.time, media: query.plan.media))
+        if placeShown > 0 {
+            offers.append(WideningOffer(label: "\(place.description.isHome ? "Home" : place.description.name), any time", count: placeShown,
                                         edits: query.timeSlots.map { .remove(slot: $0) }))
         }
-        if timeCount > 0 { offers.append(WideningOffer(label: "\(name.capitalizedFirst), anywhere", count: timeCount, edits: [.remove(slot: place.id)])) }
+        if timeShown > 0 { offers.append(WideningOffer(label: "\(name.capitalizedFirst), anywhere", count: timeShown, edits: [.remove(slot: place.id)])) }
         if let widened = widenedByTwoWeeks(), let slot = query.timeSlots.first {
             let found = countReplacing(time: widened)
             if found > 0 {
@@ -236,7 +255,7 @@ struct NoMatchBuilder {
         guard let constraint = TimeResolver(context: context.time).resolve(expression).constraint else { return 0 }
         var plan = query.plan
         plan.time = constraint
-        return count(plan)
+        return shown(plan)
     }
 
     private func replacing(_ slot: Int, with expression: TimeExpression, label: String) -> [WideningOffer] {

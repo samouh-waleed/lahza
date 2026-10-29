@@ -13,6 +13,9 @@ public enum SlotEdit: Sendable, Hashable {
     case replaceTime(slot: Int, TimeExpression)
     case replaceMedia(slot: Int, MediaFilter)
     case add(SlotValue)
+    /// The place editor's "Search Apple Maps for “X”": the slot's words are looked up even when a place in the
+    /// library matches, spending the query's one Apple Maps search (kept in ``ResolutionOverrides``).
+    case searchAppleMaps(slot: Int)
 }
 
 extension ParsedQuery {
@@ -29,7 +32,7 @@ extension ParsedQuery {
             case .replacePlace(let id, let key, let name):
                 guard let position = index(id), case .place(let place) = slots[position].slot.value else { continue }
                 slots[position] = (QuerySlot(id: id, value: .place(.picked(placeKey: key, name: name, relation: place.relation)), span: nil), nil)
-            case .setRadius:
+            case .setRadius, .searchAppleMaps:
                 continue
             case .setNear(let id, let near):
                 guard let position = index(id), case .place(let place) = slots[position].slot.value else { continue }
@@ -70,6 +73,7 @@ extension ResolutionOverrides {
         case .replacePlace(let slot, let key, _): places[slot, default: PlaceOverride()].placeKey = key
         case .setRadius(let slot, let metres): places[slot, default: PlaceOverride()].radius = metres
         case .setNear(let slot, let near): places[slot, default: PlaceOverride()].near = near
+        case .searchAppleMaps(let slot): places[slot, default: PlaceOverride()].searchesAppleMaps = true
         case .remove(let slot): places[slot] = nil
         case .replaceTime, .replaceMedia, .add: break
         }

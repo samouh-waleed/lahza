@@ -24,6 +24,15 @@ public indirect enum PlaceExpression: Sendable, Hashable, Codable {
         }
     }
 
+    /// The words a named or picked place goes by (what the place editor looks up), nil for aliases, categories and
+    /// unions.
+    public var words: String? {
+        switch self {
+        case .named(let words, _, _), .picked(_, let words, _): words
+        case .alias, .category, .anyOf: nil
+        }
+    }
+
     /// A name that only might be a place.
     var isMaybe: Bool {
         if case .named(_, _, .maybe) = self { true } else { false }
