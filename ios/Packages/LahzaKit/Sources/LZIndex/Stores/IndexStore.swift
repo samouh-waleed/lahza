@@ -16,6 +16,8 @@ import Observation
     public private(set) var status: IndexStatus
     /// Nil while the index is off.
     public private(set) var reader: IndexReader?
+    /// Search's writes; nil while the index is off.
+    public private(set) var writer: UserDataWriter?
     /// The `lahza.index.appleMapsNames` preference (on unless turned off).
     public private(set) var appleMapsNames: Bool
 
@@ -142,6 +144,12 @@ import Observation
         Task { await session.placeNames.prioritize(cells: cells) }
     }
 
+    /// A memory warning: drops search's in-memory snapshot of the index (it is rebuilt by the next search).
+    public func releaseCaches() {
+        guard let reader else { return }
+        Task { await reader.releaseSnapshot() }
+    }
+
     /// Returns once every transition has run and the indexer's queue is empty (tests).
     public func settled() async {
         await transitions?.value
@@ -246,6 +254,7 @@ import Observation
             let session = IndexSession(database: database, gazetteer: gazetteer, dependencies: dependencies, generation: generation)
             self.session = session
             reader = session.reader
+            writer = session.writer
             placeNamesVersion = -1
             queueProgress = PlaceNameProgress()
             observe(session)
@@ -269,6 +278,7 @@ import Observation
         if let session {
             self.session = nil
             reader = nil
+            writer = nil
             await session.indexer.stop()
             await session.database.close()
         }
@@ -317,6 +327,7 @@ import Observation
         progressTask?.cancel()
         self.session = nil
         reader = nil
+        writer = nil
         await session.indexer.stop()
         await session.database.close()
         await evaluate(reason: .launch)

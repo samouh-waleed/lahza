@@ -73,6 +73,8 @@ Pipeline:
 7. Group into moment cards (with a grid toggle).
 8. Attach reason chips.
 
+In search v0 (`LZSearch`), English rules do all the parsing. They fill the same slot model a Foundation Models parser will later, each slot tied to the words it came from. Words about what's in photos ("soccer", "sunset") become "not yet" chips; nothing is dropped. Places resolve from the own index first (names, then a typo pass), then the offline place list, and only then from one Apple Maps search per query, cached on the iPhone for 30 days. Search then scores an in-memory column snapshot of the index (about 8 MB per 100k photos, rebuilt per index version) in one pass: place, date and trip scores are fused, with the photo type as a filter. Results are tiered (Best only inside the place and the dates; near misses under More), grouped into moment cards and trips, and every hit says why it matched. When nothing matches, the answer names the part of the query that found nothing and offers taps that widen it, with counts. On a Mac, a search over 100k photos takes about 110 ms.
+
 ### Embedding model
 - SigLIP 2 B/16, vocabulary trimmed to English, 8-bit (about 200 MB), downloaded through Apple-hosted Background Assets.
 - Search on dates and places works while the model downloads.
@@ -106,7 +108,7 @@ Pipeline:
 ## Privacy
 
 - Photos, embeddings and any face data never leave the device. There is no account, no backend and no analytics on content.
-- Place-name lookups send photo-cluster coordinates and typed place names to Apple Maps, not to Lahza.
+- Place-name lookups send photo-cluster coordinates, and typed place names with the home's rough area (rounded to whole degrees), to Apple Maps, not to Lahza. Answers to typed places are kept on the device for 30 days.
 - At launch Lahza asks RevenueCat (which manages App Store purchases) whether the full library is unlocked; RevenueCat receives an anonymous ID and the purchase status, never photos.
 - The only data users can choose to send is opt-in result feedback.
 - Index files are protected at rest, excluded from backups, and deletable from Settings.
@@ -119,7 +121,7 @@ Pipeline:
 - RevenueCat for purchases: one non-consumable full-library unlock (anonymous app user, entitlement checked on the device)
 - SQLite (GRDB) + FTS5 + a flat vector file, searched with Accelerate (when indexing lands)
 - SigLIP 2 B/16, English-trimmed, 8-bit, delivered with Background Assets (when indexing lands)
-- Foundation Models + rule-based parser (when search lands)
+- Rule-based parser (search v0); a Foundation Models parser later
 
 ## Project layout and build
 
@@ -127,7 +129,7 @@ Pipeline:
 |---|---|
 | `ios/project.yml` | XcodeGen spec; the Xcode project is generated (`make project`) and not committed |
 | `ios/App/` | The app: `Shell/` (composition root, dependencies, preferences), `Navigation/`, `Chrome/`, `Features/` (Ask, Moments, Library, Onboarding, Settings, Paywall), `Debug/` (launch arguments, developer screens) |
-| `ios/Packages/LahzaKit/` | Swift package: `LZCore` (brand, environment, storage, clock, log), `LZBilling` (the one-time unlock: RevenueCat client, a StoreKit-only client for local testing, entitlement, paywall model), `LZDesign` (tokens, type, components, motion), `LZLibrary` (photo access: PhotoKit client, fake, access store, the shared fetch rules; the library reader and image provider the index uses, live and fake; the library census for spike S2, whose screen is DEBUG-only; the DEBUG seed library), `LZGeo` (coordinates, local time and the moment rule, the offline GeoNames gazetteer, place-name folding, the Apple Maps client), `LZIndex` (the on-device search index: GRDB storage, library sync, the structure pass, the Apple Maps place-name queue, read queries and the stores the Ask, Moments and Settings screens observe; GRDB stays inside it). Modules use the `LZ` prefix |
+| `ios/Packages/LahzaKit/` | Swift package: `LZCore` (brand, environment, storage, clock, log), `LZBilling` (the one-time unlock: RevenueCat client, a StoreKit-only client for local testing, entitlement, paywall model), `LZDesign` (tokens, type, components, motion), `LZLibrary` (photo access: PhotoKit client, fake, access store, the shared fetch rules; the library reader and image provider the index uses, live and fake; the library census for spike S2, whose screen is DEBUG-only; the DEBUG seed library), `LZGeo` (coordinates, local time and the moment rule, the offline GeoNames gazetteer, place-name folding, the Apple Maps client), `LZIndex` (the on-device search index: GRDB storage, library sync, the structure pass, the Apple Maps place-name queue, read queries and the stores the Ask, Moments and Settings screens observe; GRDB stays inside it), `LZSearch` (the query model, the rules parser, the time and place resolvers, scoring, tiers, grouping and reasons, and the store the Ask screen observes). Modules use the `LZ` prefix |
 | `ios/Tools/gazetteer/` | Source, licence and curated aliases of the bundled GeoNames place list; `make gazetteer` rebuilds it with the `lz-gazetteer` package tool |
 | `ios/Config/` | xcconfig files (secrets go only in the git-ignored `Local.xcconfig`) and `Lahza.storekit`, the local store products for Simulator purchases |
 | `ios/Tests/` | App-hosted tests |

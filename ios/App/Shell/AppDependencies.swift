@@ -40,6 +40,8 @@ struct AppDependencies {
     /// DEBUG: what Settings › Developer › Library census reads (PhotoKit; the fake library under
     /// `-LZPhotos` and in tests).
     var censusSource: any CensusSource = LiveCensusSource()
+    /// DEBUG: a search Ask runs once the index is ready (`-LZQuery`).
+    var queryAtLaunch: String?
     #endif
     /// Start launch from the model's `init` (false for the unit-test host).
     var autoBoot = true

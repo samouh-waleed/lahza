@@ -2,7 +2,7 @@
 
 A private iPhone app that finds the photos and videos in your library from a description of what you remember, such as *"the times I played soccer at Al-Nakheel Park"*. Photos are analyzed on the device; nothing is uploaded to a Lahza server.
 
-**Status:** pre-MVP. The app shell runs (onboarding, Ask, Moments, Settings, the one-time full-library unlock); photo indexing and search come next.
+**Status:** pre-MVP. The app shell runs (onboarding, Ask, Moments, Settings, the one-time full-library unlock), and search v0 finds photos by place, date and photo type; searching what's in photos comes next.
 
 Start with [docs/product.md](docs/product.md), then [docs/how-it-works.md](docs/how-it-works.md), [docs/architecture.md](docs/architecture.md) and [docs/decisions.md](docs/decisions.md).
 

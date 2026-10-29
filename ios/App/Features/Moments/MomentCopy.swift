@@ -4,7 +4,7 @@ import LZIndex
 
 /// Moment and trip words shared by the Moments tab and the detail screens. Dates and times follow the iPhone's region
 /// and 12- or 24-hour setting ("Sat 22 Aug 2026" in the UK, "Sat, Aug 22, 2026" in the US), always in the Gregorian
-/// calendar, so they agree with the year strip.
+/// calendar, so they agree with the year strip; the dates come from ``LocalDateFormat``, which search shares.
 nonisolated enum MomentCopy {
     static let navigationTitle = "Moments"
     static let momentTitle = "Moment"
@@ -35,31 +35,34 @@ nonisolated enum MomentCopy {
         return calendar
     }
 
-    /// A moment day as its UTC midnight; formatted in UTC, it stays that day everywhere.
-    private static func date(_ day: Int32) -> Date { Date(timeIntervalSince1970: TimeInterval(day) * 86_400) }
-
-    private static func dayStyle(_ locale: Locale) -> Date.FormatStyle {
-        Date.FormatStyle(locale: locale, calendar: utcCalendar, timeZone: .gmt)
-    }
-
     /// "Sat, 22 Aug 2026" (UK), "Sat, Aug 22, 2026" (US).
     static func dayTitle(_ day: Int32, locale: Locale = .autoupdatingCurrent) -> String {
-        date(day).formatted(dayStyle(locale).weekday(.abbreviated).day().month(.abbreviated).year())
+        LocalDateFormat.dayTitle(day, locale: locale)
     }
 
     /// "Sat 22 Aug" (UK), "Sat, Aug 22" (US): rows under a month heading.
     static func shortDay(_ day: Int32, locale: Locale = .autoupdatingCurrent) -> String {
-        date(day).formatted(dayStyle(locale).weekday(.abbreviated).day().month(.abbreviated))
+        LocalDateFormat.shortDay(day, locale: locale)
+    }
+
+    /// A search card's day: "Yesterday", "Saturday" within the last week, "Sat 22 Aug" this year, else with the year.
+    static func recentDay(_ day: Int32, today: Int32, locale: Locale = .autoupdatingCurrent) -> String {
+        LocalDateFormat.recentDay(day, today: today, locale: locale)
+    }
+
+    /// Today's day number on this iPhone (days break at 04:00, like moments).
+    static func today(now: Date, zone: TimeZone) -> Int32 {
+        LocalTime.momentDay(wallSeconds: LocalTime.wallSeconds(now, in: zone))
     }
 
     /// "Saturday, 22 August 2026", for VoiceOver.
     static func spokenDay(_ day: Int32, locale: Locale = .autoupdatingCurrent) -> String {
-        date(day).formatted(dayStyle(locale).weekday(.wide).day().month(.wide).year())
+        LocalDateFormat.spokenDay(day, locale: locale)
     }
 
     /// "August 2026".
     static func monthTitle(year: Int, month: Int, locale: Locale = .autoupdatingCurrent) -> String {
-        date(LocalTime.day(year: year, month: month, day: 1)).formatted(dayStyle(locale).month(.wide).year())
+        LocalDateFormat.monthTitle(year: year, month: month, locale: locale)
     }
 
     /// "August 2026 · 3 moments".
@@ -102,15 +105,18 @@ nonisolated enum MomentCopy {
     /// "Greece trip" (a row's badge).
     static func tripBadge(_ trip: TripRow) -> String { "\(trip.label) trip" }
 
-    /// "5:00 – 6:40 PM" in the moment's own local time; one time for a single item.
+    /// "5:00 – 6:40 PM" in the moment's own local time; one time for a single item. A moment past midnight keeps
+    /// times only ("10:00 PM – 2:30 AM"): its day is in the title.
     static func timeSpan(_ moment: MomentRow, locale: Locale = .autoupdatingCurrent) -> String {
         let start = Date(timeIntervalSince1970: TimeInterval(moment.startWall))
         let end = Date(timeIntervalSince1970: TimeInterval(moment.endWall))
-        let style = Date.IntervalFormatStyle(date: .omitted, time: .shortened, locale: locale, calendar: utcCalendar, timeZone: .gmt)
-        guard end.timeIntervalSince(start) >= 60 else {
-            return start.formatted(Date.FormatStyle(date: .omitted, time: .shortened, locale: locale, calendar: utcCalendar, timeZone: .gmt))
+        let time = Date.FormatStyle(date: .omitted, time: .shortened, locale: locale, calendar: utcCalendar, timeZone: .gmt)
+        guard end.timeIntervalSince(start) >= 60 else { return start.formatted(time) }
+        guard utcCalendar.isDate(start, inSameDayAs: end) else {
+            // The interval format would add both dates; thin spaces around the dash, as it writes them.
+            return "\(start.formatted(time))\u{2009}–\u{2009}\(end.formatted(time))"
         }
-        return (start..<end).formatted(style)
+        return (start..<end).formatted(Date.IntervalFormatStyle(date: .omitted, time: .shortened, locale: locale, calendar: utcCalendar, timeZone: .gmt))
     }
 
     /// "10:00 AM": when the moment started, in its own local time (a trip's rows, under their day).
@@ -162,11 +168,13 @@ nonisolated enum MomentCopy {
 
     static func allTitle(_ count: Int) -> String { "All · \(count.formatted())" }
 
+    /// A moment opened from a search: what matched, then the rest of the moment.
+    static func matchesTitle(_ count: Int) -> String { "Matches · \(count.formatted())" }
+    static func alsoTitle(_ count: Int) -> String { "Also in this moment · \(count.formatted())" }
+
     /// "2–8 Jul 2023" (UK), "Jul 2–8, 2023" (US); one date for a single day.
     static func dayRange(_ first: Int32, _ last: Int32, locale: Locale = .autoupdatingCurrent) -> String {
-        guard first != last else { return date(first).formatted(dayStyle(locale).day().month(.abbreviated).year()) }
-        let style = Date.IntervalFormatStyle(locale: locale, calendar: utcCalendar, timeZone: .gmt).day().month(.abbreviated).year()
-        return (date(first)..<date(last)).formatted(style)
+        LocalDateFormat.dayRange(first, last, locale: locale)
     }
 
     /// "1:05" or "0:42" (a video's length).

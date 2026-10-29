@@ -72,12 +72,18 @@ struct PlaceSpec: Sendable, Hashable {
 
     /// An area Apple Maps named near a photo cell, with its category's radius.
     init(poi place: MapPlace) {
-        if let appleID = place.appleID, !appleID.isEmpty {
-            key = "mk:" + appleID
-        } else {
-            key = String(format: "mkn:%@@%.4f,%.4f", PlaceNames.fold(place.name), place.coordinate.latitude, place.coordinate.longitude)
-        }
-        kind = .poi
+        self.init(mapPlace: place, kind: .poi)
+    }
+
+    /// A place an Apple Maps search found for a typed name (search's one request per query), with its category's
+    /// radius (a region's half-diagonal for a natural feature or a town).
+    init(mapResult place: MapPlace) {
+        self.init(mapPlace: place, kind: .mapResult)
+    }
+
+    private init(mapPlace place: MapPlace, kind: PlaceKind) {
+        key = PlaceKey.mapPlace(place)
+        self.kind = kind
         name = place.name
         names = [place.name]
         category = place.category
@@ -140,12 +146,14 @@ struct PlaceRows {
     }
 
     /// A gazetteer place first seen as a locality becomes a city once it is some photo's city, whichever came
-    /// first in the transaction.
+    /// first in the transaction; an Apple Maps search result becomes a point of interest once place naming finds it
+    /// near a photo cell (a point of interest never goes back to a search result).
     private mutating func upgraded(_ row: (id: Int64, kind: Int), to spec: PlaceSpec) throws -> Int64 {
         var kind = row.kind
-        if spec.kind == .city, kind == PlaceKind.locality.rawValue {
-            try db.execute(sql: "UPDATE place SET kind = ? WHERE id = ?", arguments: [PlaceKind.city.rawValue, row.id])
-            kind = PlaceKind.city.rawValue
+        let upgrades: [(from: PlaceKind, to: PlaceKind)] = [(.locality, .city), (.mapResult, .poi)]
+        if upgrades.contains(where: { $0.from.rawValue == kind && $0.to == spec.kind }) {
+            try db.execute(sql: "UPDATE place SET kind = ? WHERE id = ?", arguments: [spec.kind.rawValue, row.id])
+            kind = spec.kind.rawValue
         }
         rows[spec.key] = (row.id, kind)
         return row.id

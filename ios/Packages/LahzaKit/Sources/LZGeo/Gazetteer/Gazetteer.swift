@@ -231,6 +231,27 @@ public final class Gazetteer: Sendable {
         return data.withUnsafeBytes { raw in Self.ranked(indices, limit: limit) { population[$0] }.compactMap { admin1(raw, $0) } }
     }
 
+    /// Places whose name, ASCII form, alias or article-less variant folds to exactly `folded`, by population (the
+    /// query parser's bare place names, where a prefix must never count).
+    public func cities(exactlyNamed folded: String, limit: Int) -> [GazetteerCity] {
+        let exact = lookups.withLock { lookups in lookups.names(self).cities.exact(PlaceNames.fold(folded)) }
+        return data.withUnsafeBytes { raw in
+            func population(_ index: Int) -> Int {
+                Int(raw.le(citiesOffset + index * GazetteerFormat.citySize + 12, as: UInt32.self) & GazetteerFormat.populationMask)
+            }
+            return Self.ranked((exact, []), limit: limit) { population($0) }.map { city(raw, at: $0) }
+        }
+    }
+
+    /// Regions whose name folds to exactly `folded`, by the population of their places.
+    public func admin1s(exactlyNamed folded: String, limit: Int) -> [GazetteerAdmin1] {
+        let (indices, population) = lookups.withLock { lookups in
+            let names = lookups.names(self)
+            return (names.regions.exact(PlaceNames.fold(folded)), names.regionPopulation)
+        }
+        return data.withUnsafeBytes { raw in Self.ranked((indices, []), limit: limit) { population[$0] }.compactMap { admin1(raw, $0) } }
+    }
+
     /// Exact matches, then prefix matches, each by population (ties by file order), without repeats.
     private static func ranked(_ matches: (exact: [Int], prefix: [Int]), limit: Int, population: (Int) -> Int) -> [Int] {
         func byPopulation(_ indices: [Int]) -> [Int] {
@@ -482,6 +503,11 @@ private struct FoldedIndex: Sendable {
     init(_ entries: [String: [Int]]) {
         self.entries = entries
         keys = entries.keys.sorted { $0.utf8.lexicographicallyPrecedes($1.utf8) }
+    }
+
+    /// Indices under `folded` itself.
+    func exact(_ folded: String) -> [Int] {
+        entries[folded] ?? []
     }
 
     /// Indices under `folded` itself, and under longer keys that start with it.

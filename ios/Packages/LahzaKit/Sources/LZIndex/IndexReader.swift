@@ -8,10 +8,27 @@ public struct IndexReader: Sendable {
     /// Which index session the reader belongs to (it changes when the index is purged or rebuilt).
     public let generation: Int
     let database: IndexDatabase
+    private let snapshots: SnapshotStore
 
     init(database: IndexDatabase, generation: Int = 0) {
         self.database = database
         self.generation = generation
+        snapshots = SnapshotStore()
+    }
+
+    /// The assets as in-memory columns for search, for the current index version (shared by the session's readers,
+    /// rebuilt at most once a second while versions churn).
+    public func snapshot() async throws -> SearchSnapshot {
+        let database = database, generation = generation
+        let version = try await indexVersion()
+        return try await snapshots.snapshot(version: version) {
+            try await database.read { db in try IndexQueries.snapshot(db, generation: generation) }
+        }
+    }
+
+    /// Drops the snapshot (a memory warning); the next search builds it again.
+    public func releaseSnapshot() async {
+        await snapshots.release()
     }
 
     public func summary() async throws -> LibrarySummary {

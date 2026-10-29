@@ -40,7 +40,7 @@ targets:
         buildPhase: none
     dependencies:
       - package: LahzaKit
-        products: [LZCore, LZBilling, LZDesign, LZLibrary, LZGeo, LZIndex]
+        products: [LZCore, LZBilling, LZDesign, LZLibrary, LZGeo, LZIndex, LZSearch]
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.waleedsamouh.lahza
@@ -96,6 +96,8 @@ targets:
         BUNDLE_LOADER: $(TEST_HOST)
         GENERATE_INFOPLIST_FILE: YES
         SWIFT_DEFAULT_ACTOR_ISOLATION: MainActor
+        # StoreKitTest's own header uses a type the SDK deprecates (SKPaymentTransactionState): not our code.
+        OTHER_SWIFT_FLAGS: $(inherited) -Xcc -Wno-deprecated-declarations
 
 schemes:
   Lahza:

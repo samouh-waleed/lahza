@@ -22,7 +22,7 @@ SIM_MEDIA = $(HOME)/Library/Developer/CoreSimulator/Devices/$(SIM_UDID)/data/Med
 SIM_SAMPLES := 6
 SEED_DIR := .build/seed
 
-.PHONY: help project build test test-kit test-app perf-kit run devices device gazetteer seed-photos sim-reset grant-photos probe-photos verify-search clean
+.PHONY: help project build test test-kit test-app perf-kit run devices device gazetteer seed-photos sim-reset grant-photos probe-photos verify-search screens clean
 
 help:
 	@echo 'make project   regenerate Lahza.xcodeproj from project.yml'
@@ -37,6 +37,7 @@ help:
 	@echo 'make grant-photos  give Lahza full photo access on the simulator'
 	@echo 'make probe-photos  check what PhotoKit kept of the seed library and print its PROBE facts (seeded simulator, after grant-photos)'
 	@echo 'make verify-search build the search index from the seeded simulator'"'"'s real PhotoKit and check it against the scenario'
+	@echo 'make screens   screenshots of Ask'"'"'s results for the review queries, light and dark, into .build/screens (hero seed, no PhotoKit)'
 	@echo 'make sim-reset CONFIRM=1   DESTRUCTIVE: erases the simulator (every app, photo and setting on it)'
 
 project:            ## Regenerate Lahza.xcodeproj from project.yml
@@ -120,6 +121,12 @@ verify-search: project grant-photos  ## SeededLibraryTests on the seeded simulat
 	set -o pipefail && TEST_RUNNER_LZ_SEEDED_LIBRARY=1 $(XCB) test -only-testing:LahzaTests/SeededLibraryTests -collect-test-diagnostics never \
 		| tee .build/verify-search.log | xcbeautify --quiet --is-ci --preserve-unbeautified | grep -v -e IDESchemeActionSDKRecord -e IDETestOperationsObserverDebug; \
 		status=$$?; grep '^SEEDED ' .build/verify-search.log; exit $$status
+
+screens: build      ## Ask's results for the search review queries, light and dark, from the hero seed library → .build/screens
+	@test -n "$(SIM_UDID)" || { echo 'No available simulator named "$(SIM)".'; exit 1; }
+	xcrun simctl bootstatus $(SIM_UDID) -b > /dev/null
+	xcrun simctl install $(SIM_UDID) "$(DERIVED)/Build/Products/Debug-iphonesimulator/Lahza.app"
+	Tools/screens.sh $(SIM_UDID) .build/screens $(APP_ID)
 
 clean:
 	rm -rf .build $(KIT)/.build

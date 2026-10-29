@@ -141,7 +141,7 @@ nonisolated enum IndexCopy {
     static let rebuildMessage = "Lahza reads your library again. Saved places are kept."
     static let deleteTitle = "Delete search index?"
     static let deleteMessage = "Lahza forgets the dates, places, moments and saved places it learned, and stops searching until you build it again. Your photos aren’t touched."
-    static let appleMapsFooter = "Sends the approximate location of photo clusters, and places you type, to Apple Maps to get names like parks. Photos are never sent."
+    static let appleMapsFooter = "Sends the approximate location of photo clusters, and places you type with your rough area, to Apple Maps to get names like parks. Photos are never sent."
     static let footer = "The index lives only on this iPhone, isn’t backed up, and can be rebuilt from your library at any time."
     static let unavailableDetail = "Lahza tries again the next time it opens."
 
