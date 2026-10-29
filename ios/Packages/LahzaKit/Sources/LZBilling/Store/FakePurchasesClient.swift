@@ -12,12 +12,9 @@ public final class FakePurchasesClient: PurchasesClient {
         case logIn(String)
         case logOut
         case offerings
-        case eligibility([String])
         case purchase(productId: String)
         case restore
         case customerInfo
-        case showManageSubscriptions
-        case previewOffering([String])
     }
 
     /// The answer to each operation. Defaults answer from ``offerings`` and succeed.
@@ -25,14 +22,9 @@ public final class FakePurchasesClient: PurchasesClient {
         public var logIn: @Sendable (String) async throws -> Void
         public var logOut: @Sendable () async throws -> Void
         public var offerings: @Sendable () async throws -> [String: StoreOffering]
-        public var eligibility: @Sendable ([String]) async throws -> [String: IntroEligibilityStatus]
         public var purchase: @Sendable (StorePackage) async throws -> CustomerSnapshot
         public var restore: @Sendable () async throws -> CustomerSnapshot
         public var customerInfo: @Sendable () async throws -> CustomerSnapshot
-        public var showManageSubscriptions: @Sendable () async throws -> Void
-        /// Store-direct prices (default: the ``offerings`` handler's ``Brand/Products/offering``
-        /// offering and the ``eligibility`` handler's answer, with no identity).
-        public var previewOffering: @Sendable ([String]) async throws -> StorePreview
     }
 
     private struct State {
@@ -47,42 +39,25 @@ public final class FakePurchasesClient: PurchasesClient {
         /// Entitlements granted by purchases so far, so restore and customerInfo report them like
         /// the real store does.
         var granted: Set<String> = []
-        var grantedTrials: Set<String> = []
     }
 
     private let state: Mutex<State>
     /// The same attribution ``RevenueCatPurchasesClient`` applies to its stream.
     public let ownership = CustomerInfoOwnership()
 
-    /// A client whose offerings are `offerings` (default: ``sampleOfferings(annualTrial:)``) and
-    /// whose eligibility answer is `eligibility` for every product.
+    /// A client whose offerings are `offerings` (default: ``sampleOfferings(offeringIdentifier:)``).
+    /// A purchase grants `entitlement`.
     public init(
         offerings: [String: StoreOffering] = FakePurchasesClient.sampleOfferings(),
-        eligibility: IntroEligibilityStatus = .eligible,
-        managementURL: URL? = URL(string: "https://apps.apple.com/account/subscriptions")
+        entitlement: String = Brand.fullLibraryEntitlement
     ) {
         let handlers = Handlers(
             logIn: { _ in },
             logOut: {},
             offerings: { offerings },
-            eligibility: { ids in Dictionary(ids.map { ($0, eligibility) }, uniquingKeysWith: { first, _ in first }) },
-            // Like StoreKit: a free introduction on the product starts a trial.
-            purchase: { package in
-                CustomerSnapshot(
-                    appUserID: "",
-                    activeEntitlements: [Brand.plusEntitlement],
-                    managementURL: managementURL,
-                    trialEntitlements: package.product.introOffer?.isFree == true ? [Brand.plusEntitlement] : []
-                )
-            },
-            restore: { CustomerSnapshot(appUserID: "", activeEntitlements: [], managementURL: managementURL) },
-            customerInfo: { CustomerSnapshot(appUserID: "", activeEntitlements: [], managementURL: managementURL) },
-            showManageSubscriptions: {},
-            previewOffering: { ids in
-                let offering = offerings[Brand.Products.offering] ?? offerings.values.first ?? StoreOffering(identifier: Brand.Products.offering)
-                let answer = Dictionary(ids.map { ($0, eligibility) }, uniquingKeysWith: { first, _ in first })
-                return StorePreview(offering: offering, eligibility: answer)
-            }
+            purchase: { _ in CustomerSnapshot(appUserID: "", activeEntitlements: [entitlement]) },
+            restore: { CustomerSnapshot(appUserID: "") },
+            customerInfo: { CustomerSnapshot(appUserID: "") }
         )
         state = Mutex(State(handlers: handlers))
     }
@@ -131,19 +106,11 @@ public final class FakePurchasesClient: PurchasesClient {
 
     /// Publishes a CustomerInfo the way ``RevenueCatPurchasesClient`` tags its stream: attributed by
     /// ``ownership`` from its `originalAppUserId` (``CustomerInfoOwnership/owner(originalAppUserID:)``).
-    public func emitCustomerInfo(
-        activeEntitlements: Set<String>,
-        originalAppUserID: String,
-        nonRenewingEntitlements: Set<String> = [],
-        trialEntitlements: Set<String> = [],
-        requestDate: Date? = nil
-    ) {
+    public func emitCustomerInfo(activeEntitlements: Set<String>, originalAppUserID: String, requestDate: Date? = nil) {
         emitCustomerInfo(CustomerSnapshot(
             appUserID: ownership.owner(originalAppUserID: originalAppUserID),
             activeEntitlements: activeEntitlements,
             originalAppUserID: originalAppUserID,
-            nonRenewingEntitlements: nonRenewingEntitlements,
-            trialEntitlements: trialEntitlements,
             requestDate: requestDate
         ))
     }
@@ -197,17 +164,10 @@ public final class FakePurchasesClient: PurchasesClient {
         try await record(.offerings) { $0.offerings }()
     }
 
-    public func checkTrialOrIntroDiscountEligibility(productIdentifiers: [String]) async throws -> [String: IntroEligibilityStatus] {
-        try await record(.eligibility(productIdentifiers)) { $0.eligibility }(productIdentifiers)
-    }
-
     public func purchase(_ package: StorePackage) async throws -> CustomerSnapshot {
         var snapshot = try await record(.purchase(productId: package.product.identifier)) { $0.purchase }(package)
         if snapshot.appUserID.isEmpty { snapshot.appUserID = appUserID ?? "" }
-        state.withLock {
-            $0.granted.formUnion(snapshot.activeEntitlements)
-            $0.grantedTrials.formUnion(snapshot.trialEntitlements)
-        }
+        state.withLock { $0.granted.formUnion(snapshot.activeEntitlements) }
         return snapshot
     }
 
@@ -226,19 +186,8 @@ public final class FakePurchasesClient: PurchasesClient {
     /// `snapshot` plus everything bought so far.
     private func withGrants(_ snapshot: CustomerSnapshot) -> CustomerSnapshot {
         var copy = snapshot
-        state.withLock {
-            copy.activeEntitlements.formUnion($0.granted)
-            copy.trialEntitlements.formUnion($0.grantedTrials)
-        }
+        state.withLock { copy.activeEntitlements.formUnion($0.granted) }
         return copy
-    }
-
-    public func showManageSubscriptions() async throws {
-        try await record(.showManageSubscriptions) { $0.showManageSubscriptions }()
-    }
-
-    public func previewOffering(productIdentifiers: [String]) async throws -> StorePreview {
-        try await record(.previewOffering(productIdentifiers)) { $0.previewOffering }(productIdentifiers)
     }
 
     public func customerInfoUpdates() async -> AsyncStream<CustomerSnapshot> {
@@ -262,32 +211,26 @@ public final class FakePurchasesClient: PurchasesClient {
 
     // MARK: Sample catalog
 
-    /// The sample catalog in USD: monthly $5.99, yearly $39.99, and (by default) a free
-    /// 1-week introduction on the yearly plan.
-    public static func sampleOfferings(annualTrial: Bool = true, offeringIdentifier: String = Brand.Products.offering) -> [String: StoreOffering] {
-        [offeringIdentifier: StoreOffering(
-            identifier: offeringIdentifier,
-            monthly: samplePackage(.monthly, offeringIdentifier: offeringIdentifier),
-            annual: samplePackage(.annual, offeringIdentifier: offeringIdentifier, trial: annualTrial)
-        )]
+    /// The sample catalog in USD: the full-library unlock at $9.99, as RevenueCat's lifetime package.
+    public static func sampleOfferings(offeringIdentifier: String = Brand.Products.offering) -> [String: StoreOffering] {
+        [offeringIdentifier: StoreOffering(identifier: offeringIdentifier, packages: [samplePackage(offeringIdentifier: offeringIdentifier)])]
     }
 
-    /// One sample package.
-    public static func samplePackage(_ period: PlusPeriod, offeringIdentifier: String = Brand.Products.offering, trial: Bool = false, productId: String? = nil) -> StorePackage {
-        let annual = period == .annual
-        let intro = trial ? IntroOfferTerms(paymentMode: .freeTrial, price: 0, localizedPrice: "$0.00", period: StorePeriod(value: 1, unit: .week), numberOfPeriods: 1) : nil
-        return StorePackage(
-            identifier: annual ? "$rc_annual" : "$rc_monthly",
+    /// The sample unlock package.
+    public static func samplePackage(
+        offeringIdentifier: String = Brand.Products.offering,
+        packageIdentifier: String = StorePackage.lifetimeIdentifier,
+        productId: String = Brand.Products.fullLibrary
+    ) -> StorePackage {
+        StorePackage(
+            identifier: packageIdentifier,
             offeringIdentifier: offeringIdentifier,
             product: StoreProductInfo(
-                identifier: productId ?? period.productIdentifier,
-                localizedPrice: annual ? "$39.99" : "$5.99",
-                price: annual ? Decimal(string: "39.99") ?? 0 : Decimal(string: "5.99") ?? 0,
+                identifier: productId,
+                localizedPrice: "$9.99",
+                price: Decimal(string: "9.99") ?? 0,
                 currencyCode: "USD",
-                priceLocale: Locale(identifier: "en_US"),
-                subscriptionPeriod: StorePeriod(value: 1, unit: annual ? .year : .month),
-                introOffer: intro,
-                localizedTitle: annual ? "\(Brand.name) Plus Yearly" : "\(Brand.name) Plus Monthly"
+                localizedTitle: "\(Brand.name) Full Library"
             )
         )
     }

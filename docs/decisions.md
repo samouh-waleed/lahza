@@ -59,3 +59,9 @@ A short log of settled decisions, newest last. Proposed design rules that still 
 | 31 | Bundle GeoNames' cities15000 list (places of 15,000+ people, about 1.6 MB) for offline city, country and time zone, credited under its CC BY 4.0 licence | PhotoKit has no capture time zone, and Apple Maps is online and rate-limited. With it, located photos get a city, country and zone on the device, offline |
 | 32 | The full-library unlock is a one-time purchase: no subscription and no trial (refines #17) | Founder decision. The paywall and RevenueCat products are reworked before the App Store |
 | 33 | The search index is a derived, rebuildable cache on the iPhone (one GRDB/SQLite file): rebuilt from the library when damaged or written by a newer build, purged on access revocation | Everything in it can be read again from Photos, so a rebuild is always safe and nothing needs a backup or a migration it can't do. Saved places are the only user data in it: a rebuild keeps them, a purge or Delete index removes them |
+
+## Billing (2026-10-28)
+
+| # | Decision | Why |
+|---|---|---|
+| 34 | The unlock (#32) is one non-consumable, `lahza_full_library` ($9.99 to start; the app always shows the store's price), sold through RevenueCat as a lifetime package. Only search beyond 12 months is paid: Moments stays free, and a free search shows its last-12-months results, then "N more from earlier years" with the unlock (no blurred previews) | Founder decision |

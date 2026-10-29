@@ -63,30 +63,20 @@ public final class RevenueCatPurchasesClient: PurchasesClient {
         var seen: [String: Package] = [:]
         var result: [String: StoreOffering] = [:]
         for (identifier, offering) in all {
-            let monthly = offering.monthly.map { package -> StorePackage in
+            let packages = offering.availablePackages.map { package -> StorePackage in
                 seen[Self.cacheKey(offering: identifier, product: package.storeProduct.productIdentifier)] = package
                 return Self.package(package)
             }
-            let annual = offering.annual.map { package -> StorePackage in
-                seen[Self.cacheKey(offering: identifier, product: package.storeProduct.productIdentifier)] = package
-                return Self.package(package)
-            }
-            result[identifier] = StoreOffering(identifier: identifier, monthly: monthly, annual: annual)
+            result[identifier] = StoreOffering(identifier: identifier, packages: packages)
         }
         packages.withLock { $0.merge(seen) { _, new in new } }
         return result
     }
 
-    public func checkTrialOrIntroDiscountEligibility(productIdentifiers: [String]) async throws -> [String: IntroEligibilityStatus] {
-        try Self.requireConfigured()
-        let answer = await Purchases.shared.checkTrialOrIntroDiscountEligibility(productIdentifiers: productIdentifiers)
-        return answer.compactMapValues { IntroEligibilityStatus(rawValue: $0.status.rawValue) }
-    }
-
     public func purchase(_ package: StorePackage) async throws -> CustomerSnapshot {
         try Self.requireConfigured()
         guard let native = try await nativePackage(for: package) else {
-            throw PurchasesClientError.store(code: ErrorCode.productNotAvailableForPurchaseError.rawValue, message: BillingCopy.selectedPlanUnavailable)
+            throw PurchasesClientError.store(code: ErrorCode.productNotAvailableForPurchaseError.rawValue, message: BillingCopy.unlockUnavailable)
         }
         do {
             let result = try await Purchases.shared.purchase(package: native)
@@ -119,27 +109,6 @@ public final class RevenueCatPurchasesClient: PurchasesClient {
         } catch {
             throw Self.map(error)
         }
-    }
-
-    /// StoreKit 2 directly: prices and eligibility need no RevenueCat identity (``StoreKitPreview``).
-    public func previewOffering(productIdentifiers: [String]) async throws -> StorePreview {
-        try await StoreKitPreview.offering(productIdentifiers: productIdentifiers)
-    }
-
-    public func showManageSubscriptions() async throws {
-        #if os(iOS)
-        guard Purchases.isConfigured else { throw PurchasesClientError.manageSubscriptionsUnavailable }
-        do {
-            try await Purchases.shared.showManageSubscriptions()
-        } catch {
-            // Any failure to show the sheet (no active window scene, a store problem) falls through to
-            // the management URL and then the ``BillingCopy/manageFallback`` text.
-            let mapped = Self.map(error)
-            throw mapped == .purchaseCancelled ? mapped : PurchasesClientError.manageSubscriptionsUnavailable
-        }
-        #else
-        throw PurchasesClientError.manageSubscriptionsUnavailable
-        #endif
     }
 
     public func customerInfoUpdates() async -> AsyncStream<CustomerSnapshot> {
@@ -187,55 +156,18 @@ public final class RevenueCatPurchasesClient: PurchasesClient {
             localizedPrice: product.localizedPriceString,
             price: product.price,
             currencyCode: product.currencyCode,
-            priceLocale: product.priceFormatter?.locale,
-            subscriptionPeriod: product.subscriptionPeriod.flatMap(period),
-            introOffer: product.introductoryDiscount.map { discount in
-                IntroOfferTerms(
-                    paymentMode: paymentMode(discount.paymentMode),
-                    price: discount.price,
-                    localizedPrice: discount.localizedPriceString,
-                    period: period(discount.subscriptionPeriod),
-                    numberOfPeriods: discount.numberOfPeriods
-                )
-            },
             localizedTitle: product.localizedTitle
         )
-    }
-
-    /// Nil for a unit this build does not know; ``FreeTrial/confirmed(intro:eligibility:)`` rejects it.
-    static func period(_ period: SubscriptionPeriod) -> StorePeriod? {
-        let unit: StorePeriod.Unit
-        switch period.unit {
-        case .day: unit = .day
-        case .week: unit = .week
-        case .month: unit = .month
-        case .year: unit = .year
-        @unknown default: return nil
-        }
-        return StorePeriod(value: period.value, unit: unit)
-    }
-
-    static func paymentMode(_ mode: StoreProductDiscount.PaymentMode) -> IntroOfferTerms.PaymentMode {
-        switch mode {
-        case .freeTrial: .freeTrial
-        case .payUpFront: .payUpFront
-        case .payAsYouGo: .payAsYouGo
-        @unknown default: .payAsYouGo
-        }
     }
 
     /// `owner` is the identity the CustomerInfo belongs to: the SDK's identity for a direct answer
     /// (made inside ``PurchasesService``'s queue), ``CustomerInfoOwnership`` for the stream. Never
     /// `originalAppUserId`, an anonymous alias for an account first identified after a sign-out.
     static func snapshot(_ info: CustomerInfo, owner: String) -> CustomerSnapshot {
-        let active = info.entitlements.active
-        return CustomerSnapshot(
+        CustomerSnapshot(
             appUserID: owner,
-            activeEntitlements: Set(active.keys),
-            managementURL: info.managementURL,
+            activeEntitlements: Set(info.entitlements.active.keys),
             originalAppUserID: info.originalAppUserId,
-            nonRenewingEntitlements: Set(active.filter { !$0.value.willRenew }.keys),
-            trialEntitlements: Set(active.filter { $0.value.periodType == .trial }.keys),
             requestDate: info.requestDate
         )
     }

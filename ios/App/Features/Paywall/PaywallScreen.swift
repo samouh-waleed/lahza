@@ -3,8 +3,9 @@ import LZCore
 import LZDesign
 import SwiftUI
 
-/// Lahza Plus plans (full screen). Placeholder copy and layout until the paywall is designed
-/// (template-migration D9); the store logic underneath is real.
+/// The one-time full-library unlock (full screen): what stays free, what the unlock adds, the store's
+/// price, Restore purchases and the legal links. One non-consumable, so never subscription or trial
+/// wording (decision 32); the store logic underneath is ``PaywallModel``.
 struct PaywallScreen: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
@@ -15,7 +16,7 @@ struct PaywallScreen: View {
             if let paywall {
                 PaywallContent(paywall: paywall)
             } else {
-                AppLoadingView(label: BillingCopy.loadingPrices)
+                AppLoadingView(label: BillingCopy.loadingPrice)
             }
         }
         .background(.lz(.bg))
@@ -31,12 +32,14 @@ struct PaywallScreen: View {
             paywall = created
             await created.load()
         }
+        // A container, so the identifier doesn't replace the buttons' own (`paywall-purchase`, …).
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("paywall")
     }
 }
 
 private struct PaywallContent: View {
-    @Bindable var paywall: PaywallModel
+    let paywall: PaywallModel
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
 
@@ -44,23 +47,20 @@ private struct PaywallContent: View {
         ScrollView {
             VStack(alignment: .leading, spacing: LZSpace.xl) {
                 VStack(alignment: .leading, spacing: LZSpace.sm) {
-                    Text(BillingCopy.plusName.uppercased()).lzText(.label).foregroundStyle(.lz(.accent))
-                    Text(BillingCopy.paywallTitle).lzText(.displayLarge).foregroundStyle(.lz(.ink))
+                    Text(BillingCopy.eyebrow).lzText(.label).foregroundStyle(.lz(.accent))
+                    Text(BillingCopy.paywallTitle)
+                        .lzText(.displayLarge)
+                        .foregroundStyle(.lz(.ink))
+                        .accessibilityAddTraits(.isHeader)
                     Text(BillingCopy.paywallSubtitle).lzText(.body).foregroundStyle(.lz(.muted))
                 }
-                VStack(alignment: .leading, spacing: LZSpace.lg) {
-                    ForEach(BillingCopy.benefits, id: \.title) { benefit in
-                        HStack(alignment: .top, spacing: LZSpace.md) {
-                            IconBadge(benefit.symbol, tone: .accent)
-                            VStack(alignment: .leading, spacing: LZSpace.xxs) {
-                                Text(benefit.title).lzText(.headline).foregroundStyle(.lz(.ink))
-                                Text(benefit.detail).lzText(.subheadline).foregroundStyle(.lz(.muted))
-                            }
-                        }
-                    }
+                VStack(spacing: LZSpace.md) {
+                    FeatureCard(title: BillingCopy.unlockTitle, features: BillingCopy.unlockFeatures, highlighted: true) { price }
+                    FeatureCard(title: BillingCopy.freeTitle, features: BillingCopy.freeFeatures, highlighted: false) { EmptyView() }
                 }
-                plans
-                if let timeline = paywall.trialTimeline { TrialTimelineCard(timeline: timeline) }
+                if case .unavailable(let message) = paywall.phase {
+                    Notice(.warn, message: message, actionTitle: BillingCopy.tryAgain) { Task { await paywall.load() } }
+                }
                 if paywall.usesTestStore { Notice(.info, message: BillingCopy.testStoreNotice) }
             }
             .lzPage()
@@ -70,42 +70,38 @@ private struct PaywallContent: View {
         .onChange(of: paywall.notice) { _, notice in handle(notice) }
     }
 
-    @ViewBuilder private var plans: some View {
-        switch paywall.phase {
-        case .idle, .loading:
-            HStack(spacing: LZSpace.sm) {
-                LZLoader(.star, size: 20, label: BillingCopy.loadingPrices)
-                Text(BillingCopy.loadingPrices).lzText(.subheadline).foregroundStyle(.lz(.muted))
+    /// The store's price, verbatim, beside the unlock's title.
+    @ViewBuilder private var price: some View {
+        if let offer = paywall.offer {
+            VStack(alignment: .trailing, spacing: 0) {
+                Text(offer.priceString).lzText(.title).foregroundStyle(.lz(.ink))
+                Text(BillingCopy.priceCaption).lzText(.caption).foregroundStyle(.lz(.muted))
             }
-        case .unavailable(let message):
-            Notice(.warn, message: message, actionTitle: BillingCopy.tryAgain) { Task { await paywall.load() } }
-        case .ready, .purchasing, .restoring:
-            VStack(spacing: LZSpace.sm) {
-                ForEach(paywall.catalog.offers, id: \.period) { offer in
-                    PlanCard(offer: offer, isSelected: paywall.selectedPeriod == offer.period) { paywall.select(offer.period) }
-                }
-            }
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("paywall-price")
+        } else if paywall.phase == .loading {
+            LZLoader(.star, size: 20, label: BillingCopy.loadingPrice)
         }
     }
 
     private var actions: some View {
         VStack(spacing: LZSpace.sm) {
-            LZButton(paywall.purchaseTitle, isLoading: paywall.phase == .purchasing, fullWidth: true) {
-                Task { await paywall.purchase() }
-            }
-            .disabled(paywall.selectedOffer == nil || paywall.isBusy || paywall.phase == .loading)
-            .accessibilityIdentifier("paywall-purchase")
-            Text(BillingCopy.renewalDisclosure)
-                .lzText(.caption)
-                .foregroundStyle(.lz(.muted))
-                .multilineTextAlignment(.center)
-            HStack(spacing: LZSpace.lg) {
-                Button(paywall.phase == .restoring ? BillingCopy.restoring : BillingCopy.restorePurchases) {
-                    Task { await paywall.restore() }
+            if paywall.isUnlocked {
+                Notice(.success, message: BillingCopy.unlockedNotice)
+            } else {
+                LZButton(paywall.purchaseTitle, isLoading: paywall.phase == .purchasing, fullWidth: true) {
+                    Task { await paywall.purchase() }
                 }
-                .disabled(paywall.isBusy)
-                Link(BillingCopy.termsOfUse, destination: paywall.termsURL)
-                Link(BillingCopy.privacyPolicy, destination: paywall.privacyURL)
+                .disabled(!paywall.canPurchase)
+                .accessibilityIdentifier("paywall-purchase")
+                Text(BillingCopy.purchaseFootnote)
+                    .lzText(.caption)
+                    .foregroundStyle(.lz(.muted))
+                    .multilineTextAlignment(.center)
+            }
+            ViewThatFits {
+                HStack(spacing: LZSpace.lg) { links }
+                VStack(spacing: LZSpace.sm) { links }
             }
             .font(.footnote)
             .tint(Color.lz(.accent))
@@ -116,6 +112,16 @@ private struct PaywallContent: View {
         .background(.lz(.bg))
     }
 
+    @ViewBuilder private var links: some View {
+        Button(paywall.phase == .restoring ? BillingCopy.restoring : BillingCopy.restorePurchases) {
+            Task { await paywall.restore() }
+        }
+        .disabled(paywall.isBusy)
+        .accessibilityIdentifier("paywall-restore")
+        Link(BillingCopy.termsOfUse, destination: paywall.termsURL)
+        Link(BillingCopy.privacyPolicy, destination: paywall.privacyURL)
+    }
+
     private func handle(_ notice: PaywallModel.Notice?) {
         guard let notice else { return }
         model.toasts.show(notice.message)
@@ -124,59 +130,39 @@ private struct PaywallContent: View {
     }
 }
 
-/// One plan: period, billed price, per-month equivalent and a confirmed free trial.
-private struct PlanCard: View {
-    let offer: PlusOffer
-    let isSelected: Bool
-    let select: () -> Void
+/// What one side of the comparison includes: the unlock (raised, accent icons, the price) or what
+/// stays free (recessed).
+private struct FeatureCard<Trailing: View>: View {
+    let title: String
+    let features: [(symbol: String, text: String)]
+    let highlighted: Bool
+    @ViewBuilder let trailing: () -> Trailing
+    /// One icon column, so every line's text starts at the same edge.
+    @ScaledMetric(relativeTo: .subheadline) private var iconWidth: CGFloat = 24
 
     var body: some View {
-        PaperCard(style: isSelected ? .raised : .paper, action: select) {
-            HStack(alignment: .center, spacing: LZSpace.md) {
-                VStack(alignment: .leading, spacing: LZSpace.xxs) {
-                    Text(offer.period.title).lzText(.headline).foregroundStyle(.lz(.ink))
-                    Text(offer.billedPriceText).lzText(.subheadline).foregroundStyle(.lz(.muted))
-                    if offer.period == .annual, let perMonth = offer.perMonthPrice {
-                        Text("\(perMonth) / month").lzText(.caption).foregroundStyle(.lz(.muted))
-                    }
-                }
-                Spacer()
-                if let trial = offer.trial { Pill("\(trial.duration) free", tone: .sage) }
-                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                    .foregroundStyle(isSelected ? .lz(.accent) : .lz(.muted))
-                    .accessibilityHidden(true)
-            }
-        }
-        .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
-    }
-}
-
-/// Today → 2 days before the trial ends → the first charge.
-private struct TrialTimelineCard: View {
-    let timeline: TrialTimeline
-
-    var body: some View {
-        PaperCard {
+        PaperCard(style: highlighted ? .raised : .recessed) {
             VStack(alignment: .leading, spacing: LZSpace.md) {
-                Text(timeline.summary).lzText(.headline).foregroundStyle(.lz(.ink))
-                ForEach(Array(timeline.steps.enumerated()), id: \.offset) { _, step in
-                    HStack(alignment: .top, spacing: LZSpace.md) {
-                        Image(systemName: symbol(step.kind)).foregroundStyle(.lz(.accent)).frame(width: 22)
-                        VStack(alignment: .leading, spacing: LZSpace.xxs) {
-                            Text(step.title).lzText(.subheadline).foregroundStyle(.lz(.ink))
-                            Text(step.detail).lzText(.caption).foregroundStyle(.lz(.muted))
+                LZAdaptiveStack(spacing: LZSpace.sm, verticalAlignment: .firstTextBaseline) {
+                    Text(title)
+                        .lzText(highlighted ? .title : .headline)
+                        .foregroundStyle(.lz(.ink))
+                        .accessibilityAddTraits(.isHeader)
+                    Spacer(minLength: 0)
+                    trailing()
+                }
+                VStack(alignment: .leading, spacing: LZSpace.sm) {
+                    ForEach(features, id: \.text) { feature in
+                        Label {
+                            Text(feature.text).lzText(.subheadline).foregroundStyle(.lz(.ink))
+                        } icon: {
+                            Image(systemName: feature.symbol)
+                                .foregroundStyle(.lz(highlighted ? .accent : .muted))
+                                .frame(width: iconWidth)
                         }
                     }
                 }
             }
-        }
-    }
-
-    private func symbol(_ kind: TrialTimeline.Step.Kind) -> String {
-        switch kind {
-        case .start: "lock.open"
-        case .billing: "creditcard"
         }
     }
 }
