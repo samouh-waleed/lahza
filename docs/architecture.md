@@ -121,7 +121,7 @@ In search v0 (`LZSearch`), English rules do all the parsing. They fill the same 
 - RevenueCat for purchases: one non-consumable full-library unlock (anonymous app user, entitlement checked on the device)
 - SQLite (GRDB) + FTS5 + a flat vector file, searched with Accelerate (when indexing lands)
 - SigLIP 2 B/16, English-trimmed, 8-bit, delivered with Background Assets (when indexing lands)
-- Foundation Models + rule-based parser (when search lands)
+- Rule-based parser (search v0); a Foundation Models parser later
 
 ## Project layout and build
 
