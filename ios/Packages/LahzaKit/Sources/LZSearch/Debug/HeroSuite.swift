@@ -25,20 +25,23 @@ public enum HeroSuite {
         public var screenshotSubtype: Bool
         /// Front-camera photos are in the Selfies album.
         public var selfiesAlbum: Bool
+        /// The library holds the seed and nothing else (the Simulator adds its own samples).
+        public var onlySeed: Bool
 
-        public init(receivedPhotos: Bool, screenshotSubtype: Bool, selfiesAlbum: Bool) {
+        public init(receivedPhotos: Bool, screenshotSubtype: Bool, selfiesAlbum: Bool, onlySeed: Bool) {
             self.receivedPhotos = receivedPhotos
             self.screenshotSubtype = screenshotSubtype
             self.selfiesAlbum = selfiesAlbum
+            self.onlySeed = onlySeed
         }
 
-        /// The fake reader keeps everything.
-        public static let fake = Facts(receivedPhotos: true, screenshotSubtype: true, selfiesAlbum: true)
+        /// The fake reader keeps everything, and holds nothing else.
+        public static let fake = Facts(receivedPhotos: true, screenshotSubtype: true, selfiesAlbum: true, onlySeed: true)
 
         /// What PhotoKit keeps, as the probe recorded it.
         public static func photoKit(_ capabilities: SeedCapabilities) -> Facts {
             Facts(receivedPhotos: !capabilities.addedDateIsImportTime, screenshotSubtype: capabilities.screenshotSubtype,
-                  selfiesAlbum: capabilities.selfiesAlbum)
+                  selfiesAlbum: capabilities.selfiesAlbum, onlySeed: false)
         }
     }
 
@@ -172,6 +175,10 @@ extension HeroSuite.Golden {
         let nakheel = p.tagged(.nakheel)
         let receivedOnNakheelDays = p.received.filter { item in nakheel.contains { $0.momentDay == item.momentDay } }
         let summer2026 = p.days(2026, 6, 1, through: 2026, 8, 31)
+        let summer2026Dates = p.window(2026, 6, 1, through: 2026, 8, 31)
+        let dates2023 = p.window(2023, 1, 1, through: 2023, 12, 31)
+        let dates2025 = p.window(2025, 1, 1, through: 2025, 12, 31)
+        let newYearsEve = p.wall(2021, 12, 31, 18, 0)..<p.wall(2022, 1, 1, 4, 0)
         let ramadan1445 = p.hijriWindow(1445, .ramadan)
         let dubai = p.tagged(.dubai1, .dubai2).filter(\.isLocated)
         let salamDubai = p.tagged(.dubai1).filter { $0.title == SeedPlace.salamParkDubai.name && $0.isLocated }
@@ -191,11 +198,14 @@ extension HeroSuite.Golden {
                 checks: [p.unsupported(["soccer"]), p.notice(containing: "“soccer” was left out")])),
             Self(4, "Al-Nakheel Park last summer", Expectation(
                 best: nakheel.filter(summer2026), moreMust: receivedOnNakheelDays.filter(summer2026),
-                moreAllowed: p.received + nakheel.filter(p.days(2026, 5, 1, through: 2026, 9, 30)))),
+                moreAllowed: p.near(nakheel, [summer2026Dates], place: 1) + p.near(receivedOnNakheelDays, [summer2026Dates], place: 0.6))),
             Self(5, "Saturday evening at Al-Nakheel Park", Expectation(
-                best: nakheel.filter { $0.weekdayOfMomentDay == 7 && (17 * 60..<21 * 60).contains($0.minuteOfDay) }, moreAllowed: p.received)),
+                best: nakheel.filter { $0.weekdayOfMomentDay == 7 && (17 * 60..<21 * 60).contains($0.minuteOfDay) },
+                // 45-minute fuzz, the park scoring 1: up to 62 minutes outside the evening (the received photos, at 23:40, never).
+                moreAllowed: nakheel.filter { $0.weekdayOfMomentDay == 7 && (17 * 60 - 62..<21 * 60 + 62).contains($0.minuteOfDay) })),
             Self(6, "al nakheel park 2025", Expectation(
-                best: nakheel.filter(year2025), moreAllowed: nakheel.filter(p.days(2024, 11, 1, through: 2026, 2, 28)) + p.received.filter(year2025))),
+                best: nakheel.filter(year2025),
+                moreAllowed: p.near(nakheel, [dates2025], place: 1) + p.near(receivedOnNakheelDays, [dates2025], place: 0.6))),
             Self(7, "Greece", Expectation(
                 best: p.tagged(.greece).filter(\.isLocated), moreMust: p.tagged(.greece).filter { !$0.isLocated },
                 checks: [p.tripHeader(greeceTrip, in: .best), p.reason("During your Greece trip", on: p.tagged(.greece).filter { !$0.isLocated })])),
@@ -211,16 +221,18 @@ extension HeroSuite.Golden {
             Self(12, "Ramadan 2024", Expectation(
                 best: p.bestEligible.filter(p.inside([ramadan1445])),
                 moreMust: p.tagged(.eid).filter { $0.momentDay == LocalTime.day(year: 2024, month: 4, day: 10) },
-                moreAllowed: p.dated.filter(p.inside([ramadan1445], margin: 86_400)),
+                moreAllowed: p.timeOnlyMore([ramadan1445], tau: Predicates.day),
                 checks: [p.reason("Day after Ramadan 1445", on: p.tagged(.eid).filter { $0.momentDay == LocalTime.day(year: 2024, month: 4, day: 10) })])),
             Self(13, "Eid", Expectation(
-                best: p.bestEligible.filter(p.inside(p.eidWindows)), moreAllowed: p.dated.filter(p.inside(p.eidWindows, margin: 86_400)))),
+                best: p.bestEligible.filter(p.inside(p.eidWindows)), moreAllowed: p.timeOnlyMore(p.eidWindows, tau: Predicates.day))),
             Self(14, "summer", Expectation(
-                best: p.bestEligible.filter(p.inSummer(margin: 0)), moreAllowed: p.dated.filter(p.inSummer(margin: 10)))),
+                // Recurring months: a 3-day fuzz in whole days, so up to 2 days outside (screenshots, halved, only inside).
+                best: p.bestEligible.filter(p.inSummer(margin: 0)),
+                moreAllowed: p.dated.filter { p.inSummer(margin: 2)($0) && ($0.media != .screenshot || p.inSummer(margin: 0)($0)) })),
             Self(15, "last summer", Expectation(
-                best: p.bestEligible.filter(summer2026), moreAllowed: p.dated.filter(p.days(2026, 5, 1, through: 2026, 9, 30)))),
+                best: p.bestEligible.filter(summer2026), moreAllowed: p.timeOnlyMore([summer2026Dates]))),
             Self(16, "3 years ago", Expectation(
-                best: p.bestEligible.filter(p.days(2023, 1, 1, through: 2023, 12, 31)), moreAllowed: p.dated.filter(p.days(2022, 11, 1, through: 2024, 2, 29)),
+                best: p.bestEligible.filter(p.days(2023, 1, 1, through: 2023, 12, 31)), moreAllowed: p.timeOnlyMore([dates2023]),
                 checks: [p.chips(["2023 (3 years ago)"])])),
             Self(17, "trips", Expectation(
                 best: p.dated.filter { item in SeedScenario.hero.trips.contains { $0.contains(day: item.momentDay!) } },
@@ -231,19 +243,22 @@ extension HeroSuite.Golden {
             Self(21, "Riyadh 2025", Expectation(
                 best: p.riyadh.filter(year2025),
                 moreMust: facts.receivedPhotos ? p.received.filter(year2025) : [],
-                moreAllowed: p.riyadh.filter(p.days(2024, 11, 1, through: 2026, 2, 28)),
+                moreAllowed: p.near(p.riyadh, [dates2025], place: 1) + p.near(p.received, [dates2025], place: 0.6),
                 // Received photos that don't look received are plain photos without a location.
                 locationUnknown: p.tagged(.orphans).filter(year2025) + (facts.receivedPhotos ? [] : p.tagged(.received).filter(year2025)),
                 checks: [p.absent(p.tagged(.screens))])),
-            Self(22, "Paris", Expectation(best: [], checks: [p.noMatch(.placeEmpty, headline: "No photos in Paris, France.",
-                                                                       offerLabels: Set(["SA", "AE", "GR", "GB", "AU"].map(CountryNames.name)))])),
+            Self(22, "Paris", Expectation(best: [], checks: [p.noMatch(
+                .placeEmpty, headline: "No photos in Paris, France.",
+                // The Simulator's own samples may add countries; the seed's are offered with their Best counts.
+                detail: facts.onlySeed ? "Your photos are from \(p.countryBest.count) countries." : nil,
+                offerCounts: p.countryBest, exactOffers: facts.onlySeed)])),
             Self(23, "videos", Expectation(best: p.dated.filter(\.isVideo), checks: [p.bestNewestFirst])),
             Self(24, "screenshots", skip: facts.screenshotSubtype ? nil : "the screenshot subtype didn't import", Expectation(best: p.tagged(.screens))),
             Self(25, "Sydney in summer", Expectation(best: p.tagged(.sydney))),
             Self(26, "weekends in Riyadh", Expectation(
                 best: p.riyadh.filter { [6, 7].contains($0.weekdayOfMomentDay) }, moreAllowed: p.received)),
             Self(27, "London new year's eve", Expectation(
-                best: p.tagged(.london).filter(p.inside([p.wall(2021, 12, 31, 18, 0)..<p.wall(2022, 1, 1, 4, 0)])), moreAllowed: p.tagged(.london))),
+                best: p.tagged(.london).filter(p.inside([newYearsEve])), moreAllowed: p.near(p.tagged(.london), [newYearsEve], place: 1))),
             Self(28, "Al-Nakheel Park during Ramadan 2024", Expectation(best: [], checks: [p.noMatch(
                 .combination, headline: "\(nakheel.count) at Al-Nakheel Park, none during Ramadan 2024.", detail: p.closestBefore(nakheel, ramadan1445),
                 offers: [("Al-Nakheel Park, any time", nakheel.count), ("Ramadan 2024, anywhere", p.bestEligible.filter(p.inside([ramadan1445])).count)])])),
@@ -298,6 +313,54 @@ private struct Predicates {
     func inside(_ windows: [Range<Int64>], margin: Int64 = 0) -> @Sendable (SeedItem) -> Bool {
         { item in item.wallSeconds.map { wall in windows.contains { ($0.lowerBound - margin..<$0.upperBound + margin).contains(wall) } } ?? false }
     }
+
+    // MARK: Reaching More
+
+    static let day: Double = 86_400
+
+    /// The dates' wall seconds, from 04:00 on the first day to 04:00 after the last.
+    func window(_ y1: Int, _ m1: Int, _ d1: Int, through y2: Int, _ m2: Int, _ d2: Int) -> Range<Int64> {
+        let first = LocalTime.day(year: y1, month: m1, day: d1), last = LocalTime.day(year: y2, month: m2, day: d2)
+        return Int64(first) * 86_400 + LocalTime.dayBreak..<Int64(last + 1) * 86_400 + LocalTime.dayBreak
+    }
+
+    /// A range's fuzz τ: a tenth of the longest one, at least 3 days.
+    static func tau(_ windows: [Range<Int64>]) -> Double {
+        max(Double(windows.map(\.count).max() ?? 0) / 10, 3 * day)
+    }
+
+    /// How far outside the dates a photo still reaches More (S ≥ 0.5, the geometric mean of its slots): its time score
+    /// e^(−Δ/τ) alone must reach 0.5, so Δ ≤ τ·ln 2; with a place scoring `place`, Δ ≤ τ·ln(4·place).
+    static func reach(tau: Double, place: Double? = nil) -> Int64 {
+        Int64(tau * log(place.map { 4 * $0 } ?? 2))
+    }
+
+    /// Items close enough to the dates to reach More when their place scores `place`.
+    func near(_ items: [SeedItem], _ windows: [Range<Int64>], place: Double) -> [SeedItem] {
+        items.filter(inside(windows, margin: Self.reach(tau: Self.tau(windows), place: place)))
+    }
+
+    /// Dated items that can reach More on a dates-only query: within τ·ln 2 of the dates; screenshots (halved) only
+    /// inside them.
+    func timeOnlyMore(_ windows: [Range<Int64>], tau: Double? = nil) -> [SeedItem] {
+        let margin = Self.reach(tau: tau ?? Self.tau(windows))
+        return dated.filter { inside(windows, margin: margin)($0) && ($0.media != .screenshot || inside(windows)($0)) }
+    }
+
+    /// Each seed country's Best matches for a place-only search of it: its photos with their own position or one from
+    /// their outing (screenshots rank lower; received photos and photos far from their outing aren't Best).
+    var countryBest: [String: Int] {
+        let countries: [SeedScenario.Tag: String] = [.dubai1: "AE", .dubai2: "AE", .greece: "GR", .london: "GB", .sydney: "AU"]
+        var counts: [String: Int] = [:]
+        for item in items where item.media != .screenshot && (item.isLocated || item.borrowing == .moment) {
+            let code = countries[item.tag] ?? (Self.saudiTags.contains(item.tag) ? "SA" : nil)
+            if let code { counts[CountryNames.name(code), default: 0] += 1 }
+        }
+        return counts
+    }
+
+    /// The tags placed in Saudi Arabia: Riyadh's and the desert trip's.
+    static let saudiTags = riyadhTags.union([.desert])
 
     /// Meteorological summer in each photo's hemisphere (photos without a position: the northern home's), within
     /// `margin` days of it.
@@ -432,7 +495,8 @@ private struct Predicates {
         }
     }
 
-    func noMatch(_ kind: NoMatch.Kind, headline: String?, detail: String? = nil, offers: [(String, Int)] = [], offerLabels: Set<String>? = nil) -> Check {
+    func noMatch(_ kind: NoMatch.Kind, headline: String?, detail: String? = nil, offers: [(String, Int)] = [], offerCounts: [String: Int]? = nil,
+                 exactOffers: Bool = true) -> Check {
         { result in
             guard let noMatch = result.noMatch else { return "no no-match" }
             var problems: [String] = []
@@ -447,11 +511,12 @@ private struct Predicates {
                 let got = noMatch.offers[index]
                 if got.label != offer.0 || got.count != offer.1 { problems.append("offer “\(got.label) · \(got.count)”, expected “\(offer.0) · \(offer.1)”") }
             }
-            // The Simulator's own samples may add countries; the seed's must all be offered.
-            if let offerLabels {
-                let labels = Set(noMatch.offers.map(\.label))
-                if !offerLabels.isSubset(of: labels) || noMatch.offers.contains(where: { $0.count <= 0 }) {
-                    problems.append("offers \(noMatch.offers.map { "\($0.label) · \($0.count)" })")
+            // Offers by label with their counts: exactly these, or (with the Simulator's samples) at least these.
+            if let offerCounts {
+                let got = Dictionary(noMatch.offers.map { ($0.label, $0.count) }, uniquingKeysWith: max)
+                let matches = exactOffers ? got == offerCounts : offerCounts.allSatisfy { got[$0.key] == $0.value }
+                if !matches || noMatch.offers.contains(where: { $0.count <= 0 }) {
+                    problems.append("offers \(noMatch.offers.map { "\($0.label) · \($0.count)" }), expected \(offerCounts.sorted { $0.value > $1.value }.map { "\($0.key) · \($0.value)" })")
                 }
             }
             return problems.isEmpty ? nil : problems.joined(separator: ", ")

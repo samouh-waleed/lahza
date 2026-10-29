@@ -84,6 +84,7 @@ struct NoMatchBuilder {
         let words = "“\(failure.phrase)”"
         let (headline, detail): (String, String?) = switch failure.reason {
         case .offline: ("Couldn’t look up \(words) offline.", "Places in your photos still work without internet.")
+        case .mapsBusy: ("Couldn’t look up \(words) right now.", "Apple Maps is busy. Try again in a few minutes.")
         case .appleMapsOff: ("Couldn’t find \(words) in your photos.", "Apple Maps place names are off in Settings › Search index.")
         case .noHome: ("Lahza hasn’t worked out your home yet.", "Save it from a photo.")
         case .noPlacesOfCategory: ("Lahza hasn’t found \(words) among your places yet.", nil)
@@ -148,7 +149,7 @@ struct NoMatchBuilder {
                 offers += replacing(slot, with: every.expression, label: every.label)
             }
             if case .hijri(let event, let qualifier, let hijriYear) = time, let years = context.time.years {
-                let asked: Int? = if case .year(let year) = qualifier { year } else { hijriYear.map { Int((Double($0) * 32 / 33).rounded()) + 622 } }
+                let asked: Int? = if case .year(let year) = qualifier { year } else { hijriYear.flatMap { Self.gregorianYear(of: event, hijriYear: $0) } }
                 if let asked {
                     let candidates = years.sorted { abs($0 - asked) < abs($1 - asked) }
                     for year in candidates where year != asked {
@@ -241,6 +242,11 @@ struct NoMatchBuilder {
     private func replacing(_ slot: Int, with expression: TimeExpression, label: String) -> [WideningOffer] {
         let found = countReplacing(time: expression)
         return found > 0 ? [WideningOffer(label: label, count: found, edits: [.replaceTime(slot: slot, expression)])] : []
+    }
+
+    /// The Gregorian year an event of a Hijri year starts in ("Ramadan 1440" began in May 2019).
+    static func gregorianYear(of event: HijriEvent, hijriYear: Int) -> Int? {
+        HijriCalendar.occurrences(event, hijriYear: hijriYear).first.map { LocalTime.civil(day: $0.first).year }
     }
 
     /// "Every Ramadan" for "Ramadan 2019", "Every June" for "June 2019".

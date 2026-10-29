@@ -96,8 +96,10 @@ public struct PlaceCandidate: Sendable, Hashable, Identifiable {
 public enum PlaceNotFound: String, Sendable, Hashable {
     /// "home" before Lahza has worked out a home or one is saved.
     case noHome
-    /// Not in the index or the gazetteer, and Apple Maps couldn't be asked (offline, throttled, out of requests).
+    /// Not in the index or the gazetteer, and Apple Maps couldn't be reached (no internet).
     case offline
+    /// Not in the index or the gazetteer, and Apple Maps is busy (throttled, out of requests for now, or failed).
+    case mapsBusy
     /// Not in the index or the gazetteer, and Apple Maps place names are turned off.
     case appleMapsOff
     /// Nowhere, Apple Maps included.

@@ -209,9 +209,10 @@ struct SearchCopy {
     // MARK: Unsupported
 
     /// "Lahza can't see what's in photos yet, so “soccer” was left out. Showing all your photos at Al-Nakheel Park."
-    func unsupportedNotice(_ unsupported: [ResolvedSlot], showing: String?) -> String? {
+    /// Dates Lahza couldn't use are quoted as typed (their chip says why).
+    func unsupportedNotice(_ unsupported: [ResolvedSlot], text: String, showing: String?) -> String? {
         guard !unsupported.isEmpty else { return nil }
-        let words = unsupported.map { "“\($0.chip)”" }
+        let words = unsupported.map { "“\($0.slot.kind == .time ? $0.slot.span?.substring(of: text) ?? $0.chip : $0.chip)”" }
         let list = words.count == 1 ? words[0] : words.dropLast().joined(separator: ", ") + " and " + words.last!
         let reason: String
         if unsupported.allSatisfy({ $0.slot.kind == .people }) {

@@ -36,6 +36,9 @@ public actor VocabularyCache {
             log.debug("Vocabulary built: \(vocabulary.ownNames.count) names, \(vocabulary.savedAliases.count) aliases in \(ContinuousClock.now - started)",
                       privacy: .public)
             return vocabulary
+        } catch is CancellationError {
+            // A newer keystroke or search took over: nothing went wrong.
+            return cached?.vocabulary ?? PlaceVocabulary(gazetteer: gazetteer)
         } catch {
             log.error("Vocabulary build failed: \(type(of: error))", privacy: .public)
             return cached?.vocabulary ?? PlaceVocabulary(gazetteer: gazetteer)

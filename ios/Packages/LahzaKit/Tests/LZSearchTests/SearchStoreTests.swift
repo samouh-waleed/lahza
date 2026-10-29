@@ -62,6 +62,8 @@ import Testing
         let twin = Self.hero.items(.dubai1).filter { $0.title == SeedPlace.salamParkDubai.name }
         #expect(best(search.result) == Set(twin.map(\.id)))
         #expect(search.text == "Salam Park")
+        #expect(search.result?.query.picker?.chosen == dubai.candidate.id, "the picker stays, the choice ticked")
+        #expect(search.result?.query.picker?.choices.map(\.id) == picker.choices.map(\.id))
         for _ in 0..<50 where try await index.reader?.placeChoice(for: "salam park") == nil { try await Task.sleep(for: .milliseconds(10)) }
         #expect(try await index.reader?.placeChoice(for: "salam park")?.placeKey == dubai.candidate.id)
 
@@ -99,6 +101,33 @@ import Testing
         #expect(second.id != first.id)
         #expect(second.cards.map(\.id) == first.cards.map(\.id))
         #expect(search.examples.map(\.text).first == "Dubai trip")
+    }
+
+    @Test func aNewSearchSupersedesAPendingReRun() async throws {
+        let (_, search) = await stores()
+        search.submit("Greece")
+        await search.settled()
+        search.indexChanged()
+        search.submit("Salam Park")
+        await search.settled()
+        #expect(search.request?.text == "Salam Park")
+        #expect(search.result?.query.parsed.text == "Salam Park", "the re-run of “Greece” doesn't come back")
+        // A later change re-runs the search on screen, not the one the change interrupted.
+        search.indexChanged()
+        await search.settled()
+        #expect(search.result?.query.parsed.text == "Salam Park")
+    }
+
+    @Test func aSearchThatHadNoIndexRunsOnceThereIsOne() async throws {
+        let (index, search) = await stores(start: false)
+        search.submit("Greece")
+        #expect(search.state == .failed(SearchStore.unavailableMessage))
+        index.start()
+        await index.placeNamesSettled()
+        search.indexChanged()
+        await search.settled()
+        guard case .results(let result) = search.state else { Issue.record("state \(search.state)"); return }
+        #expect(result.totals.moments > 0)
     }
 
     @Test func theLayoutIsRemembered() async {

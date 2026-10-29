@@ -8,6 +8,9 @@ import Synchronization
 public protocol PlaceDensity: Sendable {
     /// Photos whose position (own or borrowed from their moment) is within `radius` metres of `center`.
     func count(near center: Coordinate, within radius: Double) async throws -> Int
+    /// Photos placed in a country, region, city (its metro too) or locality: a place's photos before the structure
+    /// pass has counted them (the first build).
+    func members(level: MembershipLevel, placeID: Int64) async throws -> Int
     /// Distances of the photos with their own GPS within `radius` of `center` (hull refinement).
     func ownDistances(from center: Coordinate, within radius: Double) async throws -> [Double]
     /// The own GPS positions of the photos placed in a locality (an Apple Maps town's extent).
@@ -16,6 +19,7 @@ public protocol PlaceDensity: Sendable {
 
 extension PlaceDensity {
     public func positions(inLocality placeID: Int64) async throws -> [Coordinate] { [] }
+    public func members(level: MembershipLevel, placeID: Int64) async throws -> Int { 0 }
 }
 
 extension IndexReader: PlaceDensity {
@@ -26,20 +30,28 @@ extension IndexReader: PlaceDensity {
 
 /// The one Apple Maps search a query may make, shared by its place slots.
 public final class MapsAllowance: Sendable {
-    private let used = Mutex(false)
+    private let state: Mutex<(used: Bool, sent: Bool)>
 
-    public init() {}
+    /// `spent`: the query may read cached answers only (a re-run).
+    public init(spent: Bool = false) {
+        state = Mutex((used: spent, sent: false))
+    }
 
-    /// Takes the search; false when this query already made it.
+    /// Takes the search; false when this query already took it.
     func take() -> Bool {
-        used.withLock { used in
-            defer { used = true }
-            return !used
+        state.withLock { state in
+            defer { state.used = true }
+            return !state.used
         }
     }
 
-    /// Whether this query asked Apple Maps.
-    public var searched: Bool { used.withLock { $0 } }
+    /// The request went out (the shared budget let it).
+    func markSent() {
+        state.withLock { $0.sent = true }
+    }
+
+    /// Whether this query sent Apple Maps a request.
+    public var searched: Bool { state.withLock { $0.sent } }
 }
 
 /// What resolving a query's places may use.
@@ -71,7 +83,7 @@ public struct PlaceEnvironment: Sendable {
 /// the index). Then it picks: automatically when one candidate is clearly ahead, otherwise the best with a picker.
 public actor PlaceResolver {
     /// How long an Apple Maps search answer is reused.
-    public static let mapCacheAge: Duration = .seconds(30 * 86_400)
+    public static let mapCacheAge = UserDataWriter.mapSearchMaxAge
     /// Areas with this many own photos within twice their radius get a radius fitted to those photos.
     static let hullMinimumPhotos = 20
 
@@ -180,8 +192,9 @@ public actor PlaceResolver {
     }
 
     /// Exactly one candidate, or a top one with photos at least twice the next one's of an equal match, is taken
-    /// automatically; otherwise search runs with the top one and offers a picker. With no photos anywhere the top one
-    /// is taken (its search then finds nothing, which says so).
+    /// automatically; otherwise search runs with the top one and offers a picker. A top one without photos is never
+    /// taken over one with photos that matched less well ("Istanbul" and the person's Istanbul Grill): the picker
+    /// offers it. With no photos anywhere the top one is taken (its search then finds nothing, which says so).
     private func pick(_ pool: CandidatePool, confidence: Confidence, unavailable: PlaceNotFound?) -> PlaceResolution {
         let sorted = pool.sorted
         guard let top = sorted.first else {
@@ -192,7 +205,13 @@ public actor PlaceResolver {
         let alternatives = Array(sorted.dropFirst())
         // A region or country named like the city on top ("Dubai", the emirate) holds the city: not a rival.
         let rivals = alternatives.filter { $0.match >= top.match && !$0.holds(top) }
-        guard let runnerUp = rivals.first else { return .resolved(top, alternatives: alternatives) }
+        guard let runnerUp = rivals.first else {
+            if top.photoCount == 0, alternatives.contains(where: { $0.photoCount > 0 }) {
+                let withPhotos = alternatives.filter { $0.photoCount > 0 }, without = alternatives.filter { $0.photoCount == 0 }
+                return .ambiguous(top: top, candidates: [top] + (withPhotos + without).prefix(4))
+            }
+            return .resolved(top, alternatives: alternatives)
+        }
         if top.photoCount >= 1, top.photoCount >= 2 * runnerUp.photoCount { return .resolved(top, alternatives: alternatives) }
         if sorted.allSatisfy({ $0.photoCount == 0 }) { return .resolved(top, alternatives: alternatives) }
         return .ambiguous(top: top, candidates: Array(sorted.prefix(5)))
@@ -220,7 +239,19 @@ public actor PlaceResolver {
         }
         guard !found.isEmpty else { return }
         let rows = try await environment.reader.places(keys: found.map(\.key))
-        for item in found { pool.add(item.build(rows[item.key])) }
+        for item in found {
+            var candidate = item.build(rows[item.key])
+            if let row = rows[item.key], case .membership(let level, _, _, _) = candidate.resolved {
+                candidate.photoCount = try await photoCount(row, level, in: environment)
+            }
+            pool.add(candidate)
+        }
+    }
+
+    /// A place row's photos: its count, or before the structure pass has counted them (the first build), its members
+    /// in the snapshot, so a place already read is a good match and doesn't send its name to Apple Maps.
+    private func photoCount(_ row: PlaceRow, _ level: MembershipLevel, in environment: PlaceEnvironment) async throws -> Int {
+        row.photoCount > 0 ? row.photoCount : try await environment.density.members(level: level, placeID: row.id)
     }
 
     // MARK: Apple Maps
@@ -239,7 +270,8 @@ public actor PlaceResolver {
         guard environment.appleMapsEnabled else { return .unavailable(.appleMapsOff) }
         guard network.isReachable else { return .unavailable(.offline) }
         guard environment.allowance.take() else { return .unavailable(.notFound) }
-        guard try await budget.acquire(.interactive) else { return .unavailable(.offline) }
+        guard try await budget.acquire(.interactive) else { return .unavailable(.mapsBusy) }
+        environment.allowance.markSent()
         do {
             let places = try await maps.search(text, near: environment.searchRegion)
             await budget.reportSuccess()
@@ -254,12 +286,12 @@ public actor PlaceResolver {
         } catch .throttled {
             await budget.reportThrottled()
             log.notice("Apple Maps search throttled", privacy: .public)
-            return .unavailable(.offline)
+            return .unavailable(.mapsBusy)
         } catch .cancelled {
             throw CancellationError()
         } catch {
             log.notice("Apple Maps search failed: \(Self.code(error))", privacy: .public)
-            return .unavailable(.offline)
+            return .unavailable(error == .offline ? .offline : .mapsBusy)
         }
     }
 
@@ -311,16 +343,18 @@ public actor PlaceResolver {
         let country = row.countryCode.map(CountryNames.name)
         switch row.kind {
         case .country:
-            return PlaceCandidate(id: row.key, name: row.name, subtitle: "Country", photoCount: row.photoCount, match: match, source: .ownIndex,
-                                  resolved: .membership(level: .country, placeID: row.id, placeKey: row.key, center: nil))
+            return PlaceCandidate(id: row.key, name: row.name, subtitle: "Country", photoCount: try await photoCount(row, .country, in: environment),
+                                  match: match, source: .ownIndex, resolved: .membership(level: .country, placeID: row.id, placeKey: row.key, center: nil))
         case .region:
             return PlaceCandidate(id: row.key, name: row.name, subtitle: ["Region", country].compactMap { $0 }.joined(separator: " · "), context: country,
-                                  photoCount: row.photoCount, match: match, source: .ownIndex,
+                                  photoCount: try await photoCount(row, .region, in: environment), match: match, source: .ownIndex,
                                   resolved: .membership(level: .region, placeID: row.id, placeKey: row.key, center: row.center))
         case .city, .locality:
-            let membership = ResolvedPlace.membership(level: row.kind == .city ? .city : .locality, placeID: row.id, placeKey: row.key, center: row.center)
+            let level: MembershipLevel = row.kind == .city ? .city : .locality
+            let membership = ResolvedPlace.membership(level: level, placeID: row.id, placeKey: row.key, center: row.center)
             var candidate = PlaceCandidate(id: row.key, name: row.name, subtitle: [row.name, country].compactMap { $0 }.joined(separator: ", "),
-                                           context: country, photoCount: row.photoCount, match: match, source: .ownIndex, resolved: membership)
+                                           context: country, photoCount: try await photoCount(row, level, in: environment), match: match,
+                                           source: .ownIndex, resolved: membership)
             if row.kind == .locality, row.isFromAppleMaps, let extent = try await localityExtent(row.id, in: environment) {
                 // Apple names a town only for the photo cells it was asked about: its photos' area counts the
                 // neighbouring cells too.

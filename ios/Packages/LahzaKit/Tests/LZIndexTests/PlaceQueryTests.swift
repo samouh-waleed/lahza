@@ -127,6 +127,14 @@ import Testing
         #expect(try await reader.cachedMapSearch(key: "narnia|-", maxAge: .seconds(86_400), now: Fixture.now) == [])
         #expect(try await database.read { db in try Meta.int(db, .structureDue) } == nil)
 
+        // Answers older than 30 days are dropped at the next write: the typed words don't stay on the iPhone.
+        clock.set(Fixture.now.addingTimeInterval(20 * 86_400))
+        try await writer.rememberMapResults(key: "later|-", results: [])
+        #expect(try await Fixture.count(database, "map_search_cache") == 3)
+        clock.set(Fixture.now.addingTimeInterval(31 * 86_400))
+        try await writer.rememberMapResults(key: "latest|-", results: [])
+        #expect(try await database.read { db in try String.fetchAll(db, sql: "SELECT key FROM map_search_cache ORDER BY key") } == ["later|-", "latest|-"])
+
         // Place naming later finds the restaurant's neighbour as a point of interest: a search result becomes one.
         try await database.write { db in
             var rows = PlaceRows(db)

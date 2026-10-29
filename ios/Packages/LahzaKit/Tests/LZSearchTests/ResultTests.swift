@@ -119,4 +119,64 @@ import Testing
         #expect(shown.sections.last?.tier == .weaker)
         #expect(shown.sections.last?.groups.flatMap(\.cards).flatMap(\.hits).count == hidden.weakerCount)
     }
+
+    @Test func relativeDatesMoveOnWhileTheIndexStaysTheSame() async throws {
+        let search = try await HeroSearch()
+        let today = try await search.search("yesterday")
+        let examples = try await search.engine.examples(reader: search.index.reader)
+        search.clock.set(SearchFixture.now.addingTimeInterval(2 * 86_400))
+        let later = try await search.search("yesterday")
+        func start(_ result: SearchResult) -> Int64? {
+            guard case .time(.constraint(let constraint))? = result.query.slots.first?.resolution else { return nil }
+            return constraint.ranges?.first?.lowerBound
+        }
+        #expect(start(today) == SearchFixture.wall(2026, 10, 27, 4))
+        #expect(start(later) == SearchFixture.wall(2026, 10, 29, 4), "two days on, “yesterday” is two days later")
+        search.clock.set(SearchFixture.now.addingTimeInterval(366 * 86_400))
+        #expect(try await search.engine.examples(reader: search.index.reader) != examples, "“last Ramadan” and “N years ago” a year on")
+    }
+
+    @Test func appleMapsGetsTheHomesAreaNeverItsPosition() async throws {
+        let search = try await HeroSearch()
+        _ = try await search.search("Sufra Grill")
+        let home = try #require(try await search.index.reader.homeBase(year: nil)?.center)
+        guard case .search(_, let region)? = search.maps.calls.first, let region else { Issue.record("calls \(search.maps.calls)"); return }
+        #expect(region.center == Coordinate(latitude: home.latitude.rounded(), longitude: home.longitude.rounded()))
+        #expect(region.center != home && region.spanDegrees == 4)
+    }
+
+    @Test func aDateLahzaCantUseIsQuotedAsTyped() {
+        let copy = SearchCopy(locale: SearchFixture.uk, resolver: SearchFixture.saudi())
+        let text = "Al-Nakheel Park national day"
+        let slot = QuerySlot(id: 1, value: .time(.holiday(.nationalDay, .last)), span: TextSpan(location: 16, length: 12))
+        let unusable = ResolvedSlot(slot: slot, resolution: .unsupported, chip: "National day of which country?", systemImage: "info.circle")
+        #expect(copy.unsupportedNotice([unusable], text: text, showing: "at Al-Nakheel Park")
+                == "Lahza can’t search for everything you asked yet, so “national day” was left out. Showing all your photos at Al-Nakheel Park.")
+    }
+
+    @Test func aReRunAfterTheIndexChangedFindsAPlaceReadSinceThen() async throws {
+        let search = try await HeroSearch()
+        let database = search.index.database
+        // During the first build: Greece's photos and its row aren't read yet.
+        try await database.write { db in
+            try db.execute(sql: "UPDATE place_name SET name = 'zz' || name WHERE place_id = (SELECT id FROM place WHERE key = 'cc:GR')")
+            try db.execute(sql: "UPDATE place SET key = 'hidden:GR' WHERE key = 'cc:GR'")
+            _ = try Meta.bumpVersion(db)
+        }
+        let request = SearchRequest(text: "Greece")
+        let before = try await search.search(request)
+        #expect(before.noMatch?.kind == .placeEmpty)
+        // They are now.
+        try await database.write { db in
+            try db.execute(sql: "UPDATE place SET key = 'cc:GR' WHERE key = 'hidden:GR'")
+            try db.execute(sql: "UPDATE place_name SET name = substr(name, 3) WHERE place_id = (SELECT id FROM place WHERE key = 'cc:GR')")
+            _ = try Meta.bumpVersion(db)
+        }
+        let asked = search.mapsSearches
+        let rerun = try await search.engine.search(request, reader: search.index.reader, writer: search.index.writer, isRerun: true)
+        #expect(rerun.noMatch == nil)
+        #expect(rerun.totals.items == (try await search.search("Greece")).totals.items)
+        #expect(search.mapsSearches == asked, "a re-run never asks Apple Maps")
+        #expect(!rerun.query.searchedAppleMaps)
+    }
 }

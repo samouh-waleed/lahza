@@ -5,10 +5,14 @@ extension SearchEngine {
     /// Up to `limit` searches this library can answer, each verified by a count of its Best matches (search spec §6.9),
     /// in this order: the latest trip with 20 items or more; the most photographed point of interest; last Ramadan (10
     /// or more) or last summer; videos from the home city this year, or favorites; and "N years ago" for the largest N
-    /// of 10, 5, 3, 2 and 1 with 5 or more. Each needs 3 or more. Never asks Apple Maps; cached per index version.
+    /// of 10, 5, 3, 2 and 1 with 5 or more. Each needs 3 or more. Never asks Apple Maps; cached per index version and
+    /// day ("last summer" and "N years ago" move with the date).
     public func examples(reader: IndexReader, limit: Int = 5, index: SearchIndexContext = SearchIndexContext()) async throws -> [ExampleSearch] {
         let version = try await reader.indexVersion()
-        if let cached = examplesCache, cached.generation == reader.generation, cached.version == version { return Array(cached.examples.prefix(limit)) }
+        let today = TimeResolver(context: try await context(reader).time).today
+        if let cached = examplesCache, cached.generation == reader.generation, cached.version == version, cached.day == today {
+            return Array(cached.examples.prefix(limit))
+        }
         let started = ContinuousClock.now
         let summary = try await reader.summary()
         var examples: [ExampleSearch] = []
@@ -40,7 +44,7 @@ extension SearchEngine {
                 }
             }
         }
-        examplesCache = (reader.generation, version, examples)
+        examplesCache = (reader.generation, version, today, examples)
         log.debug("Examples: \(examples.count) in \(ContinuousClock.now - started)", privacy: .public)
         return Array(examples.prefix(limit))
     }

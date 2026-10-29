@@ -66,6 +66,8 @@ import Observation
     @ObservationIgnored private var previewTask: Task<Void, Never>?
     @ObservationIgnored private var rerunTask: Task<Void, Never>?
     @ObservationIgnored private var examplesTask: Task<Void, Never>?
+    /// The picker of the search a choice was made in: it stays, the choice ticked, so the other place is a tap away.
+    @ObservationIgnored private var chosenPicker: PlacePicker?
     /// Tells the latest search from older ones still finishing.
     @ObservationIgnored private var runs = 0
     @ObservationIgnored private let log = Log("search")
@@ -114,6 +116,7 @@ import Observation
             return
         }
         self.text = trimmed
+        chosenPicker = nil
         run(SearchRequest(text: trimmed))
     }
 
@@ -123,6 +126,7 @@ import Observation
         previewTask?.cancel()
         rerunTask?.cancel()
         runs += 1
+        chosenPicker = nil
         text = ""
         parsed = nil
         request = nil
@@ -144,14 +148,18 @@ import Observation
         run(request)
     }
 
-    /// The picker's choice: replaces the place, remembers it for these words, and searches again.
+    /// The picker's choice: replaces the place, remembers it for these words, and searches again. The picker stays
+    /// with the choice ticked (a mis-tap is undone with another tap); typed again, the remembered place is searched
+    /// without asking.
     public func choose(_ choice: PlacePicker.Choice) {
-        guard let picker = result?.query.picker else { return }
+        guard var picker = result?.query.picker else { return }
         let candidate = choice.candidate
         if let writer = index.writer {
             let phrase = picker.phrase
             Task { try? await writer.rememberChoice(phrase: phrase, placeKey: candidate.id, radius: nil) }
         }
+        picker.chosen = candidate.id
+        chosenPicker = picker
         apply([.replacePlace(slot: picker.slot, placeKey: candidate.id, name: candidate.name)])
     }
 
@@ -178,12 +186,13 @@ import Observation
     /// refreshes the examples.
     public func indexChanged() {
         refreshExamples()
-        guard let request, result != nil else { return }
+        guard request != nil, result != nil || state == .failed(Self.unavailableMessage) else { return }
         rerunTask?.cancel()
         let clock = clock, delay = rerunDelay
         rerunTask = Task { [weak self] in
-            guard (try? await clock.sleep(for: delay)) != nil else { return }
-            self?.run(request, isRerun: true, keepsResult: true)
+            guard (try? await clock.sleep(for: delay)) != nil, let self, let request = self.request else { return }
+            // The search on screen when the pause ends: a newer submit, edit or pick since the change already ran it.
+            self.run(request, isRerun: true, keepsResult: true)
         }
     }
 
@@ -223,6 +232,8 @@ import Observation
 
     private func run(_ request: SearchRequest, isRerun: Bool = false, keepsResult: Bool = false) {
         searchTask?.cancel()
+        // A submit, edit or pick supersedes a pending re-run of the search it replaces.
+        if !isRerun { rerunTask?.cancel() }
         runs += 1
         let run = runs
         self.request = request
@@ -270,6 +281,10 @@ import Observation
 
     private func finished(_ result: SearchResult, run: Int) {
         guard run == runs else { return }
+        var result = result
+        if result.query.picker == nil, let picker = chosenPicker, request?.overrides.places[picker.slot]?.placeKey == picker.chosen {
+            result.query.picker = picker
+        }
         searchTask = nil
         parsed = result.query.parsed
         lastResult = result

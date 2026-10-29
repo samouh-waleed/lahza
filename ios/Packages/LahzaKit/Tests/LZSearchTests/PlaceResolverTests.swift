@@ -146,6 +146,29 @@ import Testing
         #expect(riyadh < 2 * dubai, "10 is not twice 8")
     }
 
+    @Test func aTopPlaceWithoutPhotosIsntTakenOverOneWithPhotos() async throws {
+        let setup = try await Setup()
+        // The person's own Istanbul Grill (from an earlier Apple Maps search) at the park, and the gazetteer's Istanbul.
+        let grill = MapPlace(appleID: "istanbul-grill", name: "Istanbul Grill", category: .park, coordinate: SeedPlace.alNakheelPark.coordinate)
+        try await setup.index.writer.rememberMapResults(key: "earlier", results: [grill])
+        let resolution = try await setup.resolve("Istanbul")
+        guard case .ambiguous(let top, let candidates) = resolution else { Issue.record("expected ambiguous, got \(resolution)"); return }
+        #expect(top.source == .gazetteer && top.photoCount == 0, "\(top.subtitle)")
+        #expect(candidates.contains { $0.name == "Istanbul Grill" && $0.photoCount == Self.hero.items(.nakheel).count })
+        #expect(setup.maps.calls.isEmpty, "a good own match with photos never asks Apple Maps")
+    }
+
+    @Test func aPlaceReadBeforeItIsCountedHasItsSnapshotPhotos() async throws {
+        let setup = try await Setup()
+        let counted = try #require(try await setup.resolve("Greece").chosen?.photoCount)
+        // The first build: the row exists, its count doesn't yet.
+        try await setup.index.database.write { db in try db.execute(sql: "UPDATE place SET photo_count = 0 WHERE key = 'cc:GR'") }
+        let density = SnapshotDensity(snapshot: try await setup.index.reader.snapshot())
+        let greece = try await setup.resolve("Greece", environment: setup.environment(density: density))
+        #expect(greece.chosen?.photoCount == counted)
+        #expect(setup.maps.calls.isEmpty, "a place already read doesn't send its name to Apple Maps")
+    }
+
     @Test func theTypoPassFindsTheParkWithoutAppleMaps() async throws {
         let setup = try await Setup()
         let resolution = try await setup.resolve("nakhel prk")
@@ -245,10 +268,12 @@ import Testing
         let clock = FixedClock(SearchFixture.now)
         let setup = try await Setup(budget: MapsBudget(perMinute: 30, capacity: 1, interactiveReserve: 0, clock: clock))
         setup.maps.failNext(.throttled)
-        #expect(try await setup.resolve("Sufra Grill") == .notFound(.offline))
+        #expect(try await setup.resolve("Sufra Grill") == .notFound(.mapsBusy))
         #expect(await setup.budget.backoffUntil != nil, "a throttle backs every request off")
-        #expect(try await setup.resolve("Santorini") == .notFound(.offline))
+        let allowance = MapsAllowance()
+        #expect(try await setup.resolve("Santorini", environment: setup.environment(allowance: allowance)) == .notFound(.mapsBusy))
         #expect(setup.maps.calls.count == 1, "no request while backing off or out of tokens")
+        #expect(!allowance.searched, "a refused request isn't counted as sent")
         // Own places still resolve.
         #expect(try await setup.resolve("Al-Nakheel Park").chosen?.photoCount == Self.hero.items(.nakheel).count)
     }

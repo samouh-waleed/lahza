@@ -82,6 +82,10 @@ import Testing
         #expect(noMatch.offers.first?.edits == [.replaceTime(slot: 0, .hijri(.ramadan, .every, hijriYear: nil))])
         #expect(noMatch.offers.dropFirst().first?.label.hasPrefix("Closest: Ramadan 20") == true)
         #expect(noMatch.offers.allSatisfy { $0.count > 0 })
+        // A Hijri year's closest year is counted from the Gregorian year its Ramadan began in.
+        #expect(NoMatchBuilder.gregorianYear(of: .ramadan, hijriYear: 1440) == 2019)
+        #expect(NoMatchBuilder.gregorianYear(of: .ramadan, hijriYear: 1447) == 2026)
+        #expect(NoMatchBuilder.gregorianYear(of: .eidAlAdha, hijriYear: 1446) == 2025)
 
         let reading = try await search.search("Ramadan 2019", index: SearchIndexContext(isPartial: true, coveredSince: Date(timeIntervalSince1970: 1_609_459_200)))
         #expect(reading.noMatch?.kind == .stillReading)
@@ -99,5 +103,43 @@ import Testing
         #expect(result.noMatch?.headline == "No favorites found.")
         #expect(result.noMatch?.offers.map(\.label) == ["All photos"])
         #expect(result.noMatch?.offers.first?.count == Self.hero.items(.nakheel).count)
+    }
+
+    @Test func aLeftoverWordNeitherBlocksThePlaceNorSpendsItsAppleMapsSearch() async throws {
+        // Offline and with Apple Maps off, "kebab" can't be looked up; the park is still searched.
+        for (reachable, appleMaps) in [(false, true), (true, false)] {
+            let search = try await HeroSearch(reachable: reachable)
+            let result = try await search.engine.search(SearchRequest(text: "kebab at Al-Nakheel Park"), reader: search.index.reader, writer: search.index.writer,
+                                                        index: SearchIndexContext(appleMapsEnabled: appleMaps))
+            #expect(result.noMatch == nil)
+            #expect(Set(result.items(.best).map(\.id)) == Set(Self.hero.items(.nakheel).map(\.id)))
+            #expect(result.query.slots.map(\.slot.kind) == [.visual, .place], "kebab is words about what’s in the photos")
+            #expect(result.unsupportedNotice == "Lahza can’t see what’s in photos yet, so “kebab” was left out. Showing all your photos at Al-Nakheel Park.")
+            #expect(search.mapsSearches == 0)
+        }
+        // Online, the place a preposition introduced gets the query's one Apple Maps search.
+        let online = try await HeroSearch()
+        let sufra = try await online.search("kebab at Sufra Grill")
+        #expect(Set(sufra.items(.best).map(\.id)) == Set(Self.hero.items(.sufra).map(\.id)))
+        #expect(online.maps.calls.map { if case .search(let text, _) = $0 { text } else { "" } } == ["Sufra Grill"])
+        // Alone, a leftover word that can't be looked up is still the failing place.
+        let offline = try await HeroSearch(reachable: false)
+        #expect(try await offline.search("Qwertyville").noMatch?.kind == .placeNotFound(.offline))
+    }
+
+    @Test func aBusyAppleMapsIsntCalledOffline() async throws {
+        let clock = FixedClock(SearchFixture.now)
+        let search = try await HeroSearch(budget: MapsBudget(perMinute: 30, capacity: 1, interactiveReserve: 0, clock: clock))
+        search.maps.failNext(.throttled)
+        let result = try await search.search(SearchRequest(text: "Qwertyville", parsed: madeUpPlace(year: false)))
+        #expect(result.noMatch?.kind == .placeNotFound(.mapsBusy))
+        #expect(result.noMatch?.headline == "Couldn’t look up “Qwertyville” right now.")
+        #expect(result.noMatch?.detail == "Apple Maps is busy. Try again in a few minutes.")
+        #expect(result.query.searchedAppleMaps)
+        // Backing off, no request is sent, and none is counted.
+        let again = try await search.search(SearchRequest(text: "Qwertyville", parsed: madeUpPlace(year: false)))
+        #expect(again.noMatch?.kind == .placeNotFound(.mapsBusy))
+        #expect(!again.query.searchedAppleMaps)
+        #expect(search.mapsSearches == 1)
     }
 }

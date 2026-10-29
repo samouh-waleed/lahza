@@ -15,8 +15,8 @@ public enum SearchProgress: Sendable, Hashable {
 
 /// Search (search spec §6): parse → resolve (time, place) → score the snapshot → tier → group by moment and trip →
 /// reasons, or a no-match that names the failing slot and offers to widen. At most one Apple Maps search per query.
-/// Caches (the parse vocabulary, resolved places, the time context, example searches) are per index version and are
-/// dropped on a memory warning.
+/// Caches (the parse vocabulary, resolved places, the home and the library's years, example searches) are per index
+/// version and are dropped on a memory warning.
 public actor SearchEngine {
     private let gazetteer: Gazetteer
     private let parser: any QueryParser
@@ -28,7 +28,7 @@ public actor SearchEngine {
     private var contexts: EngineContext?
     /// The places resolved for each place expression, reused when the index changes under a shown search.
     private var resolutions: [ResolutionKey: (version: Int64, resolution: PlaceResolution)] = [:]
-    var examplesCache: (generation: Int, version: Int64, examples: [ExampleSearch])?
+    var examplesCache: (generation: Int, version: Int64, day: Int32, examples: [ExampleSearch])?
     let log = Log("search")
 
     static let resolutionCacheSize = 64
@@ -111,7 +111,7 @@ public actor SearchEngine {
         let result = SearchResult(id: UUID(), query: query.resolved, sections: built.sections, totals: built.totals, coverage: coverage, noMatch: noMatch,
                                   unsupported: query.unsupported.map(\.slot),
                                   unsupportedNotice: noMatch?.kind == .onlyUnsupported ? nil
-                                      : copy.unsupportedNotice(query.unsupported, showing: query.showingPhrase(copy)),
+                                      : copy.unsupportedNotice(query.unsupported, text: parsed.text, showing: query.showingPhrase(copy)),
                                   weakerCount: hits.count(where: { $0.tier == .weaker }), lockedCount: locked, timings: timings)
         log.info("Search: slots \(parsed.slots.map(\.kind.rawValue).joined(separator: ",")), \(result.totals.moments) moments, "
                  + "\(result.totals.items) items, \(hits.count(where: { $0.tier == .locationUnknown })) unlocated, no match \(noMatch.map { "\($0.kind)" } ?? "-"), "
@@ -130,10 +130,14 @@ public actor SearchEngine {
 
     // MARK: Context
 
-    /// The home, the library's years and the time context for relative dates, per index version.
+    /// The home, the library's years and the time context for relative dates. The index's part is kept per index
+    /// version; "now" is read at every call, so "today" and "last weekend" move on while the library doesn't change.
     func context(_ reader: IndexReader) async throws -> EngineContext {
         let version = try await reader.indexVersion()
-        if let contexts, contexts.generation == reader.generation, contexts.version == version { return contexts }
+        if var contexts, contexts.generation == reader.generation, contexts.version == version {
+            contexts.time.now = clock.now
+            return contexts
+        }
         async let summaryTask = reader.summary()
         let home = try await reader.homeBase(year: nil)
         let summary = try await summaryTask
@@ -160,8 +164,10 @@ public actor SearchEngine {
                  context: EngineContext, appleMaps: Bool, isRerun: Bool, progress: (@Sendable (SearchProgress) -> Void)?) async throws -> PreparedQuery {
         var query = PreparedQuery(parsed: parsed)
         let resolver = TimeResolver(context: context.time)
+        // A re-run (the index changed under a shown search) never asks Apple Maps again: it reads cached answers only.
         let environment = PlaceEnvironment(reader: reader, writer: writer, density: SnapshotDensity(snapshot: snapshot), appleMapsEnabled: appleMaps,
-                                           searchRegion: context.home.map { GeoRegion(center: $0.center, spanDegrees: 4) })
+                                           searchRegion: context.home.map { Self.searchRegion(around: $0.center) },
+                                           allowance: MapsAllowance(spent: isRerun))
 
         // Time: every time slot together.
         let timeSlots = parsed.slots.filter { $0.kind == .time }
@@ -175,6 +181,8 @@ public actor SearchEngine {
             if case .constraint(let constraint) = combined { query.plan.time = constraint }
         }
 
+        let places = try await preparePlaces(parsed, overrides: overrides, environment: environment, query: &query, reader: reader, context: context,
+                                             isRerun: isRerun, progress: progress)
         var slots: [ResolvedSlot] = []
         for slot in parsed.slots {
             switch slot.value {
@@ -184,39 +192,8 @@ public actor SearchEngine {
                 } else if let constraint = (timeSlots.count == 1 ? timeResolution : resolver.resolve(expression))?.constraint {
                     slots.append(ResolvedSlot(slot: slot, resolution: .time(.constraint(constraint)), chip: constraint.label, systemImage: "calendar"))
                 }
-            case .place(let expression):
-                guard query.placeSlot == nil, query.placeFailure == nil else {
-                    // One place per query in v0: a second one is left out.
-                    slots.append(ResolvedSlot(slot: slot, resolution: .unsupported, chip: expression.phrase, systemImage: "info.circle"))
-                    continue
-                }
-                let phrase = slot.span?.substring(of: parsed.text) ?? expression.phrase
-                if case .named(let name, _, _) = expression { progress?(.lookingUpPlace(name)) }
-                let override = overrides.places[slot.id]
-                let resolution = try await resolvePlace(expression, override: override, environment: environment, generation: reader.generation,
-                                                        version: context.version, isRerun: isRerun)
-                if environment.allowance.searched { query.searchedAppleMaps = true }
-                switch resolution {
-                case .notFound(.notAPlace):
-                    // Words that only might be a place and match none are about what's in the photos.
-                    let words = phrase
-                    slots.append(ResolvedSlot(slot: QuerySlot(id: slot.id, value: .visual(words), span: slot.span), resolution: .unsupported, chip: words,
-                                              systemImage: "info.circle"))
-                case .notFound(let reason):
-                    query.placeFailure = (slot.id, reason, phrase)
-                    slots.append(ResolvedSlot(slot: slot, resolution: .place(resolution), chip: expression.phrase.capitalizedFirst, systemImage: "mappin"))
-                case .resolved(let candidate, _), .ambiguous(let candidate, _):
-                    query.placeSlot = (slot.id, candidate, PlaceDescription(candidate), phrase)
-                    query.plan.place = PlaceTarget(candidate.resolved)
-                    let near = (override?.near ?? (expression.relation == .near)) && candidate.resolved.breadth == 0
-                    slots.append(ResolvedSlot(slot: slot, resolution: .place(resolution), chip: near ? "Near \(candidate.name)" : candidate.name,
-                                              systemImage: "mappin"))
-                    if case .ambiguous(_, let candidates) = resolution {
-                        query.picker = PlacePicker(slot: slot.id, phrase: phrase, question: "Which \(candidate.name)?",
-                                                   choices: candidates.map { PlacePicker.Choice(candidate: $0, label: "\($0.context ?? $0.subtitle) · \($0.photoCount.formatted(.number.locale(locale)))") },
-                                                   chosen: candidate.id)
-                    }
-                }
+            case .place:
+                if let place = places[slot.id] { slots.append(place) }
             case .media(let filter):
                 query.mediaSlots.append(slot.id)
                 slots.append(ResolvedSlot(slot: slot, resolution: .media(filter), chip: Self.mediaChip(filter), systemImage: filter.kinds == [.video] ? "film" : "photo"))
@@ -235,11 +212,107 @@ public actor SearchEngine {
         return query
     }
 
+    /// The place slots, one place per query in v0. Known places are resolved first, then names a preposition
+    /// introduced, then leftover words that only might be a place, so a leftover word ("kebab at Al-Nakheel Park")
+    /// neither blocks the place nor spends the query's Apple Maps search. Once a place is searched, the other place
+    /// slots are left out: a leftover word as words about what's in the photos, a name as a second place. A leftover
+    /// word that couldn't be looked up is the query's failing place only when no other place was found.
+    private func preparePlaces(_ parsed: ParsedQuery, overrides: ResolutionOverrides, environment: PlaceEnvironment, query: inout PreparedQuery,
+                               reader: IndexReader, context: EngineContext, isRerun: Bool,
+                               progress: (@Sendable (SearchProgress) -> Void)?) async throws -> [Int: ResolvedSlot] {
+        var outcomes: [Int: ResolvedSlot] = [:]
+        var unresolved: [(slot: QuerySlot, expression: PlaceExpression, reason: PlaceNotFound, phrase: String, rank: Int)] = []
+        let ranked = parsed.slots.enumerated().compactMap { offset, slot -> (slot: QuerySlot, expression: PlaceExpression, rank: Int, offset: Int)? in
+            guard case .place(let expression) = slot.value else { return nil }
+            return (slot, expression, Self.placeRank(expression, slot: slot, text: parsed.text), offset)
+        }.sorted { ($0.rank, $0.offset) < ($1.rank, $1.offset) }
+
+        func leftOut(_ slot: QuerySlot, _ expression: PlaceExpression, rank: Int, phrase: String) -> ResolvedSlot {
+            rank == Self.leftoverRank ? Self.visual(slot, phrase) : ResolvedSlot(slot: slot, resolution: .unsupported, chip: expression.phrase, systemImage: "info.circle")
+        }
+
+        for (slot, expression, rank, _) in ranked {
+            let phrase = slot.span?.substring(of: parsed.text) ?? expression.phrase
+            guard query.placeSlot == nil, query.placeFailure == nil else {
+                outcomes[slot.id] = leftOut(slot, expression, rank: rank, phrase: phrase)
+                continue
+            }
+            if case .named(let name, _, _) = expression { progress?(.lookingUpPlace(name)) }
+            let override = overrides.places[slot.id]
+            let resolution = try await resolvePlace(expression, override: override, environment: environment, generation: reader.generation,
+                                                    version: context.version, isRerun: isRerun)
+            if environment.allowance.searched { query.searchedAppleMaps = true }
+            switch resolution {
+            case .notFound(.notAPlace):
+                // Words that only might be a place and match none are about what's in the photos.
+                outcomes[slot.id] = Self.visual(slot, phrase)
+            case .notFound(let reason):
+                if case .named(_, _, .maybe) = expression {
+                    unresolved.append((slot, expression, reason, phrase, rank))
+                } else {
+                    query.placeFailure = (slot.id, reason, phrase)
+                    outcomes[slot.id] = ResolvedSlot(slot: slot, resolution: .place(resolution), chip: expression.phrase.capitalizedFirst, systemImage: "mappin")
+                }
+            case .resolved(let candidate, _), .ambiguous(let candidate, _):
+                query.placeSlot = (slot.id, candidate, PlaceDescription(candidate), phrase)
+                query.plan.place = PlaceTarget(candidate.resolved)
+                let near = (override?.near ?? (expression.relation == .near)) && candidate.resolved.breadth == 0
+                outcomes[slot.id] = ResolvedSlot(slot: slot, resolution: .place(resolution), chip: near ? "Near \(candidate.name)" : candidate.name,
+                                                 systemImage: "mappin")
+                if case .ambiguous(_, let candidates) = resolution {
+                    query.picker = PlacePicker(slot: slot.id, phrase: phrase, question: "Which \(candidate.name)?",
+                                               choices: candidates.map { PlacePicker.Choice(candidate: $0, label: "\($0.context ?? $0.subtitle) · \($0.photoCount.formatted(.number.locale(locale)))") },
+                                               chosen: candidate.id)
+                }
+            }
+        }
+        for item in unresolved {
+            if query.placeSlot == nil, query.placeFailure == nil {
+                query.placeFailure = (item.slot.id, item.reason, item.phrase)
+                outcomes[item.slot.id] = ResolvedSlot(slot: item.slot, resolution: .place(.notFound(item.reason)), chip: item.expression.phrase.capitalizedFirst,
+                                                      systemImage: "mappin")
+            } else {
+                outcomes[item.slot.id] = leftOut(item.slot, item.expression, rank: item.rank, phrase: item.phrase)
+            }
+        }
+        return outcomes
+    }
+
+    static let leftoverRank = 2
+
+    /// Known places (and aliases, categories and picks) 0, a name a place preposition introduced 1, leftover words 2.
+    static func placeRank(_ expression: PlaceExpression, slot: QuerySlot, text: String) -> Int {
+        guard case .named(_, _, .maybe) = expression else { return 0 }
+        guard let span = slot.span, let before = TextSpan(location: 0, length: span.location).substring(of: text) else { return leftoverRank }
+        var words = before.lowercased().split(whereSeparator: { !$0.isLetter }).map(String.init)
+        while let last = words.last, ["the", "a", "an"].contains(last) { words.removeLast() }
+        return words.last.map { Lexicon.english.placePrepositions[$0] != nil } == true ? 1 : leftoverRank
+    }
+
+    /// Words left out as about what's in the photos.
+    private static func visual(_ slot: QuerySlot, _ words: String) -> ResolvedSlot {
+        ResolvedSlot(slot: QuerySlot(id: slot.id, value: .visual(words), span: slot.span), resolution: .unsupported, chip: words, systemImage: "info.circle")
+    }
+
+    /// The region an Apple Maps search is biased to: home ±2°, its centre rounded to whole degrees so the request
+    /// carries the home's area, never its position.
+    static func searchRegion(around home: Coordinate) -> GeoRegion {
+        GeoRegion(center: Coordinate(latitude: home.latitude.rounded(), longitude: home.longitude.rounded()), spanDegrees: 4)
+    }
+
     private func resolvePlace(_ expression: PlaceExpression, override: PlaceOverride?, environment: PlaceEnvironment, generation: Int, version: Int64,
                               isRerun: Bool) async throws -> PlaceResolution {
         let key = ResolutionKey(generation: generation, expression: expression, override: override)
-        // A fresh search resolves again (a remembered pick may have changed); a re-run keeps what it showed.
-        if isRerun, let cached = resolutions[key] { return cached.resolution }
+        // A fresh search resolves again (a remembered pick may have changed). A re-run keeps what it showed while the
+        // index is the same; after a change it resolves again (a place read since then has its row and its photos),
+        // keeping what it showed if the place can't be found without asking Apple Maps.
+        if isRerun, let cached = resolutions[key] {
+            if cached.version == version { return cached.resolution }
+            let fresh = try await places.resolve(expression, override: override, in: environment)
+            if case .notFound = fresh { return cached.resolution }
+            resolutions[key] = (version, fresh)
+            return fresh
+        }
         let resolution = try await places.resolve(expression, override: override, in: environment)
         if resolutions.count >= Self.resolutionCacheSize { resolutions.removeAll(keepingCapacity: true) }
         resolutions[key] = (version, resolution)
@@ -316,6 +389,17 @@ struct SnapshotDensity: PlaceDensity {
 
     func ownDistances(from center: Coordinate, within radius: Double) async throws -> [Double] {
         snapshot.indices(near: center, within: radius, ownGPSOnly: true).compactMap { snapshot.position(Int($0))?.distance(to: center) }
+    }
+
+    func members(level: MembershipLevel, placeID: Int64) async throws -> Int {
+        guard placeID >= 0, placeID <= Int64(Int32.max) else { return 0 }
+        let id = Int32(placeID)
+        switch level {
+        case .country: return snapshot.country.count { $0 == id }
+        case .region: return snapshot.region.count { $0 == id }
+        case .city: return (0..<snapshot.count).count { snapshot.city[$0] == id || snapshot.metro[$0] == id }
+        case .locality: return snapshot.locality.count { $0 == id }
+        }
     }
 
     func positions(inLocality placeID: Int64) async throws -> [Coordinate] {
