@@ -32,6 +32,17 @@ public enum LocalDateFormat {
         date(day).formatted(style(locale).weekday(.abbreviated).day().month(.abbreviated))
     }
 
+    /// A day as a search result names it: "Today", "Yesterday", the weekday within the last week ("Saturday"), the
+    /// day without its year this year ("Sat 22 Aug"), else the full day ("Sat, 14 Jun 2025").
+    public static func recentDay(_ day: Int32, today: Int32, locale: Locale = .autoupdatingCurrent) -> String {
+        switch today - day {
+        case 0: "Today"
+        case 1: "Yesterday"
+        case 2...6: date(day).formatted(style(locale).weekday(.wide))
+        default: LocalTime.civil(day: day).year == LocalTime.civil(day: today).year ? shortDay(day, locale: locale) : dayTitle(day, locale: locale)
+        }
+    }
+
     /// "Saturday, 22 August 2026", for VoiceOver.
     public static func spokenDay(_ day: Int32, locale: Locale = .autoupdatingCurrent) -> String {
         date(day).formatted(style(locale).weekday(.wide).day().month(.wide).year())

@@ -27,6 +27,16 @@ import Testing
         #expect(LocalDateFormat.dayRange(first, first, locale: uk) == "11 Mar 2024")
     }
 
+    @Test func recentDaysAreNamedAndThisYearDropsTheYear() {
+        let today = LocalTime.day(year: 2026, month: 10, day: 28)
+        #expect(LocalDateFormat.recentDay(today, today: today, locale: uk) == "Today")
+        #expect(LocalDateFormat.recentDay(today - 1, today: today, locale: uk) == "Yesterday")
+        #expect(LocalDateFormat.recentDay(LocalTime.day(year: 2026, month: 10, day: 24), today: today, locale: uk) == "Saturday")
+        #expect(LocalDateFormat.recentDay(LocalTime.day(year: 2026, month: 8, day: 22), today: today, locale: uk) == "Sat 22 Aug")
+        #expect(LocalDateFormat.recentDay(LocalTime.day(year: 2026, month: 8, day: 22), today: today, locale: us) == "Sat, Aug 22")
+        #expect(LocalDateFormat.recentDay(LocalTime.day(year: 2025, month: 6, day: 14), today: today, locale: uk) == "Sat, 14 Jun 2025")
+    }
+
     @Test func dateOrderFollowsTheRegion() {
         #expect(!LocalDateFormat.monthComesFirst(uk) && LocalDateFormat.monthComesFirst(us))
         #expect(!LocalDateFormat.numericMonthComesFirst(uk) && LocalDateFormat.numericMonthComesFirst(us))

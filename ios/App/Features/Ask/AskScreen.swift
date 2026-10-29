@@ -6,73 +6,95 @@ import LZSearch
 import SwiftUI
 
 /// Ask: describe a moment and get back the matching photos. The field searches the index (places, dates, photo
-/// types); around it, the index's progress, the library at a glance once it is built, the library card when photo
-/// access is missing or limited, and the privacy promise. It never fakes results.
+/// types); before a search, the library's example searches, the index's progress, the library at a glance once it is
+/// built, the library card when photo access is missing or limited, and the privacy promise. A search replaces them
+/// with its results. It never fakes results.
 struct AskScreen: View {
     @Environment(AppModel.self) private var model
     @State private var query = ""
     @State private var submitted: String?
 
+    private static let top = "ask-top"
+
     var body: some View {
         let access = model.photoAccess.access
         let status = model.index.status
         let state = AskState(access: access, status: status)
-        ScrollView {
-            if state == .deleted {
-                VStack(alignment: .leading, spacing: LZSpace.lg) {
-                    // The field stays, so a search typed here says why nothing happens.
-                    if submitted != nil { Notice(.info, message: AskCopy.needsIndex) }
-                    EmptyState(AskCopy.deletedTitle, message: AskCopy.deletedBody, systemImage: "magnifyingglass",
-                               actionTitle: IndexCopy.buildIndex) { model.index.buildAgain() }
-                }
-                .lzPage()
-                .accessibilityIdentifier("ask-deleted")
-            } else {
-                VStack(alignment: .leading, spacing: LZSpace.xl) {
-                    VStack(alignment: .leading, spacing: LZSpace.sm) {
-                        Text(AskCopy.title).lzText(.displayLarge).foregroundStyle(.lz(.ink))
-                        Text(AskCopy.subtitle).lzText(.body).foregroundStyle(.lz(.muted))
+        ScrollViewReader { proxy in
+            ScrollView {
+                Color.clear.frame(height: 0).id(Self.top)
+                if state == .deleted {
+                    VStack(alignment: .leading, spacing: LZSpace.lg) {
+                        // The field stays, so a search typed here says why nothing happens.
+                        if submitted != nil { Notice(.info, message: AskCopy.needsIndex) }
+                        EmptyState(AskCopy.deletedTitle, message: AskCopy.deletedBody, systemImage: "magnifyingglass",
+                                   actionTitle: IndexCopy.buildIndex) { model.index.buildAgain() }
                     }
-                    if submitted != nil {
-                        if state == .noAccess {
-                            Notice(.info, message: AskCopy.needsAccess)
-                        } else {
-                            SearchStatusCard(state: model.search.state)
-                        }
-                    }
-                    content(state, status: status, access: access)
-                    Label(AskCopy.privacy, systemImage: "lock.shield")
-                        .lzText(.caption)
-                        .foregroundStyle(.lz(.muted))
+                    .lzPage()
+                    .accessibilityIdentifier("ask-deleted")
+                } else if submitted != nil, state != .noAccess {
+                    SearchResultsView { search($0, proxy: proxy) }
+                } else {
+                    home(state, status: status, access: access, proxy: proxy)
                 }
-                .lzPage()
-                .padding(.vertical, LZSpace.lg)
             }
-        }
-        .scrollDismissesKeyboard(.interactively)
-        .background(.lz(.bg))
-        .navigationTitle(AskCopy.navigationTitle)
-        .navigationBarTitleDisplayMode(.inline)
-        .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: AskCopy.prompt)
-        .onSubmit(of: .search) { submit(query) }
-        .onChange(of: query) { _, value in
-            if value.isEmpty {
-                submitted = nil
-                model.search.clear()
+            .scrollDismissesKeyboard(.interactively)
+            .background(.lz(.bg))
+            .navigationTitle(AskCopy.navigationTitle)
+            .navigationBarTitleDisplayMode(.inline)
+            .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: AskCopy.prompt)
+            .onSubmit(of: .search) { search(query, proxy: proxy) }
+            .onChange(of: query) { _, value in
+                if value.isEmpty {
+                    submitted = nil
+                    model.search.clear()
+                } else if submitted == nil {
+                    model.search.preview(value)
+                }
             }
-        }
-        // A search started elsewhere (-LZQuery) shows its words in the field.
-        .onChange(of: model.search.text) { _, text in
-            guard !text.isEmpty, text != query else { return }
-            query = text
-            submitted = text
+            // A search started elsewhere (-LZQuery), or the words of edited chips, show in the field.
+            .onChange(of: model.search.text) { _, text in
+                guard !text.isEmpty else { return }
+                if text != query { query = text }
+                submitted = text
+                proxy.scrollTo(Self.top, anchor: .top)
+            }
+            .task(id: model.index.version) {
+                if model.search.examples.isEmpty { model.search.refreshExamples(after: .zero) }
+            }
         }
         .accessibilityIdentifier("ask")
     }
 
-    private func submit(_ text: String) {
+    /// Before a search: the title, the chips of what is being typed, the examples and the library's cards.
+    private func home(_ state: AskState, status: IndexStatus, access: PhotoAccess, proxy: ScrollViewProxy) -> some View {
+        VStack(alignment: .leading, spacing: LZSpace.xl) {
+            VStack(alignment: .leading, spacing: LZSpace.sm) {
+                Text(AskCopy.title).lzText(.displayLarge).foregroundStyle(.lz(.ink))
+                Text(AskCopy.subtitle).lzText(.body).foregroundStyle(.lz(.muted))
+            }
+            if submitted != nil {
+                Notice(.info, message: AskCopy.needsAccess)
+            } else if !query.isEmpty, let parsed = model.search.parsed, !parsed.slots.isEmpty {
+                UnderstoodAsRow(chips: QueryChipModel.chips(parsed))
+            }
+            if case .ready = state, !model.search.examples.isEmpty {
+                ExampleSearchesRow(examples: model.search.examples) { search($0, proxy: proxy) }
+            }
+            content(state, status: status, access: access)
+            Label(AskCopy.privacy, systemImage: "lock.shield")
+                .lzText(.caption)
+                .foregroundStyle(.lz(.muted))
+        }
+        .lzPage()
+        .padding(.vertical, LZSpace.lg)
+    }
+
+    private func search(_ text: String, proxy: ScrollViewProxy) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed != query { query = trimmed }
         submitted = trimmed.isEmpty ? nil : trimmed
+        proxy.scrollTo(Self.top, anchor: .top)
         guard !trimmed.isEmpty, model.photoAccess.access.canRead else { return }
         model.search.submit(trimmed)
     }
@@ -143,7 +165,7 @@ nonisolated enum AskState: Equatable {
 nonisolated enum AskCopy {
     static let navigationTitle = "Ask Lahza"
     static let title = "What do you remember?"
-    static let subtitle = "Describe a moment the way you'd tell a friend. Lahza finds the photos."
+    static let subtitle = "Search by place, date or photo type, like “Dubai last December” or “videos from Eid”."
     static let prompt = "Soccer at the park last summer…"
     static let privacy = "Your photos stay on this iPhone."
     static let searching = "Searching your photos…"
@@ -155,6 +177,125 @@ nonisolated enum AskCopy {
     /// While a typed place is looked up: "Looking up “Sufra Grill”…".
     static func lookingUp(_ place: String) -> String {
         "Looking up “\(place)”…"
+    }
+
+    // MARK: Chips and examples
+
+    static let understoodAs = "UNDERSTOOD AS"
+    static let tryLabel = "TRY"
+    static let notYetSuffix = " · not yet"
+    static let notSearchableYet = "not searchable yet"
+    static let lookingUpValue = "Looking up"
+    static let unsupportedHint = "Explains why it was left out"
+    static let exampleHint = "Searches for it"
+
+    /// "soccer · not yet"; a date Lahza couldn't use keeps its own words ("National day of which country?").
+    static func notYet(_ chip: String, kind: SlotKind) -> String {
+        kind == .time ? chip : chip + notYetSuffix
+    }
+
+    /// What an unsupported chip's tap explains.
+    static func unsupportedExplanation(_ kind: SlotKind) -> String {
+        switch kind {
+        case .people: "Searching for people arrives in a later version."
+        case .place: "Lahza searches one place at a time for now."
+        case .time: "Lahza couldn’t use these dates. Try one like “last summer” or “Ramadan 2024”."
+        default: "Searching what’s in photos, like “soccer” or “sunset”, arrives in a later version."
+        }
+    }
+
+    /// The slot a chip stands for, for VoiceOver.
+    static func slotName(_ kind: SlotKind) -> String {
+        switch kind {
+        case .place: "Place"
+        case .time: "Dates"
+        case .media: "Photo type"
+        case .event: "Trips"
+        case .people: "People"
+        case .visual, .text: "What’s in photos"
+        }
+    }
+
+    /// "Last summer" from "last summer".
+    static func capitalized(_ words: String) -> String {
+        words.prefix(1).uppercased() + words.dropFirst()
+    }
+
+    /// "Al-Nakheel Park · 85".
+    static func example(_ example: ExampleSearch) -> String { "\(example.text) · \(example.count.formatted())" }
+
+    /// "Al-Nakheel Park, 85 results".
+    static func spokenExample(_ example: ExampleSearch) -> String { "\(example.text), \(MomentCopy.count(example.count, "result"))" }
+
+    /// "Riyadh, 10 photos" for the picker's "Riyadh · 10".
+    static func spokenChoice(_ label: String) -> String { label.replacingOccurrences(of: " · ", with: ", ") + " photos" }
+
+    // MARK: Results
+
+    static let tryAgain = "Try again"
+    static let show = "Show"
+    static let hide = "Hide"
+    static let tripEyebrow = "TRIP"
+    static let seeTrip = "See trip"
+    static let hideWeaker = "Hide weaker matches"
+    static let noDate = "No date"
+
+    /// "moment" or "moments" after the header's number.
+    static func momentsNoun(_ count: Int) -> String { count == 1 ? "moment" : "moments" }
+
+    /// "Show 12 weaker matches".
+    static func showWeaker(_ count: Int) -> String {
+        count == 1 ? "Show 1 weaker match" : "Show \(count.formatted()) weaker matches"
+    }
+
+    /// "Dubai, any time · 57".
+    static func offer(_ offer: WideningOffer) -> String { "\(offer.label) · \(offer.count.formatted())" }
+
+    /// "Dubai, any time, 57 results".
+    static func spokenOffer(_ offer: WideningOffer) -> String { "\(offer.label), \(MomentCopy.count(offer.count, "result"))" }
+
+    static func noMatchSymbol(_ kind: NoMatch.Kind) -> String {
+        switch kind {
+        case .onlyUnsupported: "eye.slash"
+        case .future: "calendar.badge.exclamationmark"
+        case .stillReading: "hourglass"
+        case .placeNotFound, .placeEmpty, .onlyBeyondRadius: "mappin.slash"
+        default: "magnifyingglass"
+        }
+    }
+
+    /// A card's day: "Yesterday", "Saturday", "Sat 22 Aug" this year, the full day before; "No date" for undated
+    /// photos.
+    static func cardTitle(_ card: MomentCard, today: Int32) -> String {
+        card.id == MomentCard.noDateKey ? noDate : MomentCopy.recentDay(card.id.day, today: today)
+    }
+
+    /// "Al-Nakheel Park · Riyadh · 5:00 – 6:40 PM", with the country away from home and "Athens time" when the zone
+    /// isn't this iPhone's; nil without a moment.
+    static func cardPlaceAndTime(_ card: MomentCard, homeCountry: String?, deviceZone: TimeZone) -> String? {
+        guard let moment = card.moment else { return nil }
+        return [MomentCopy.placeLine(moment, homeCountry: homeCountry), MomentCopy.timeSpan(moment), MomentCopy.zoneNote(moment, deviceZone: deviceZone)]
+            .compactMap { $0 }.joined(separator: " · ")
+    }
+
+    /// A reason pill's tone: caution gold, no evidence neutral, otherwise sage.
+    static func tone(_ reason: Reason) -> LZTone {
+        switch reason.kind {
+        case .caution: .gold
+        case .neutral: .neutral
+        default: .sage
+        }
+    }
+
+    /// "Saturday, 22 August 2026, Al-Nakheel Park · Riyadh · 5:00 – 6:40 PM, 8 photos, In Al-Nakheel Park".
+    static func spokenCard(_ card: MomentCard, today: Int32, homeCountry: String?, deviceZone: TimeZone) -> String {
+        let recent = (0...6).contains(today - card.id.day)
+        let day = card.id == MomentCard.noDateKey ? noDate : recent ? cardTitle(card, today: today) : MomentCopy.spokenDay(card.id.day)
+        var parts = [day]
+        if let line = cardPlaceAndTime(card, homeCountry: homeCountry, deviceZone: deviceZone) { parts.append(line) }
+        parts.append(MomentCopy.counts(photos: card.photoCount, videos: card.videoCount))
+        parts += card.reasons.map(\.text)
+        return parts.joined(separator: ", ")
     }
 
     // MARK: Indexing card
@@ -173,16 +314,15 @@ nonisolated enum AskCopy {
 
     static func indexingCaption(_ phase: IndexStatus.Phase) -> String {
         switch phase {
-        case .organizing: "Trips appear when Lahza finishes."
-        default: "Newest photos come first; trips appear when Lahza finishes."
+        case .organizing: "You can search now. Trips appear when Lahza finishes."
+        default: "You can search now. Newest photos come first; trips appear when Lahza finishes."
         }
     }
 
     // MARK: Summary card
 
     static let summaryEyebrow = "YOUR LIBRARY"
-    /// Future tense until search ships (PR 3), where it becomes "Searches places, dates and photo types…".
-    static let capability = "Search will cover places, dates and photo types. Searching what’s in photos comes later."
+    static let capability = "Searches places, dates and photo types. Searching what’s in photos comes later."
 
     /// "photos & videos" after the count ("shared" under limited access).
     static func assetsNoun(_ count: Int, isLimited: Bool) -> String {

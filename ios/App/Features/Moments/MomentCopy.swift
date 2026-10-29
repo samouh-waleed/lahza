@@ -45,6 +45,16 @@ nonisolated enum MomentCopy {
         LocalDateFormat.shortDay(day, locale: locale)
     }
 
+    /// A search card's day: "Yesterday", "Saturday" within the last week, "Sat 22 Aug" this year, else with the year.
+    static func recentDay(_ day: Int32, today: Int32, locale: Locale = .autoupdatingCurrent) -> String {
+        LocalDateFormat.recentDay(day, today: today, locale: locale)
+    }
+
+    /// Today's day number on this iPhone (days break at 04:00, like moments).
+    static func today(now: Date, zone: TimeZone) -> Int32 {
+        LocalTime.momentDay(wallSeconds: LocalTime.wallSeconds(now, in: zone))
+    }
+
     /// "Saturday, 22 August 2026", for VoiceOver.
     static func spokenDay(_ day: Int32, locale: Locale = .autoupdatingCurrent) -> String {
         LocalDateFormat.spokenDay(day, locale: locale)
@@ -154,6 +164,10 @@ nonisolated enum MomentCopy {
     }
 
     static func allTitle(_ count: Int) -> String { "All · \(count.formatted())" }
+
+    /// A moment opened from a search: what matched, then the rest of the moment.
+    static func matchesTitle(_ count: Int) -> String { "Matches · \(count.formatted())" }
+    static func alsoTitle(_ count: Int) -> String { "Also in this moment · \(count.formatted())" }
 
     /// "2–8 Jul 2023" (UK), "Jul 2–8, 2023" (US); one date for a single day.
     static func dayRange(_ first: Int32, _ last: Int32, locale: Locale = .autoupdatingCurrent) -> String {

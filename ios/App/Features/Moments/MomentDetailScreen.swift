@@ -1,10 +1,12 @@
 import LZDesign
 import LZGeo
 import LZIndex
+import LZSearch
 import SwiftUI
 
 /// One moment: its day, place, time span (with the zone when it isn't this iPhone's), counts and every item in a
-/// grid. Shared by Ask and Moments; the viewer and Save place come later.
+/// grid. Shared by Ask and Moments: opened from a search, it shows the search's reasons and its matches first, then
+/// the rest of the moment dimmed. The viewer and Save place come later.
 struct MomentDetailScreen: View {
     let ref: MomentRef
     @Environment(AppModel.self) private var model
@@ -14,15 +16,21 @@ struct MomentDetailScreen: View {
     var body: some View {
         ScrollView {
             if let detail {
+                let card = searchCard
                 VStack(alignment: .leading, spacing: LZSpace.xl) {
                     MomentHeader(moment: detail.moment, trip: trip(of: detail.moment), homeCountry: model.moments.homeCountryCode,
-                                 deviceZone: model.dependencies.deviceTimeZone())
-                    VStack(alignment: .leading, spacing: LZSpace.sm) {
-                        Text(MomentCopy.allTitle(detail.members.count))
-                            .lzText(.label)
-                            .foregroundStyle(.lz(.muted))
-                            .accessibilityAddTraits(.isHeader)
-                        MomentGrid(members: detail.members)
+                                 deviceZone: model.dependencies.deviceTimeZone(), reasons: card?.reasons ?? [])
+                    if let card {
+                        let split = MomentMatches(members: detail.members, card: card)
+                        gridSection(MomentCopy.matchesTitle(split.matches.count), members: split.matches)
+                            .accessibilityIdentifier("moment-matches")
+                        if !split.others.isEmpty {
+                            gridSection(MomentCopy.alsoTitle(split.others.count), members: split.others)
+                                .opacity(0.6)
+                                .accessibilityIdentifier("moment-also")
+                        }
+                    } else {
+                        gridSection(MomentCopy.allTitle(detail.members.count), members: detail.members)
                     }
                 }
                 .lzPage()
@@ -46,14 +54,45 @@ struct MomentDetailScreen: View {
     private func trip(of moment: MomentRow) -> TripRow? {
         moment.tripID.flatMap { id in model.moments.trips.first { $0.id == id } }
     }
+
+    /// The card of the search this moment was opened from. A search run again when the index changed keeps its
+    /// moment keys, so the shown search's card is used.
+    private var searchCard: MomentCard? {
+        guard ref.searchID != nil else { return nil }
+        return model.search.result?.cards.first { $0.id == ref.key }
+    }
+
+    private func gridSection(_ title: String, members: [MomentDetailRows.Member]) -> some View {
+        VStack(alignment: .leading, spacing: LZSpace.sm) {
+            Text(title)
+                .lzText(.label)
+                .foregroundStyle(.lz(.muted))
+                .accessibilityAddTraits(.isHeader)
+            MomentGrid(members: members)
+        }
+    }
 }
 
-/// The moment's date, place line, time span and counts.
+/// A moment's items split by a search: those that matched (in its card), then the others.
+nonisolated struct MomentMatches: Equatable {
+    var matches: [MomentDetailRows.Member]
+    var others: [MomentDetailRows.Member]
+
+    init(members: [MomentDetailRows.Member], card: MomentCard) {
+        let hits = Set(card.hits.map(\.id))
+        matches = members.filter { hits.contains($0.id) }
+        others = members.filter { !hits.contains($0.id) }
+    }
+}
+
+/// The moment's date, place line, time span, counts and, from a search, why it matched.
 private struct MomentHeader: View {
     let moment: MomentRow
     let trip: TripRow?
     let homeCountry: String?
     let deviceZone: TimeZone
+    /// Why it matched, when opened from a search.
+    var reasons: [Reason] = []
 
     var body: some View {
         VStack(alignment: .leading, spacing: LZSpace.sm) {
@@ -72,6 +111,13 @@ private struct MomentHeader: View {
                     .foregroundStyle(.lz(.muted))
                 if let trip {
                     Pill(MomentCopy.tripBadge(trip), systemImage: "airplane", tone: .sage)
+                }
+            }
+            if !reasons.isEmpty {
+                LZFlowLayout(spacing: LZSpace.xs, lineSpacing: LZSpace.xs) {
+                    ForEach(reasons, id: \.self) { reason in
+                        Pill(reason.text, systemImage: reason.systemImage, tone: AskCopy.tone(reason))
+                    }
                 }
             }
         }
