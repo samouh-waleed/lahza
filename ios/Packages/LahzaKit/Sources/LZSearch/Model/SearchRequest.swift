@@ -47,11 +47,15 @@ public struct PlaceOverride: Sendable, Hashable, Codable {
     public var near: Bool?
     /// Look the words up on Apple Maps even when a place in the library matches (the place editor asked).
     public var searchesAppleMaps: Bool?
+    /// The words typed for the slot before a place was picked for it: what later picks are remembered under, and what
+    /// the place editor lists places for.
+    public var typedWords: String?
 
-    public init(placeKey: String? = nil, radius: Double? = nil, near: Bool? = nil, searchesAppleMaps: Bool? = nil) {
+    public init(placeKey: String? = nil, radius: Double? = nil, near: Bool? = nil, searchesAppleMaps: Bool? = nil, typedWords: String? = nil) {
         self.placeKey = placeKey
         self.radius = radius
         self.near = near
         self.searchesAppleMaps = searchesAppleMaps
+        self.typedWords = typedWords
     }
 }

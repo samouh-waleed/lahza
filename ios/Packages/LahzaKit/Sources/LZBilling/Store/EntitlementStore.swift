@@ -32,11 +32,12 @@ import Observation
 
     static let cacheKey = KVKey.device(KVSuffix.entitlementCache)
 
-    /// The earliest capture date search covers: ``Brand/Limits/freeSearchMonths`` months before
-    /// `now`, or nil once the full library is unlocked (every year).
+    /// The earliest capture date search covers: the start of the day ``Brand/Limits/freeSearchMonths``
+    /// months before `now` (whole days, so a day's searches and example counts cover the same
+    /// photos), or nil once the full library is unlocked (every year).
     public func searchStart(now: Date, calendar: Calendar = .current) -> Date? {
         guard !isUnlocked else { return nil }
-        return calendar.date(byAdding: .month, value: -Brand.Limits.freeSearchMonths, to: now)
+        return calendar.date(byAdding: .month, value: -Brand.Limits.freeSearchMonths, to: now).map(calendar.startOfDay)
     }
 
     /// Applies a CustomerInfo answer and caches the result.

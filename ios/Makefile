@@ -49,8 +49,10 @@ project:            ## Regenerate Lahza.xcodeproj from project.yml
 build: project      ## Build the app for the simulator
 	set -o pipefail && $(XCB) build | xcbeautify --quiet
 
+# The latency targets (search spec §6.9) run alone after the rest, so no other suite is building indexes meanwhile.
 test-kit:           ## Logic tests on the Mac host (fast)
-	swift test --package-path $(KIT) --jobs $(JOBS)
+	swift test --package-path $(KIT) --jobs $(JOBS) --skip ParseAndResolveLatencyTests
+	swift test --package-path $(KIT) --jobs $(JOBS) --filter ParseAndResolveLatencyTests
 
 test-app: project   ## App-hosted tests on the simulator
 	set -o pipefail && $(XCB) test | xcbeautify --quiet
@@ -120,7 +122,7 @@ verify-search: project grant-photos  ## SeededLibraryTests on the seeded simulat
 	@mkdir -p .build
 	set -o pipefail && TEST_RUNNER_LZ_SEEDED_LIBRARY=1 $(XCB) test -only-testing:LahzaTests/SeededLibraryTests -collect-test-diagnostics never \
 		| tee .build/verify-search.log | xcbeautify --quiet --is-ci --preserve-unbeautified | grep -v -e IDESchemeActionSDKRecord -e IDETestOperationsObserverDebug; \
-		status=$$?; grep '^SEEDED ' .build/verify-search.log; exit $$status
+		status=$$?; grep -o 'SEEDED .*' .build/verify-search.log; exit $$status
 
 screens: build      ## Ask's results for the search review queries, light and dark, from the hero seed library → .build/screens
 	@test -n "$(SIM_UDID)" || { echo 'No available simulator named "$(SIM)".'; exit 1; }

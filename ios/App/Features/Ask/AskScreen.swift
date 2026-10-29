@@ -196,6 +196,8 @@ nonisolated enum AskCopy {
     static let notSearchableYet = "not searchable yet"
     static let lookingUpValue = "Looking up"
     static let unsupportedHint = "Explains why it was left out"
+    /// On a searched query the pill opens its editor: why, and Remove.
+    static let unsupportedEditHint = "Explains why it was left out, and lets you remove it"
     static let editHint = "Edit"
     static let exampleHint = "Searches for it"
 

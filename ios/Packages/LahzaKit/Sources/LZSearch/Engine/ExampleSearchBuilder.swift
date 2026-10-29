@@ -9,27 +9,40 @@ extension SearchEngine {
     /// day ("last summer" and "N years ago" move with the date) and scope.
     ///
     /// Under a free search's scope a count is what tapping the example shows (the Best matches since the scope's
-    /// start), so an example whose photos are all older is left out and the latest trip is the latest with matches.
+    /// start), so an example whose photos are all older is left out and the trip is the latest of the newest few (by
+    /// label) with matches, none when no trip ends inside the scope.
     public func examples(reader: IndexReader, limit: Int = 5, index: SearchIndexContext = SearchIndexContext(),
                          scope: SearchScope = .wholeLibrary) async throws -> [ExampleSearch] {
         let version = try await reader.indexVersion()
         let today = TimeResolver(context: try await context(reader).time).today
-        // A free scope's start moves with the clock: the cache keeps its day.
-        let scopeDay: Int64? = if case .since(let date) = scope { Int64((date.timeIntervalSince1970 / 86_400).rounded(.down)) } else { nil }
-        if let cached = examplesCache, cached.generation == reader.generation, cached.version == version, cached.day == today, cached.scopeDay == scopeDay {
+        // The counts are those of this exact start (search and the examples read the same one through the day).
+        let since: Int64? = if case .since(let date) = scope { Int64(date.timeIntervalSince1970.rounded(.down)) } else { nil }
+        if let cached = examplesCache, cached.generation == reader.generation, cached.version == version, cached.day == today, cached.since == since {
             return Array(cached.examples.prefix(limit))
         }
         let started = ContinuousClock.now
         let summary = try await reader.summary()
         var examples: [ExampleSearch] = []
         if summary.assets > 0 {
-            for trip in try await reader.trips() where trip.itemCount >= 20 {
-                if let example = try await verified("\(trip.label) trip", reader: reader, scope: scope) {
-                    examples.append(example)
-                    break
+            let trips = try await reader.trips()
+            if let since {
+                // Only photos taken since the start count, and "X trip" matches only photos in a trip: without a trip
+                // ending since then (a day early, whatever the zone) there is nothing to try.
+                let startDay = Int32((Double(since) / 86_400).rounded(.down)) - 1
+                var tried = Set<String>()
+                if trips.contains(where: { $0.endDay >= startDay }) {
+                    for trip in trips where trip.itemCount >= 20 {
+                        guard tried.count < Self.freeTripTries else { break }
+                        guard tried.insert(trip.label).inserted else { continue }
+                        if let example = try await verified("\(trip.label) trip", reader: reader, scope: scope) {
+                            examples.append(example)
+                            break
+                        }
+                    }
                 }
-                // The whole library's latest trip always counts; a free search's may hold nothing yet.
-                if scope == .wholeLibrary { break }
+            } else if let trip = trips.first(where: { $0.itemCount >= 20 }), let example = try await verified("\(trip.label) trip", reader: reader, scope: scope) {
+                // The whole library's latest trip.
+                examples.append(example)
             }
             if let place = try await reader.places(kinds: [.poi], minPhotos: 1, limit: 1).first,
                let example = try await verified(place.name, reader: reader, scope: scope) {
@@ -54,10 +67,13 @@ extension SearchEngine {
                 }
             }
         }
-        examplesCache = (reader.generation, version, today, scopeDay, examples)
+        examplesCache = (reader.generation, version, today, since, examples)
         log.debug("Examples: \(examples.count) in \(ContinuousClock.now - started)", privacy: .public)
         return Array(examples.prefix(limit))
     }
+
+    /// The most trips a free search's examples try (each is a whole search).
+    static let freeTripTries = 3
 
     /// The search with its count, when it has at least `minimum` Best matches in `scope`.
     private func verified(_ text: String, minimum: Int = 3, reader: IndexReader, scope: SearchScope) async throws -> ExampleSearch? {

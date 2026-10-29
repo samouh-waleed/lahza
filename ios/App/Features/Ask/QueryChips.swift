@@ -104,7 +104,7 @@ struct QueryChip: View {
             }
             .buttonStyle(LZPressStyle(scale: 0.96))
             .accessibilityLabel(chip.accessibilityLabel)
-            .accessibilityHint(AskCopy.unsupportedHint)
+            .accessibilityHint(edit == nil ? AskCopy.unsupportedHint : AskCopy.unsupportedEditHint)
             .accessibilityIdentifier("ask-chip-\(chip.kind.rawValue)")
             .popover(isPresented: $explains) {
                 Text(AskCopy.unsupportedExplanation(chip.kind))

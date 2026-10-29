@@ -174,6 +174,37 @@ import Testing
         #expect(try await hero.reader.trips().count == tripCount)
     }
 
+    /// Picking another night place moves the "Home" place, which stays the home in the place index too.
+    @Test func aSecondNightPlaceKeepsTheHomeMirror() async throws {
+        let database = try IndexDatabase.open(.inMemory)
+        let writer = UserDataWriter(database: database, clock: FixedClock(Fixture.now))
+        try await writer.setHome(.point(Fixture.nakheel))
+        try await writer.setHome(.point(Fixture.athens))
+        let homes = try await database.read { db in
+            try Row.fetchAll(db, sql: "SELECT p.category, p.lat FROM place p JOIN saved_place s ON p.key = 'saved:' || s.id WHERE s.is_home = 1")
+                .map { row -> (category: String?, latitude: Double?) in (row["category"], row["lat"]) }
+        }
+        #expect(homes.count == 1)
+        #expect(homes.first?.category == PlaceCategory.home.rawValue)
+        #expect(homes.first?.latitude == Fixture.athens.latitude)
+    }
+
+    /// Deleting a saved place forgets the picks remembered for it: a place saved later may get its id.
+    @Test func deletingAPlaceForgetsItsPicks() async throws {
+        let database = try IndexDatabase.open(.inMemory)
+        let writer = UserDataWriter(database: database, clock: FixedClock(Fixture.now))
+        let reader = IndexReader(database: database)
+        let pitch = try await writer.savePlace(name: "Nakheel pitch", center: Fixture.nakheel, radius: 250, isHome: false)
+        try await writer.rememberChoice(phrase: "nakheel", placeKey: PlaceKey.saved(pitch), radius: nil)
+        try await writer.rememberChoice(phrase: "salam park", placeKey: "mk:seed.salam-park", radius: nil)
+        try await writer.deletePlace(pitch)
+        #expect(try await reader.placeChoice(for: "nakheel") == nil)
+        #expect(try await reader.placeChoice(for: "salam park")?.placeKey == "mk:seed.salam-park", "other picks stay")
+        let next = try await writer.savePlace(name: "Grandma’s", center: Fixture.athens, radius: 100, isHome: false)
+        #expect(next == pitch, "SQLite gives the next place the same id")
+        #expect(try await reader.placeChoice(for: "nakheel") == nil)
+    }
+
     @Test func deletingTheHomePlaceGoesBackToTheEstimate() async throws {
         let hero = try await Hero()
         let estimated = try await hero.reader.homeBase(year: nil)

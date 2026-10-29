@@ -147,7 +147,7 @@ private struct QueryLabSection: View {
             }
             Section("Counts") {
                 ForEach(report.slotCounts, id: \.label) { count in LabeledContent(count.label, value: "\(count.best) best") }
-                ForEach(Tier.allCases, id: \.self) { tier in LabeledContent("tier \(tier)", value: "\(report.tiers[tier] ?? 0)") }
+                ForEach(Tier.allCases, id: \.self) { tier in LabeledContent("tier \(String(describing: tier))", value: "\(report.tiers[tier] ?? 0)") }
             }
             Section("Timings") {
                 LabeledContent("Parse", value: QueryLabCopy.ms(report.timings.parse))
@@ -159,7 +159,7 @@ private struct QueryLabSection: View {
             Section("Top \(report.top.count) hits") {
                 ForEach(Array(report.top.enumerated()), id: \.offset) { rank, hit in
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("\(rank + 1). \(hit.tier) · S \(String(format: "%.2f", hit.score)) = \(hit.slots)")
+                        Text("\(rank + 1). \(String(describing: hit.tier)) · S \(String(format: "%.2f", hit.score)) = \(hit.slots)")
                         Text("#\(hit.assetID) · \(hit.isVideo ? "video" : "photo") · \(hit.when)").foregroundStyle(.secondary)
                     }
                     .font(.footnote.monospaced())

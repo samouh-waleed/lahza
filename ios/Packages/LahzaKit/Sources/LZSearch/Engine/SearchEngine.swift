@@ -28,7 +28,7 @@ public actor SearchEngine {
     private var contexts: EngineContext?
     /// The places resolved for each place expression, reused when the index changes under a shown search.
     private var resolutions: [ResolutionKey: (version: Int64, resolution: PlaceResolution)] = [:]
-    var examplesCache: (generation: Int, version: Int64, day: Int32, scopeDay: Int64?, examples: [ExampleSearch])?
+    var examplesCache: (generation: Int, version: Int64, day: Int32, since: Int64?, examples: [ExampleSearch])?
     let log = Log("search")
 
     static let resolutionCacheSize = 64
@@ -266,6 +266,7 @@ public actor SearchEngine {
             let resolution = try await resolvePlace(expression, override: override, environment: environment, generation: reader.generation,
                                                     version: context.version, isRerun: isRerun)
             if environment.allowance.searched { query.searchedAppleMaps = true }
+            if let missed = environment.allowance.missed { query.appleMapsMissed = missed }
             switch resolution {
             case .notFound(let reason):
                 if reason == .unconfirmed || expression.isMaybe {
@@ -381,6 +382,7 @@ struct PreparedQuery: Sendable {
     var eventSlot: Int?
     var picker: PlacePicker?
     var searchedAppleMaps = false
+    var appleMapsMissed: PlaceNotFound?
 
     init(parsed: ParsedQuery) {
         self.parsed = parsed
@@ -392,7 +394,7 @@ struct PreparedQuery: Sendable {
     var canScore: Bool { placeFailure == nil && !plan.isEmpty && !(plan.time?.isFuture ?? false) }
 
     var resolved: ResolvedQuery {
-        ResolvedQuery(parsed: parsed, slots: slots, picker: picker, searchedAppleMaps: searchedAppleMaps)
+        ResolvedQuery(parsed: parsed, slots: slots, picker: picker, searchedAppleMaps: searchedAppleMaps, appleMapsMissed: appleMapsMissed)
     }
 
     /// "at Al-Nakheel Park during Ramadan 2024": what the results show, for the unsupported notice.

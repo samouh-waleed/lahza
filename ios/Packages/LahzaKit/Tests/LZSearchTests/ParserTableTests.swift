@@ -31,6 +31,22 @@ import Testing
         #expect(query.parser == .rules && !query.isEdited)
     }
 
+    /// A saved name that is also a common word ("My park", so "park") is the saved place only where it starts a name:
+    /// never a word inside another place's name.
+    @Test func aSavedWordInsideAnotherNameIsNotTheSavedPlace() {
+        var vocabulary = Self.knownVocabulary
+        vocabulary.savedAliases = ["my park": 9, "park": 9]
+        let saved = SlotValue.place(.alias(.saved(9), relation: .at))
+        #expect(SearchFixture.parse("Al-Nakheel Park", vocabulary).values == [Self.place("Al-Nakheel Park")])
+        #expect(SearchFixture.parse("at Salam Park", vocabulary).values == [Self.place("Salam Park", .at)])
+        #expect(SearchFixture.parse("Foo Park", vocabulary).values == [Self.maybe("Foo Park")])
+        #expect(SearchFixture.parse("at Foo Park last summer", vocabulary).values == [Self.maybe("Foo Park", .at), Self.time(.season(.summer, .last))])
+        #expect(SearchFixture.parse("park", vocabulary).values == [saved])
+        #expect(SearchFixture.parse("videos at my park", vocabulary).values == [Self.videos, saved])
+        #expect(SearchFixture.parse("the park last summer", vocabulary).values == [saved, Self.time(.season(.summer, .last))])
+        #expect(SearchFixture.parse("videos park", vocabulary).values == [Self.videos, saved], "after words another recogniser took")
+    }
+
     @Test func theTableIsLargeEnough() {
         #expect(Self.cases.count >= 150)
     }

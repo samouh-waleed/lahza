@@ -188,6 +188,8 @@ private struct ViewerPhoto: View {
     let placeholder: String
     /// A note under the image (a video that can't play here).
     var note: String?
+    /// The note's symbol: iCloud, or what else kept the video from playing.
+    var noteImage = "icloud"
     @Environment(AppModel.self) private var model
     @Environment(\.displayScale) private var displayScale
     @State private var image: AssetImage?
@@ -229,11 +231,11 @@ private struct ViewerPhoto: View {
     @ViewBuilder private var content: some View {
         switch image {
         case .image(let cgImage)?:
-            picture(cgImage, note: note)
+            picture(cgImage, note: note, symbol: noteImage)
         case .reduced(let cgImage)?:
-            picture(cgImage, note: note ?? ViewerCopy.fullQualityInCloud)
+            picture(cgImage, note: note ?? ViewerCopy.fullQualityInCloud, symbol: note == nil ? "icloud" : noteImage)
         case .inCloud?:
-            ViewerPlaceholder(systemImage: "icloud", text: note ?? ViewerCopy.fullQualityInCloud)
+            ViewerPlaceholder(systemImage: note == nil ? "icloud" : noteImage, text: note ?? ViewerCopy.fullQualityInCloud)
         case .missing?:
             ViewerPlaceholder(systemImage: item.isVideo ? "video.slash" : "photo", text: note ?? placeholder)
         case nil:
@@ -241,18 +243,18 @@ private struct ViewerPhoto: View {
         }
     }
 
-    private func picture(_ cgImage: CGImage, note: String?) -> some View {
+    private func picture(_ cgImage: CGImage, note: String?, symbol: String) -> some View {
         VStack(spacing: LZSpace.sm) {
             Image(decorative: cgImage, scale: displayScale)
                 .resizable()
                 .scaledToFit()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             if let note {
-                Label(note, systemImage: "icloud")
+                Label(note, systemImage: symbol)
                     .lzText(.caption)
                     .foregroundStyle(.lz(.muted))
                     .padding(.bottom, LZSpace.xs)
-                    .accessibilityIdentifier("viewer-icloud-note")
+                    .accessibilityIdentifier(symbol == "icloud" ? "viewer-icloud-note" : "viewer-note")
             }
         }
     }
@@ -278,7 +280,7 @@ private struct ViewerVideo: View {
                 case .inCloud?:
                     ViewerPhoto(item: item, placeholder: ViewerCopy.videoInCloud, note: ViewerCopy.videoInCloud)
                 case .missing?:
-                    ViewerPhoto(item: item, placeholder: ViewerCopy.videoMissing, note: ViewerCopy.videoMissing)
+                    ViewerPhoto(item: item, placeholder: ViewerCopy.videoMissing, note: ViewerCopy.videoMissing, noteImage: "video.slash")
                 case .item?, nil:
                     LZLoader(.star, size: 28, label: ViewerCopy.loading)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)

@@ -25,17 +25,20 @@ extension TimeResolver {
     /// - "3 years ago": On this day in 2023 · 2 years ago; "3 years ago today": All of 2023 · 2 years ago today;
     /// - a weekday or the weekend: last ↔ every; a year: the year before and after; a date: its month; today ↔
     ///   yesterday; this ↔ last week, month or year.
-    /// A part of the day stays as it is (the editor changes it separately). Ranges and rolling windows get none.
+    /// A part of the day stays as it is (the editor changes it separately): "Any time" then keeps only it ("last summer
+    /// at night" → "at night"). Ranges and rolling windows get none.
     public func presets(for expression: TimeExpression) -> [TimePreset] {
         if case .all(let parts) = expression {
             // One date part with a part of the day ("Saturday evening"): presets change the date part only. "Tonight"
             // is today's.
             let dates = parts.filter { if case .partOfDay = $0 { false } else { true } }
             guard dates.count == 1, let date = dates.first, !parts.contains(.partOfDay(.tonight)) else { return [] }
+            let rest = parts.filter { $0 != date }
             return presets(for: date).map { preset in
-                TimePreset(label: preset.label, expression: preset.expression.map { replacement in
-                    .all(parts.map { $0 == date ? replacement : $0 })
-                })
+                guard let replacement = preset.expression else {
+                    return TimePreset(label: preset.label, expression: rest.isEmpty ? nil : rest.count == 1 ? rest[0] : .all(rest))
+                }
+                return TimePreset(label: preset.label, expression: .all(parts.map { $0 == date ? replacement : $0 }))
             }
         }
         let now = todayDate

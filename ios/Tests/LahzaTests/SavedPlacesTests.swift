@@ -89,6 +89,16 @@ import Testing
         let candidates = await app.savedPlaces.homeCandidates()
         #expect(candidates.first?.tile == estimated.tile && candidates.first?.isEstimate == true)
         #expect(SavedPlacesCopy.isCurrent(try #require(candidates.first), home: app.savedPlaces.home))
+        // Rows named alike say how far and which way they are from the estimate.
+        let subtitles = candidates.map { SavedPlacesCopy.candidateSubtitle($0, among: candidates) }
+        #expect(subtitles.first == "Estimated")
+        for (candidate, subtitle) in zip(candidates, subtitles).dropFirst() {
+            let alike = candidates.contains { $0.id != candidate.id && $0.name == candidate.name }
+            #expect((subtitle != nil) == alike, "\(candidate.name ?? "-")")
+            if alike { #expect(subtitle?.hasSuffix("of your estimated home") == true) }
+        }
+        let shared = zip(candidates, subtitles).filter { $0.0.name == candidates.first?.name }.map(\.1)
+        #expect(Set(shared).count == shared.count, "each row with the estimate's name reads differently")
         let other = try #require(candidates.dropFirst().first)
         try await app.savedPlaces.setHome(.point(other.center))
         guard case .saved(let home) = app.savedPlaces.home else {
@@ -98,6 +108,7 @@ import Testing
         #expect(home.name == "Home" && app.savedPlaces.places.isEmpty, "the picked home isn't listed with the named places")
         #expect(SavedPlacesCopy.isCurrent(other, home: app.savedPlaces.home))
         #expect(SavedPlacesCopy.homeSubtitle(app.savedPlaces.home) == "Set by you")
+        #expect(SavedPlacesCopy.homeValue(app.savedPlaces.home, city: "Riyadh") == "Riyadh", "the row says where home is")
         try await app.savedPlaces.setHome(.estimated)
         #expect(await eventually(app) { app.savedPlaces.home == .estimated(estimated) }, "once the home bases are worked out again")
     }

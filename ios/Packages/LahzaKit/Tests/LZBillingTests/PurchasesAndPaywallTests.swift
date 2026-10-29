@@ -106,8 +106,8 @@ import Testing
         calendar.timeZone = try #require(TimeZone(identifier: "Asia/Riyadh"))
         let now = try #require(calendar.date(from: DateComponents(year: 2026, month: 10, day: 28, hour: 12)))
         let store = EntitlementStore(kv: InMemoryKeyValueStore([:]))
-        // Unknown counts as free.
-        #expect(store.searchStart(now: now, calendar: calendar) == calendar.date(from: DateComponents(year: 2025, month: 10, day: 28, hour: 12)))
+        // Unknown counts as free; the window starts at the start of that day.
+        #expect(store.searchStart(now: now, calendar: calendar) == calendar.date(from: DateComponents(year: 2025, month: 10, day: 28)))
         store.apply(CustomerSnapshot(appUserID: "a", activeEntitlements: [Brand.fullLibraryEntitlement]))
         #expect(store.searchStart(now: now, calendar: calendar) == nil)
     }

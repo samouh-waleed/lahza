@@ -154,7 +154,7 @@ import Observation
             clear()
             return
         }
-        for edit in edits { request.overrides.apply(edit) }
+        request.overrides.apply(edits, to: current)
         request.parsed = edited
         request.text = edited.text
         text = edited.text
@@ -173,7 +173,7 @@ import Observation
     /// for it, and searches again. A picker for the slot stays, the choice ticked.
     public func choose(_ candidate: PlaceCandidate, forSlot slot: Int) {
         guard let query = result?.query else { return }
-        if let writer = index.writer, let phrase = query.picker?.slot == slot ? query.picker?.phrase : query.typedWords(slot: slot) {
+        if let writer = index.writer, let phrase = query.picker?.slot == slot ? query.picker?.phrase : typedWords(slot: slot) {
             Task { try? await writer.rememberChoice(phrase: phrase, placeKey: candidate.id, radius: nil) }
         }
         if var picker = query.picker, picker.slot == slot, picker.choices.contains(where: { $0.id == candidate.id }) {
@@ -183,6 +183,12 @@ import Observation
             chosenPicker = nil
         }
         apply([.replacePlace(slot: slot, placeKey: candidate.id, name: candidate.name)])
+    }
+
+    /// The words typed for a slot, kept through picks (a picked place's name isn't what was typed): what a pick is
+    /// remembered under, and what the place editor's "Search Apple Maps for “X”" looks up.
+    public func typedWords(slot: Int) -> String? {
+        request?.overrides.places[slot]?.typedWords ?? result?.query.typedWords(slot: slot)
     }
 
     /// A no-match's widening tap.
@@ -205,11 +211,12 @@ import Observation
 
     // MARK: Scope
 
-    /// What searches cover changed (the full library was unlocked, or is free again): the shown search runs again at
-    /// once, keeping its result on screen meanwhile, and the examples are counted again.
+    /// What searches cover changed (the full library was unlocked, or is free again): the shown search, or the one
+    /// still running, runs again at once, keeping its result on screen meanwhile, and the examples are counted again.
     public func scopeChanged() {
         refreshExamples(after: .zero)
-        guard let request, result != nil else { return }
+        // A search still running read the old scope when it started: it runs again too.
+        guard let request, result != nil || searchTask != nil else { return }
         run(request, keepsResult: true)
     }
 
@@ -249,8 +256,8 @@ import Observation
             }
             let context = SearchIndexContext(index.status, appleMapsEnabled: index.appleMapsNames)
             let examples = (try? await engine.examples(reader: reader, index: context, scope: scope)) ?? []
-            guard !Task.isCancelled else { return }
-            self?.examples = examples
+            guard !Task.isCancelled, let self, self.examples != examples else { return }
+            self.examples = examples
         }
     }
 

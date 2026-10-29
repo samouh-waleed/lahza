@@ -152,7 +152,7 @@ struct HomePickerSheet: View {
                         LZRowGroup {
                             ForEach(candidates) { candidate in
                                 let current = SavedPlacesCopy.isCurrent(candidate, home: home)
-                                ListRow(candidate.name ?? SavedPlacesCopy.unnamed, subtitle: candidate.isEstimate ? SavedPlacesCopy.estimate : nil,
+                                ListRow(candidate.name ?? SavedPlacesCopy.unnamed, subtitle: SavedPlacesCopy.candidateSubtitle(candidate, among: candidates),
                                         value: SavedPlacesCopy.nights(candidate.nights), accessory: current ? .checkmark : .none, isLoading: working && !current) {
                                     if !current { choose(candidate.isEstimate ? .estimated : .point(candidate.center)) }
                                 }
@@ -258,10 +258,33 @@ nonisolated enum SavedPlacesCopy {
         }
     }
 
-    /// The estimated home's city.
+    /// The home's city: the estimate's, or that of the place set as home (so the row says where home is).
     static func homeValue(_ home: HomeSetting, city: String?) -> String? {
-        if case .estimated(.some) = home { return city }
-        return nil
+        switch home {
+        case .estimated(.some), .saved: city
+        case .estimated(nil), .noHome: nil
+        }
+    }
+
+    /// "Estimated" on the estimate. A place named like another row says how far and which way it is from the estimate
+    /// (or the row with the most nights), so the two can be told apart: "12 km north of your estimated home".
+    static func candidateSubtitle(_ candidate: HomeCandidate, among candidates: [HomeCandidate]) -> String? {
+        if candidate.isEstimate { return estimate }
+        guard candidates.contains(where: { $0.id != candidate.id && $0.name == candidate.name }),
+              let reference = candidates.first(where: \.isEstimate) ?? candidates.first, reference.id != candidate.id else { return nil }
+        let name = reference.isEstimate ? "your estimated home"
+            : reference.name == candidate.name ? "the \(reference.name ?? unnamed) above" : reference.name ?? unnamed
+        let metres = reference.center.distance(to: candidate.center)
+        guard metres >= 50 else { return "Next to \(name)" }
+        return "\(SearchFormat.distance(metres)) \(compass(from: reference.center, to: candidate.center)) of \(name)"
+    }
+
+    /// The eight-point compass direction from one place to another ("northeast").
+    static func compass(from start: Coordinate, to end: Coordinate) -> String {
+        let lat1 = start.latitude * .pi / 180, lat2 = end.latitude * .pi / 180, dLon = (end.longitude - start.longitude) * .pi / 180
+        let bearing = atan2(sin(dLon) * cos(lat2), cos(lat1) * sin(lat2) - sin(lat1) * cos(lat2) * cos(dLon)) * 180 / .pi
+        let directions = ["north", "northeast", "east", "southeast", "south", "southwest", "west", "northwest"]
+        return directions[Int(((bearing + 360).truncatingRemainder(dividingBy: 360) / 45).rounded()) % 8]
     }
 
     /// "Within 250 m · 85 photos", and "Home" first when it is the home.

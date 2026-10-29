@@ -30,11 +30,11 @@ extension IndexReader: PlaceDensity {
 
 /// The one Apple Maps search a query may make, shared by its place slots.
 public final class MapsAllowance: Sendable {
-    private let state: Mutex<(used: Bool, sent: Bool)>
+    private let state: Mutex<(used: Bool, sent: Bool, missed: PlaceNotFound?)>
 
     /// `spent`: the query may read cached answers only (a re-run).
     public init(spent: Bool = false) {
-        state = Mutex((used: spent, sent: false))
+        state = Mutex((used: spent, sent: false, missed: nil))
     }
 
     /// Takes the search; false when this query already took it.
@@ -50,8 +50,16 @@ public final class MapsAllowance: Sendable {
         state.withLock { $0.sent = true }
     }
 
+    /// The search the person asked for (the place editor) couldn't be made.
+    func markMissed(_ reason: PlaceNotFound) {
+        state.withLock { $0.missed = reason }
+    }
+
     /// Whether this query sent Apple Maps a request.
     public var searched: Bool { state.withLock { $0.sent } }
+
+    /// Why the Apple Maps search the person asked for wasn't made (offline, busy), nil when it was or none was asked.
+    public var missed: PlaceNotFound? { state.withLock { $0.missed } }
 }
 
 /// What resolving a query's places may use.
@@ -108,7 +116,8 @@ public actor PlaceResolver {
         var resolution: PlaceResolution
         let asksAppleMaps = override?.searchesAppleMaps == true
         if let key = override?.placeKey, let picked = try await candidate(forKey: key, in: environment) {
-            resolution = .resolved(picked, alternatives: try await alternatives(to: picked, for: expression, asksAppleMaps: asksAppleMaps, in: environment))
+            resolution = .resolved(picked, alternatives: try await alternatives(to: picked, words: override?.typedWords ?? expression.words,
+                                                                                includesAppleMaps: asksAppleMaps, in: environment))
         } else if asksAppleMaps, let words = expression.words {
             resolution = try await named(words, confidence: .certain, asksAppleMaps: true, in: environment)
         } else {
@@ -132,7 +141,7 @@ public actor PlaceResolver {
             return try await categoryUnion(category, in: environment)
         case .picked(let key, _, _):
             guard let picked = try await candidate(forKey: key, in: environment) else { return .notFound(.notFound) }
-            return .resolved(picked, alternatives: try await alternatives(to: picked, for: expression, asksAppleMaps: false, in: environment))
+            return .resolved(picked, alternatives: try await alternatives(to: picked, words: expression.words, includesAppleMaps: false, in: environment))
         case .named(let text, _, let confidence):
             return try await named(text, confidence: confidence, in: environment)
         case .anyOf(let parts):
@@ -151,14 +160,15 @@ public actor PlaceResolver {
         }
     }
 
-    /// The other places the words of a picked place may mean (the place editor lists them), without asking Apple Maps
-    /// unless the person asked to: cached answers only.
-    private func alternatives(to picked: PlaceCandidate, for expression: PlaceExpression, asksAppleMaps: Bool,
+    /// The other places the words typed for a picked place may mean (the place editor lists them): never a new Apple
+    /// Maps search, whatever was asked before (a picked name, maybe a saved place's, is never sent). With
+    /// `includesAppleMaps` (the person asked Apple Maps about these words) every place its cached answer names is listed.
+    private func alternatives(to picked: PlaceCandidate, words: String?, includesAppleMaps: Bool,
                               in environment: PlaceEnvironment) async throws -> [PlaceCandidate] {
-        guard let words = expression.words else { return [] }
+        guard let words else { return [] }
         var environment = environment
-        if !asksAppleMaps { environment.allowance = MapsAllowance(spent: true) }
-        return try await named(words, confidence: .certain, asksAppleMaps: asksAppleMaps, in: environment).candidates.filter { $0.id != picked.id }
+        environment.allowance = MapsAllowance(spent: true)
+        return try await named(words, confidence: .certain, asksAppleMaps: includesAppleMaps, in: environment).candidates.filter { $0.id != picked.id }
     }
 
     // MARK: Named places
@@ -194,6 +204,7 @@ public actor PlaceResolver {
                 for place in places { pool.add(try await mapCandidate(place, variants: variants, in: environment)) }
             case .unavailable(let reason):
                 unavailable = reason
+                environment.allowance.markMissed(reason)
             }
         }
 

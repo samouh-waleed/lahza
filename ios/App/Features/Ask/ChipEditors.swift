@@ -45,7 +45,7 @@ struct ChipEditorSheet: View {
         ScrollView {
             if let query, let slot = query.slots.first(where: { $0.id == slotID }) {
                 VStack(alignment: .leading, spacing: 0) {
-                    SheetHeader(slot.isSupported ? slot.chip : AskCopy.notYet(slot.chip, kind: slot.slot.kind),
+                    SheetHeader(slot.isSupported ? ChipEditorCopy.title(slot.chip) : AskCopy.notYet(slot.chip, kind: slot.slot.kind),
                                 eyebrow: AskCopy.slotName(slot.slot.kind).uppercased())
                     VStack(alignment: .leading, spacing: LZSpace.xl) {
                         editor(slot, query: query)
@@ -70,9 +70,9 @@ struct ChipEditorSheet: View {
                 .id(slot.chip)
         case .media(let filter):
             MediaEditor(slot: slot, filter: filter, remove: remove)
-        case .event:
-            EditorExplanation(text: ChipEditorCopy.tripsExplanation)
-            RemoveButton(title: ChipEditorCopy.remove(.event), action: remove)
+        case .event(let event):
+            EditorExplanation(text: ChipEditorCopy.explanation(event))
+            RemoveButton(title: ChipEditorCopy.remove(event), action: remove)
         case .unsupported(let explanation):
             EditorExplanation(text: explanation)
             RemoveButton(title: ChipEditorCopy.removeWords, action: remove)
@@ -114,12 +114,23 @@ private struct PlaceEditor: View {
         }
         if let words = appleMapsWords {
             let asked = model.search.request?.overrides.places[slot.id]?.searchesAppleMaps == true
-            if !asked || isSearching {
-                LZRowGroup {
-                    ListRow(ChipEditorCopy.searchAppleMaps(words), systemImage: "magnifyingglass", isLoading: asked) {
-                        model.search.apply([.searchAppleMaps(slot: slot.id)])
+            // Asked but not made (offline, busy): the row stays, says why and tries again.
+            let missed = isSearching ? nil : query.appleMapsMissed
+            if !asked || isSearching || missed != nil {
+                VStack(alignment: .leading, spacing: LZSpace.sm) {
+                    LZRowGroup {
+                        ListRow(ChipEditorCopy.searchAppleMaps(words), systemImage: "magnifyingglass", isLoading: asked && isSearching) {
+                            model.search.apply([.searchAppleMaps(slot: slot.id)])
+                        }
+                        .accessibilityIdentifier("chip-editor-apple-maps")
                     }
-                    .accessibilityIdentifier("chip-editor-apple-maps")
+                    if let missed {
+                        Text(ChipEditorCopy.appleMapsMissed(missed))
+                            .lzText(.caption)
+                            .foregroundStyle(.lz(.muted))
+                            .fixedSize(horizontal: false, vertical: true)
+                            .accessibilityIdentifier("chip-editor-apple-maps-missed")
+                    }
                 }
             }
         }
@@ -145,10 +156,12 @@ private struct PlaceEditor: View {
         RemoveButton(title: ChipEditorCopy.remove(.place), action: remove)
     }
 
-    /// The words to look up on Apple Maps, while this search hasn't asked it and place names are on.
+    /// The words to look up on Apple Maps, while this search hasn't asked it and place names are on: those typed for
+    /// the slot, never a picked place's own name (a saved place's is the person's own).
     private var appleMapsWords: String? {
         guard model.index.appleMapsNames, !query.searchedAppleMaps, case .place(let place) = slot.slot.value, place.words != nil else { return nil }
-        return query.typedWords(slot: slot.id)
+        if case .picked = place, model.search.request?.overrides.places[slot.id]?.typedWords == nil { return nil }
+        return model.search.typedWords(slot: slot.id)
     }
 
     private var isSearching: Bool {
@@ -215,7 +228,9 @@ private struct TimeEditor: View {
             }
             .environment(\.calendar, ChipEditorCopy.calendar)
             LZButton(ChipEditorCopy.searchDates, role: .secondary, size: .small) {
-                model.search.apply([.replaceTime(slot: slot.id, ChipEditorCopy.range(from: from, to: max(from, to)))])
+                // The part of the day stays, as with the presets.
+                let range = ChipEditorCopy.range(from: from, to: max(from, to))
+                model.search.apply([.replaceTime(slot: slot.id, range.with(partOfDay: expression.partOfDay) ?? range)])
             }
             .accessibilityIdentifier("chip-editor-search-dates")
         }
@@ -349,11 +364,44 @@ nonisolated enum ChipEditorCopy {
     static let showLabel = "Photo type"
     static let favoritesOnly = "Favorites only"
     static let screenshots = "Screenshots"
-    static let tripsExplanation = "Photos from your trips: two or more days in a row away from home."
     static let removeWords = "Remove these words"
+
+    /// The sheet's title: the chip, its dates kept on one line ("Last summer · Jun – Aug 2026" never breaks at the
+    /// dash): spaces become no-break ones (the thin spaces around the dash narrow no-break ones).
+    static func title(_ chip: String) -> String {
+        guard let separator = chip.range(of: " · ", options: .backwards) else { return chip }
+        let dates = chip[separator.upperBound...].replacingOccurrences(of: " ", with: "\u{00A0}")
+            .replacingOccurrences(of: "\u{2009}", with: "\u{202F}").replacingOccurrences(of: "–", with: "\u{2060}–\u{2060}")
+        return String(chip[..<separator.upperBound]) + dates
+    }
+
+    /// What a Trips or Abroad chip keeps.
+    static func explanation(_ event: EventKind) -> String {
+        switch event {
+        case .trip: "Photos from your trips: two or more days in a row away from home."
+        case .abroad: "Photos from your trips outside your home country."
+        }
+    }
+
+    static func remove(_ event: EventKind) -> String {
+        switch event {
+        case .trip: "Remove trips"
+        case .abroad: "Remove trips abroad"
+        }
+    }
 
     /// "Search Apple Maps for “Al-Nakheel Park”".
     static func searchAppleMaps(_ words: String) -> String { "Search Apple Maps for “\(words)”" }
+
+    /// Why the Apple Maps search asked for wasn't made.
+    static func appleMapsMissed(_ reason: PlaceNotFound) -> String {
+        switch reason {
+        case .offline: "Couldn’t reach Apple Maps offline. Try again when you’re online."
+        case .mapsBusy: "Apple Maps is busy. Try again in a few minutes."
+        case .appleMapsOff: "Apple Maps place names are off in Settings › Search index."
+        default: "Couldn’t reach Apple Maps. Try again in a few minutes."
+        }
+    }
 
     /// "Tight · 200 m".
     static func radius(_ choice: PlaceRadius.Choice, _ radius: PlaceRadius) -> String {
@@ -375,7 +423,7 @@ nonisolated enum ChipEditorCopy {
         case .place: "Remove place"
         case .time: "Remove dates"
         case .media: "Remove photo type"
-        case .event: "Remove trips"
+        case .event: remove(.trip)
         default: removeWords
         }
     }

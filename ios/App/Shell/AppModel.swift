@@ -271,6 +271,9 @@ nonisolated enum RootScreen: Hashable, Sendable {
             // has already counted, so neither recounts.
             leftForBackground = false
             refreshPhotoAccess()
+            // A day may have passed: the examples' dates ("1 year ago") and a free search's 12 months move with it
+            // (counted again only when they did).
+            if isReady { search.refreshExamples() }
         default:
             break
         }

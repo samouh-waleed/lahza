@@ -163,7 +163,8 @@ public struct UserDataWriter: Sendable {
                         """, arguments: [center.latitude, center.longitude, radius, now, now])
                     id = db.lastInsertedRowID
                 }
-                try SavedPlaceRows.mirror(db, SavedPlaceRows.Stored(id: id, name: "Home", center: center, radius: radius, isHome: false))
+                // Mirrored as the home it is about to be (a "Home" already home stays so, and setHome skips it).
+                try SavedPlaceRows.mirror(db, SavedPlaceRows.Stored(id: id, name: "Home", center: center, radius: radius, isHome: true))
                 try SavedPlaceRows.markDirty(db, around: center, radius: radius)
                 try SavedPlaceRows.setHome(db, id: id)
                 try Meta.set(db, .homeOverride, nil)

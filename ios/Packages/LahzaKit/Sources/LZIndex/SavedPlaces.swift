@@ -170,9 +170,11 @@ enum SavedPlaceRows {
         }
     }
 
+    /// Deletes the place, its mirror and the picks remembered for it (a later place may get its id).
     static func delete(_ db: Database, _ place: Stored) throws {
         try markDirty(db, around: place.center, radius: place.radius)
         try db.execute(sql: "DELETE FROM saved_place WHERE id = ?", arguments: [place.id])
         try deleteMirror(db, id: place.id)
+        try db.execute(sql: "DELETE FROM place_choice WHERE place_key = ?", arguments: [PlaceKey.saved(place.id)])
     }
 }

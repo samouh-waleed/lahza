@@ -115,6 +115,29 @@ import Testing
         #expect(ChipEditorCopy.searchAppleMaps("Al-Nakheel Park") == "Search Apple Maps for “Al-Nakheel Park”")
     }
 
+    /// The sheet's title keeps a chip's dates on one line; Abroad explains itself, not Trips; an Apple Maps search that
+    /// couldn't be made says why.
+    @Test func editorWords() {
+        let chip = "Last summer · Jun\u{2009}–\u{2009}Aug 2026"
+        let title = ChipEditorCopy.title(chip)
+        #expect(title.hasPrefix("Last summer · ") && !title.dropFirst("Last summer · ".count).contains { $0 == " " || $0 == "\u{2009}" })
+        #expect(title.replacingOccurrences(of: "\u{2060}", with: "").replacingOccurrences(of: "\u{00A0}", with: " ")
+            .replacingOccurrences(of: "\u{202F}", with: "\u{2009}") == chip)
+        #expect(ChipEditorCopy.title("Al-Nakheel Park") == "Al-Nakheel Park")
+        #expect(ChipEditorCopy.explanation(.abroad) == "Photos from your trips outside your home country.")
+        #expect(ChipEditorCopy.remove(EventKind.abroad) == "Remove trips abroad" && ChipEditorCopy.remove(.event) == "Remove trips")
+        #expect(ChipEditorCopy.appleMapsMissed(.offline) == "Couldn’t reach Apple Maps offline. Try again when you’re online.")
+        #expect(AskCopy.unsupportedEditHint != AskCopy.unsupportedHint)
+    }
+
+    /// Custom dates keep the part of the day, as the presets do.
+    @Test func customDatesKeepThePartOfTheDay() {
+        let range = ChipEditorCopy.range(from: ChipEditorCopy.date(LocalTime.day(year: 2025, month: 6, day: 1)),
+                                         to: ChipEditorCopy.date(LocalTime.day(year: 2025, month: 6, day: 30)))
+        let night = TimeExpression.all([.season(.summer, .last), .partOfDay(.night)])
+        #expect(range.with(partOfDay: night.partOfDay) == .all([range, .partOfDay(.night)]))
+    }
+
     @Test func aCustomRangeSearchesItsDays() async throws {
         let app = await SearchTestApp.ready(.unlocked)
         _ = try #require(await SearchTestApp.search(app, "Al-Nakheel Park last summer"))

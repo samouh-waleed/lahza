@@ -20,18 +20,21 @@ public enum SlotEdit: Sendable, Hashable {
 
 extension ParsedQuery {
     /// The query after `edits`: changed and added slots lose their span, then the text is rendered from the slots
-    /// (untouched slots keep the words typed for them) and every span points into the new text. The other slots keep
-    /// their ids and values.
+    /// (untouched slots keep the words typed for them, and a place the preposition typed before it) and every span
+    /// points into the new text, at the words alone as the parser's do ("Al-Nakheel Park" in "near Al-Nakheel Park"),
+    /// so a later edit renders the same words again. The other slots keep their ids and values.
     public func applying(_ edits: [SlotEdit], locale: Locale = .autoupdatingCurrent) -> ParsedQuery {
-        var slots = self.slots.map { slot in (slot: slot, typed: slot.span.flatMap { $0.substring(of: text) }) }
+        var slots = self.slots.map { slot in (slot: slot, typed: slot.span.flatMap { $0.substring(of: text) }, lead: placeLead(of: slot)) }
         func index(_ id: Int) -> Int? { slots.firstIndex { $0.slot.id == id } }
         for edit in edits {
             switch edit {
             case .remove(let id):
                 slots.removeAll { $0.slot.id == id }
             case .replacePlace(let id, let key, let name):
+                // A picked place keeps the preposition typed for the words it replaces ("at Salam Park").
                 guard let position = index(id), case .place(let place) = slots[position].slot.value else { continue }
-                slots[position] = (QuerySlot(id: id, value: .place(.picked(placeKey: key, name: name, relation: place.relation)), span: nil), nil)
+                slots[position] = (QuerySlot(id: id, value: .place(.picked(placeKey: key, name: name, relation: place.relation)), span: nil), nil,
+                                   slots[position].lead)
             case .setRadius, .searchAppleMaps:
                 continue
             case .setNear(let id, let near):
@@ -40,29 +43,63 @@ extension ParsedQuery {
                 slots[position].slot.value = .place(place.with(relation: relation))
             case .replaceTime(let id, let time):
                 guard let position = index(id) else { continue }
-                slots[position] = (QuerySlot(id: id, value: .time(time), span: nil), nil)
+                slots[position] = (QuerySlot(id: id, value: .time(time), span: nil), nil, nil)
             case .replaceMedia(let id, let media):
                 guard let position = index(id) else { continue }
-                slots[position] = (QuerySlot(id: id, value: .media(media), span: nil), nil)
+                slots[position] = (QuerySlot(id: id, value: .media(media), span: nil), nil, nil)
             case .add(let value):
                 let id = (slots.map(\.slot.id).max() ?? -1) + 1
-                slots.append((QuerySlot(id: id, value: value, span: nil), nil))
+                slots.append((QuerySlot(id: id, value: value, span: nil), nil, nil))
             }
         }
-        // Render: the typed words for untouched slots, the canonical phrase for the rest.
+        // Render: the typed words for untouched slots, the canonical words for the rest, each after the words its span
+        // leaves out.
         var text = ""
         var rendered: [QuerySlot] = []
-        for (slot, typed) in slots {
-            let phrase = typed.map { slot.value.prefixed($0) } ?? slot.value.phrase(locale: locale)
-            guard !phrase.isEmpty else { continue }
+        for (slot, typed, lead) in slots {
+            let words = typed ?? slot.value.spanWords(locale: locale)
+            guard !words.isEmpty else { continue }
+            let before = slot.value.lead(lead, wordsTyped: typed != nil)
             if !text.isEmpty { text += " " }
+            text += before
             let start = text.utf16.count
-            text += phrase
+            text += words
             var slot = slot
-            slot.span = TextSpan(location: start, length: phrase.utf16.count)
+            slot.span = TextSpan(location: start, length: words.utf16.count)
             rendered.append(slot)
         }
         return ParsedQuery(text: text, slots: rendered, parser: parser, isEdited: true)
+    }
+
+    /// The preposition typed right before a place slot's words, with any article after it ("at the "): the parser
+    /// leaves it out of the span.
+    func placeLead(of slot: QuerySlot) -> PlaceLead? {
+        guard case .place = slot.value, let span = slot.span else { return nil }
+        let previous = slots.compactMap(\.span).filter { $0.end <= span.location }.map(\.end).max() ?? 0
+        guard let between = TextSpan(location: previous, length: span.location - previous).substring(of: text) else { return nil }
+        var words = between.split(whereSeparator: \.isWhitespace)
+        var articles: [Substring] = []
+        while let last = words.last, PlaceLead.articles.contains(last.lowercased()) {
+            articles.insert(last, at: 0)
+            words.removeLast()
+        }
+        guard let preposition = words.last, let relation = PlaceLead.relation(of: preposition.lowercased()) else { return nil }
+        return PlaceLead(preposition: String(preposition), articles: articles.map(String.init), relation: relation)
+    }
+}
+
+/// The words typed before a place that its span leaves out: a preposition and the articles after it ("at the").
+struct PlaceLead: Sendable, Hashable {
+    /// As typed: "at", "near", "to".
+    var preposition: String
+    /// "the", "my"; usually none.
+    var articles: [String]
+    var relation: PlaceRelation
+
+    static let articles: Set<String> = ["the", "a", "an", "my", "our"]
+
+    static func relation(of word: String) -> PlaceRelation? {
+        word == "to" ? .to : Lexicon.english.placePrepositions[word]
     }
 }
 
@@ -76,6 +113,18 @@ extension ResolutionOverrides {
         case .searchAppleMaps(let slot): places[slot, default: PlaceOverride()].searchesAppleMaps = true
         case .remove(let slot): places[slot] = nil
         case .replaceTime, .replaceMedia, .add: break
+        }
+    }
+
+    /// Keeps what edits to `query` say about resolving its slots. The first place picked for a slot keeps the words
+    /// typed for it: a later pick is remembered under them, and the place editor lists and looks up what they may mean.
+    public mutating func apply(_ edits: [SlotEdit], to query: ParsedQuery) {
+        for edit in edits {
+            if case .replacePlace(let slot, _, _) = edit, places[slot]?.typedWords == nil,
+               let words = query.slot(slot)?.span?.substring(of: query.text) {
+                places[slot, default: PlaceOverride()].typedWords = words
+            }
+            apply(edit)
         }
     }
 }
@@ -96,11 +145,32 @@ extension SlotValue {
         }
     }
 
-    /// The typed words of an untouched slot, with the relation words its span leaves out ("near").
-    func prefixed(_ typed: String) -> String {
-        if case .place(let place) = self, place.relation == .near { return "near \(typed)" }
-        if case .people = self { return "with \(typed)" }
-        return typed
+    /// The words a slot's span covers when it is rendered from its value: a place without its relation word, people
+    /// without "with" (as the parser's spans leave them out).
+    func spanWords(locale: Locale) -> String {
+        switch self {
+        case .place(let place): place.with(relation: .at).phrase
+        case .people(let words): words
+        default: phrase(locale: locale)
+        }
+    }
+
+    /// The words rendered before the span: "with" for people; for a place the preposition typed for it while it still
+    /// says the same ("at", "from", "near"), else "near" when near, and the articles typed before the words themselves
+    /// ("at the beach" turned near is "near the beach"; a picked name drops them).
+    func lead(_ lead: PlaceLead?, wordsTyped: Bool) -> String {
+        switch self {
+        case .people:
+            return "with "
+        case .place(let place):
+            let near = place.relation == .near
+            var words: [String] = []
+            if let lead, (lead.relation == .near) == near { words.append(lead.preposition) } else if near { words.append("near") }
+            if wordsTyped, let lead { words += lead.articles }
+            return words.map { $0 + " " }.joined()
+        default:
+            return ""
+        }
     }
 }
 

@@ -39,6 +39,9 @@ public struct ResolvedQuery: Sendable, Hashable {
     public var picker: PlacePicker?
     /// The query asked Apple Maps.
     public var searchedAppleMaps: Bool
+    /// Why the Apple Maps search the place editor asked for couldn't be made (offline, busy); nil when it was made or
+    /// none was asked for.
+    public var appleMapsMissed: PlaceNotFound? = nil
 
     /// The words of a place slot: as typed (or rendered after an edit), else the place's name.
     public func typedWords(slot id: Int) -> String? {

@@ -177,13 +177,31 @@ struct RuleScan {
                 index = nameStart + 1
                 continue
             }
-            if let (id, first, last) = savedAlias(from: start) {
+            if let (id, first, last) = savedAlias(from: start), startsAName(first, last) {
                 add(.place(.alias(.saved(id), relation: relation)), first: first, last: last, claimed: index..<last + 1)
                 index = last + 1
                 continue
             }
             index += 1
         }
+    }
+
+    /// A saved name inside a longer name isn't the saved place: "park" (from "My park") in "Al-Nakheel Park" or "at Foo
+    /// Park". Its first word must start a name (nothing before it but a preposition, an article, words never in a
+    /// name, punctuation or words another recogniser took), and no longer known name may start there.
+    private func startsAName(_ first: Int, _ last: Int) -> Bool {
+        if first > 0, isFree(first - 1), !tokens[first].followsPunctuation {
+            let before = tokens[first - 1].text
+            let outsideNames = lexicon.placePrepositions[before] != nil || before == "to" || ["the", "a", "an"].contains(before)
+                || lexicon.filler.contains(before) || lexicon.stopWords.contains(before)
+            guard outsideNames else { return false }
+        }
+        var end = last + 1
+        while end < min(tokens.count, first + 5), isFree(end), !tokens[end].followsPunctuation {
+            if context.vocabulary.knows(folded(first, end), bare: false, lexicon: lexicon) { return false }
+            end += 1
+        }
+        return true
     }
 
     /// The longest saved-place name starting at `start` (with its "my" or "the", or without).
@@ -295,6 +313,7 @@ struct RuleScan {
                 let phrase = folded(index, index + count - 1)
                 if count == 1, lexicon.filler.contains(phrase) || lexicon.stopWords.contains(phrase) { continue }
                 guard context.vocabulary.knows(phrase, bare: true, lexicon: lexicon) else { continue }
+                if context.vocabulary.savedAliases[phrase] != nil, !startsAName(index, index + count - 1) { continue }
                 let own = context.vocabulary.ownNames.contains(phrase) || context.vocabulary.savedAliases[phrase] != nil
                 if !own, let next = word(index + count), Self.placeWords.contains(next), !tokens[index + count].followsPunctuation { continue }
                 matched = count
