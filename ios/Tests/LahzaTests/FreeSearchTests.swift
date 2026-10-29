@@ -67,9 +67,15 @@ import Testing
     /// The examples a free user sees count what tapping them shows.
     @Test func freeExamplesAreTruthful() async throws {
         let app = await SearchTestApp.ready(.free)
-        app.search.refreshExamples(after: .zero)
-        #expect(await SearchTestApp.eventually(app) { !app.search.examples.isEmpty })
+        // The index's last change also refreshes the examples (after a pause), which can cancel a request made just
+        // before it lands: ask until they are there.
+        for _ in 0..<150 where app.search.examples.isEmpty {
+            app.search.refreshExamples(after: .zero)
+            await app.search.settled()
+            if app.search.examples.isEmpty { try? await Task.sleep(for: .milliseconds(200)) }
+        }
         let examples = app.search.examples
+        #expect(!examples.isEmpty)
         #expect(!examples.contains { $0.text.hasSuffix(" trip") }, "every trip is older than 12 months")
         for example in examples {
             _ = await SearchTestApp.search(app, example.text)
