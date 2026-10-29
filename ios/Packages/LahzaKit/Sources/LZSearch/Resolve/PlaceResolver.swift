@@ -10,6 +10,12 @@ public protocol PlaceDensity: Sendable {
     func count(near center: Coordinate, within radius: Double) async throws -> Int
     /// Distances of the photos with their own GPS within `radius` of `center` (hull refinement).
     func ownDistances(from center: Coordinate, within radius: Double) async throws -> [Double]
+    /// The own GPS positions of the photos placed in a locality (an Apple Maps town's extent).
+    func positions(inLocality placeID: Int64) async throws -> [Coordinate]
+}
+
+extension PlaceDensity {
+    public func positions(inLocality placeID: Int64) async throws -> [Coordinate] { [] }
 }
 
 extension IndexReader: PlaceDensity {
@@ -312,9 +318,16 @@ public actor PlaceResolver {
                                   photoCount: row.photoCount, match: match, source: .ownIndex,
                                   resolved: .membership(level: .region, placeID: row.id, placeKey: row.key, center: row.center))
         case .city, .locality:
-            return PlaceCandidate(id: row.key, name: row.name, subtitle: [row.name, country].compactMap { $0 }.joined(separator: ", "), context: country,
-                                  photoCount: row.photoCount, match: match, source: .ownIndex,
-                                  resolved: .membership(level: row.kind == .city ? .city : .locality, placeID: row.id, placeKey: row.key, center: row.center))
+            let membership = ResolvedPlace.membership(level: row.kind == .city ? .city : .locality, placeID: row.id, placeKey: row.key, center: row.center)
+            var candidate = PlaceCandidate(id: row.key, name: row.name, subtitle: [row.name, country].compactMap { $0 }.joined(separator: ", "),
+                                           context: country, photoCount: row.photoCount, match: match, source: .ownIndex, resolved: membership)
+            if row.kind == .locality, row.isFromAppleMaps, let extent = try await localityExtent(row.id, in: environment) {
+                // Apple names a town only for the photo cells it was asked about: its photos' area counts the
+                // neighbouring cells too.
+                candidate.resolved = .anyOf([membership, .area(center: extent.center, radius: extent.radius, category: .locality, placeKey: row.key)])
+                candidate.photoCount = max(row.photoCount, try await environment.density.count(near: extent.center, within: extent.radius))
+            }
+            return candidate
         case .poi, .mapResult, .saved, .home:
             guard let center = row.center else {
                 return PlaceCandidate(id: row.key, name: row.name, subtitle: "", photoCount: row.photoCount, match: match, source: .ownIndex,
@@ -410,6 +423,22 @@ public actor PlaceResolver {
         let p90 = distances[Int((Double(distances.count - 1) * 0.9).rounded(.up))]
         return min(max(p90 + 50, radius), 2 * radius)
     }
+
+    /// The area an Apple Maps town's photos cover: their median position, out to the 90th-percentile distance plus
+    /// 1 km (2–10 km).
+    private func localityExtent(_ placeID: Int64, in environment: PlaceEnvironment) async throws -> (center: Coordinate, radius: Double)? {
+        let positions = try await environment.density.positions(inLocality: placeID)
+        guard !positions.isEmpty else { return nil }
+        let latitudes = positions.map(\.latitude).sorted(), longitudes = positions.map(\.longitude).sorted()
+        let center = Coordinate(latitude: latitudes[latitudes.count / 2], longitude: longitudes[longitudes.count / 2])
+        let distances = positions.map { $0.distance(to: center) }.sorted()
+        let p90 = distances[Int((Double(distances.count - 1) * 0.9).rounded(.up))]
+        return (center, min(max(p90 + Self.localityMargin, Self.localityMinimumRadius), Self.localityMaximumRadius))
+    }
+
+    static let localityMargin: Double = 1_000
+    static let localityMinimumRadius: Double = 2_000
+    static let localityMaximumRadius: Double = 10_000
 
     /// The person's radius replaces an area's; "near" doubles it (there is no minimum).
     private func adjusted(_ resolution: PlaceResolution, radius: Double?, near: Bool) -> PlaceResolution {

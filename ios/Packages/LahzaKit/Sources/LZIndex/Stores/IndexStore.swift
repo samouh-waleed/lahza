@@ -144,6 +144,12 @@ import Observation
         Task { await session.placeNames.prioritize(cells: cells) }
     }
 
+    /// A memory warning: drops search's in-memory snapshot of the index (it is rebuilt by the next search).
+    public func releaseCaches() {
+        guard let reader else { return }
+        Task { await reader.releaseSnapshot() }
+    }
+
     /// Returns once every transition has run and the indexer's queue is empty (tests).
     public func settled() async {
         await transitions?.value

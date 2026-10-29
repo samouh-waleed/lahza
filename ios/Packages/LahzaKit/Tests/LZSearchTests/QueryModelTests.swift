@@ -27,8 +27,7 @@ import Testing
             let query = SearchFixture.parse(text)
             #expect(query.spanTexts == spans, "\(text)")
             for slot in query.slots {
-                let span = try? #require(slot.span)
-                #expect(span.map { $0.end <= text.utf16.count } == true)
+                #expect(slot.span.map { $0.end <= text.utf16.count } == true)
             }
         }
         let emoji = SearchFixture.parse("📸 soccer")

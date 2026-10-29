@@ -1,6 +1,6 @@
 # Lahza: product overview
 
-> **Lahza (لحظة)** means "moment" in Arabic. Status: pre-MVP, October 2026. Settled choices are listed in [decisions.md](decisions.md). Parts of the design may still change after the Phase 0 tests.
+> **Lahza (لحظة)** means "moment" in Arabic. Status: pre-MVP, October 2026. Search v0: places, dates and photo types; searching what's in photos comes later. Settled choices are listed in [decisions.md](decisions.md). Parts of the design may still change after the Phase 0 tests.
 
 ## What it is
 

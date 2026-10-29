@@ -77,6 +77,44 @@ struct HeroIndex: Sendable {
     let writer: UserDataWriter
 }
 
+/// A search engine over a fresh hero index, with the fake Apple Maps it asks, at the spec's fixed now and the UK region.
+struct HeroSearch: Sendable {
+    let index: HeroIndex
+    let maps: FakeMapsClient
+    let engine: SearchEngine
+
+    init(reachable: Bool = true, placeNames: Bool = true) async throws {
+        index = try await SearchFixture.heroIndex(placeNames: placeNames)
+        maps = SeedMaps.client()
+        let clock = FixedClock(SearchFixture.now)
+        engine = SearchEngine(gazetteer: SearchFixture.gazetteer, maps: maps, budget: MapsBudget(clock: clock), clock: clock,
+                              network: FakeNetworkStatus(reachable: reachable), locale: SearchFixture.uk, deviceTimeZone: { SearchFixture.riyadh })
+    }
+
+    func search(_ text: String, index context: SearchIndexContext = SearchIndexContext()) async throws -> SearchResult {
+        try await engine.search(SearchRequest(text: text), reader: index.reader, writer: index.writer, index: context)
+    }
+
+    func search(_ request: SearchRequest) async throws -> SearchResult {
+        try await engine.search(request, reader: index.reader, writer: index.writer)
+    }
+
+    /// Apple Maps searches so far.
+    var mapsSearches: Int { maps.calls.count { if case .search = $0 { true } else { false } } }
+}
+
+extension SearchResult {
+    /// The seed items of the hits in a tier.
+    func items(_ tier: Tier) -> [SeedItem] {
+        hits.filter { $0.tier == tier }.compactMap { $0.utc.flatMap { SeedScenario.hero.item(matchingUTC: $0) } }
+    }
+
+    /// The reasons of the hit of a seed item.
+    func reasons(of item: SeedItem) -> [String] {
+        hits.first { $0.utc == item.utc }?.reasons.map(\.text) ?? []
+    }
+}
+
 extension ParsedQuery {
     /// The slots' values, in text order.
     var values: [SlotValue] { slots.map(\.value) }

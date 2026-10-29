@@ -18,6 +18,8 @@ struct IndexPerformanceTests {
     /// Spec §3.5: an incremental sync of up to 50 changes under 1 s.
     static let syncLimit: Duration = isOptimized ? .seconds(1) : .seconds(10)
     static let memoryGrowthLimit = 150 * 1_024 * 1_024
+    /// Spec §9.1: search's in-memory snapshot of 100k assets.
+    static let snapshotLimit: Duration = isOptimized ? .milliseconds(300) : .seconds(3)
 
     /// The process's peak resident size so far (`mach_task_basic_info.resident_size_max`).
     private func peakResidentBytes() -> Int {
@@ -42,6 +44,9 @@ struct IndexPerformanceTests {
             let growth = peakResidentBytes() - peakBefore
             let (structureTime, runs) = structure.total
             let summary = try await IndexReader(database: database).summary()
+            let snapshotStarted = ContinuousClock.now
+            let snapshot = try await IndexReader(database: database).snapshot()
+            let snapshotTime = ContinuousClock.now - snapshotStarted
 
             // A return to the foreground with nothing new, then 50 new photos.
             var syncStarted = ContinuousClock.now
@@ -60,7 +65,7 @@ struct IndexPerformanceTests {
             let size = try await database.sizeBytes()
             await database.close()
 
-            print("PERF (\(Self.isOptimized ? "optimised" : "unoptimised")) first build of \(summary.assets) assets: \(firstBuild) in all, P0 \(firstBuild - structureTime), P0b \(structureTime) over \(runs) runs (\(await indexer.stats.checkpoints) checkpoints); unchanged sync \(unchanged); 50-photo sync \(fifty); full restructure \(restructure); \(summary.moments) moments, \(summary.trips) trips; peak memory growth \(growth / 1_048_576) MB, index \(size / 1_048_576) MB")
+            print("PERF (\(Self.isOptimized ? "optimised" : "unoptimised")) first build of \(summary.assets) assets: \(firstBuild) in all, P0 \(firstBuild - structureTime), P0b \(structureTime) over \(runs) runs (\(await indexer.stats.checkpoints) checkpoints); unchanged sync \(unchanged); 50-photo sync \(fifty); full restructure \(restructure); search snapshot \(snapshotTime); \(summary.moments) moments, \(summary.trips) trips; peak memory growth \(growth / 1_048_576) MB, index \(size / 1_048_576) MB")
             #expect(summary.assets == 100_000)
             #expect(summary.moments > 0)
             #expect(firstBuild - structureTime < Self.firstBuildLimit)
@@ -69,6 +74,8 @@ struct IndexPerformanceTests {
             #expect(fifty < Self.syncLimit)
             #expect(restructure < Self.structureLimit)
             #expect(growth < Self.memoryGrowthLimit)
+            #expect(snapshot.count == 100_000)
+            #expect(snapshotTime < Self.snapshotLimit)
         }
     }
 }
