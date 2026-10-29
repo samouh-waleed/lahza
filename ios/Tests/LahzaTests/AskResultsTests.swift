@@ -31,7 +31,7 @@ import Testing
     }
 
     @Test func chipsSayWhatWasUnderstoodAndWhatWasLeftOut() async throws {
-        let app = await SearchTestApp.ready()
+        let app = await SearchTestApp.ready(.unlocked)
         let result = try #require(await SearchTestApp.search(app, "soccer at Al-Nakheel Park"))
         // What was understood first, then the words left out ("not yet"), each in word order; VoiceOver follows.
         let chips = QueryChipModel.chips(result.query)
@@ -56,7 +56,7 @@ import Testing
     }
 
     @Test func resultsListSectionsThenTripsThenCards() async throws {
-        let app = await SearchTestApp.ready()
+        let app = await SearchTestApp.ready(.unlocked)
         let greece = try #require(await SearchTestApp.search(app, "Greece"))
         let rows = ResultRow.rows(greece.sections, showsUnknown: false)
         #expect(Set(rows.map(\.id)).count == rows.count, "row ids are unique")
@@ -79,7 +79,7 @@ import Testing
     }
 
     @Test func cardsNameTheDayThePlaceAndWhy() async throws {
-        let app = await SearchTestApp.ready()
+        let app = await SearchTestApp.ready(.unlocked)
         let result = try #require(await SearchTestApp.search(app, "Al-Nakheel Park"))
         let card = try #require(result.cards.first)
         let today = MomentCopy.today(now: HeroSuite.now, zone: riyadh)
@@ -102,7 +102,7 @@ import Testing
     }
 
     @Test func noMatchNamesTheSlotAndWidensWithATap() async throws {
-        let app = await SearchTestApp.ready()
+        let app = await SearchTestApp.ready(.unlocked)
         let result = try #require(await SearchTestApp.search(app, "Dubai last December"))
         let noMatch = try #require(result.noMatch)
         #expect(noMatch.kind == .combination)
@@ -123,7 +123,7 @@ import Testing
 
     @Test func onlyUnsupportedWordsGetTheLibrarysExamples() async throws {
         let maps = SeedMaps.client()
-        let app = await SearchTestApp.ready(maps: maps)
+        let app = await SearchTestApp.ready(.unlocked, maps: maps)
         func searches() -> Int { maps.calls.count { if case .search = $0 { true } else { false } } }
         let before = searches()
         let result = try #require(await SearchTestApp.search(app, "sunset"))
@@ -140,7 +140,7 @@ import Testing
         var table = SeedMaps.hero
         table.searches["louvre"] = [MapPlace(appleID: "louvre", name: "Musée du Louvre", category: .museum,
                                              coordinate: Coordinate(latitude: 48.8606, longitude: 2.3376), cityName: "Paris", countryCode: "FR")]
-        let app = await SearchTestApp.ready(maps: FakeMapsClient(table))
+        let app = await SearchTestApp.ready(.unlocked, maps: FakeMapsClient(table))
 
         // While typing, a name that only might be a place shows as a place (never a "not yet" pill).
         app.search.preview("Louvre")
@@ -171,7 +171,7 @@ import Testing
     }
 
     @Test func thePickerSearchesTheOtherPlace() async throws {
-        let app = await SearchTestApp.ready()
+        let app = await SearchTestApp.ready(.unlocked)
         let result = try #require(await SearchTestApp.search(app, "Salam Park"))
         let salam = SeedScenario.hero.items(.salam).count
         let salamDubai = SeedScenario.hero.items(.dubai1).count { $0.title == SeedPlace.salamParkDubai.name && $0.isLocated }
@@ -192,7 +192,7 @@ import Testing
     }
 
     @Test func aNoMatchStillOffersTheOtherPlace() async throws {
-        let app = await SearchTestApp.ready()
+        let app = await SearchTestApp.ready(.unlocked)
         // 10 photos at Riyadh's Salam Park (2025) and 8 at Dubai's (2024): search runs with Riyadh's, which has none in 2024.
         let result = try #require(await SearchTestApp.search(app, "Salam Park 2024"))
         #expect(result.noMatch?.kind == .combination)
@@ -204,7 +204,7 @@ import Testing
     }
 
     @Test func showWeakerAddsAndRemovesTheWeakerSection() async throws {
-        let app = await SearchTestApp.ready()
+        let app = await SearchTestApp.ready(.unlocked)
         var found: SearchResult?
         for query in ["al nakheel park 2025", "Al-Nakheel Park last summer", "near Kingdom Centre", "Ramadan 2024", "Riyadh 2025"] {
             if let result = await SearchTestApp.search(app, query), result.weakerCount > 0 {
@@ -222,7 +222,7 @@ import Testing
     }
 
     @Test func aSearchDuringTheFirstBuildSaysHowFarItHasRead() async throws {
-        var dependencies = SearchTestApp.dependencies()
+        var dependencies = SearchTestApp.dependencies(.unlocked)
         dependencies.indexSettings.batchSize = 50
         dependencies.indexSettings.pacePerBatch = .milliseconds(400)
         let app = AppModel(dependencies: dependencies)
@@ -245,7 +245,7 @@ import Testing
     }
 
     @Test func aMomentOpenedFromASearchShowsItsMatchesFirst() async throws {
-        let app = await SearchTestApp.ready()
+        let app = await SearchTestApp.ready(.unlocked)
         let result = try #require(await SearchTestApp.search(app, "videos at Al-Nakheel Park"))
         let card = try #require(result.cards.first)
         let detail = try #require(await app.moments.moment(card.id))

@@ -60,6 +60,7 @@ nonisolated enum RootScreen: Hashable, Sendable {
     /// The scene went to the background since it was last active (a trip to iPhone Settings does).
     @ObservationIgnored private var leftForBackground = false
     @ObservationIgnored private var indexVersions: Task<Void, Never>?
+    @ObservationIgnored private var unlocks: Task<Void, Never>?
     @ObservationIgnored private var memoryWarnings: Task<Void, Never>?
     @ObservationIgnored private let log = Log("shell")
 
@@ -78,7 +79,10 @@ nonisolated enum RootScreen: Hashable, Sendable {
             SearchEngine(gazetteer: $0, maps: dependencies.maps, budget: budget, clock: dependencies.clock, network: dependencies.network,
                          deviceTimeZone: dependencies.deviceTimeZone)
         }
-        search = SearchStore(engine: engine, index: index, kv: dependencies.kv, clock: dependencies.clock)
+        // A free search covers the last 12 months, read at every search (decision 34); Moments stays whole.
+        let entitlement = entitlement, clock = dependencies.clock
+        search = SearchStore(engine: engine, index: index, kv: dependencies.kv, clock: clock,
+                             scope: { entitlement.searchStart(now: clock.now).map(SearchScope.since) ?? .wholeLibrary })
         images = dependencies.images
         #if DEBUG
         censusRunner = CensusRunner(source: dependencies.censusSource)
@@ -108,6 +112,7 @@ nonisolated enum RootScreen: Hashable, Sendable {
         log.info("Launch (\(dependencies.label))", privacy: .public)
         isReady = true
         Task { await entitlement.start(with: purchases) }
+        followUnlock()
         photoAccess.start()
         refreshPhotoAccess()
         startIndex()
@@ -145,6 +150,19 @@ nonisolated enum RootScreen: Hashable, Sendable {
         memoryWarnings = Task { [weak self] in
             for await _ in NotificationCenter.default.notifications(named: UIApplication.didReceiveMemoryWarningNotification) {
                 self?.didReceiveMemoryWarning()
+            }
+        }
+    }
+
+    /// An unlock (or a refund) changes what search covers: the shown search runs again at once, so a purchase shows the
+    /// earlier years without searching again.
+    private func followUnlock() {
+        let entitlement = entitlement, search = search
+        unlocks = Task {
+            var last = entitlement.isUnlocked
+            for await isUnlocked in Observations({ entitlement.isUnlocked }) where isUnlocked != last {
+                last = isUnlocked
+                search.scopeChanged()
             }
         }
     }

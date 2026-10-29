@@ -1,4 +1,5 @@
 import Foundation
+import LZBilling
 import LZCore
 import LZGeo
 import LZIndex
@@ -10,7 +11,7 @@ import Testing
 /// Search in the app (search spec §9.2): the store over the fake seed library and an in-memory index, `-LZQuery`,
 /// and the memory warning.
 @MainActor @Suite struct SearchWiringTests {
-    private func app(query: String? = nil) -> AppModel { SearchTestApp.make(query: query) }
+    private func app(query: String? = nil) -> AppModel { SearchTestApp.make(.unlocked, query: query) }
 
     private func eventually(_ app: AppModel, _ condition: () -> Bool) async -> Bool {
         await SearchTestApp.eventually(app, condition)
@@ -73,14 +74,25 @@ import Testing
 }
 
 /// An app over the fake hero library (search spec §9.3's now, fake Apple Maps, Riyadh as the device zone) for the
-/// search tests.
+/// search tests. Every test says whether its user has unlocked the full library: a free search covers only the last
+/// 12 months.
 @MainActor enum SearchTestApp {
-    static func make(query: String? = nil, maps: FakeMapsClient = SeedMaps.client()) -> AppModel {
-        AppModel(dependencies: dependencies(query: query, maps: maps))
+    enum Unlock {
+        /// Search covers every year.
+        case unlocked
+        /// Search covers the last 12 months (decision 34).
+        case free
     }
 
-    static func dependencies(query: String? = nil, maps: FakeMapsClient = SeedMaps.client()) -> AppDependencies {
+    static func make(_ unlock: Unlock, query: String? = nil, maps: FakeMapsClient = SeedMaps.client()) -> AppModel {
+        AppModel(dependencies: dependencies(unlock, query: query, maps: maps))
+    }
+
+    static func dependencies(_ unlock: Unlock, query: String? = nil, maps: FakeMapsClient = SeedMaps.client()) -> AppDependencies {
         var dependencies = AppDependencies.testHost()
+        dependencies.purchases = FakePurchasesClient(unlocked: unlock == .unlocked)
+        dependencies.kv.setString(unlock == .unlocked ? EntitlementStore.Status.unlocked.rawValue : EntitlementStore.Status.free.rawValue,
+                                  forKey: KVKey.device(KVSuffix.entitlementCache))
         let photos = FakePhotoLibraryClient(access: .full, answer: .full, counts: [.full: 561, .limited: 40])
         dependencies.photoLibrary = photos
         dependencies.libraryReader = FakeLibraryReader(.seed(.hero), following: photos)
@@ -95,8 +107,8 @@ import Testing
     }
 
     /// A started app whose index is built and whose places are named.
-    static func ready(maps: FakeMapsClient = SeedMaps.client()) async -> AppModel {
-        let app = make(maps: maps)
+    static func ready(_ unlock: Unlock, maps: FakeMapsClient = SeedMaps.client()) async -> AppModel {
+        let app = make(unlock, maps: maps)
         app.start()
         _ = await eventually(app) { app.index.status.phase == .ready }
         await app.index.placeNamesSettled()

@@ -14,6 +14,7 @@ import LZLibrary
 /// | `-LZFreshInstall 1`       | in-memory storage, so onboarding shows and nothing is remembered |
 /// | `-LZSkipOnboarding 1`     | in-memory storage with onboarding already done                   |
 /// | `-LZFakeStore 1`          | a fake store with the sample $9.99 unlock (no RevenueCat; in-memory storage) |
+/// | `-LZUnlocked 1\|0`        | the fake store, starting with the full library unlocked (search covers every year) or free (the last 12 months) |
 /// | `-LZStoreKit 1`           | StoreKit directly, no RevenueCat (in-memory storage): the scheme's `Config/Lahza.storekit` when Xcode runs it |
 /// | `-LZPhotos <access>`      | a fake photo library starting at that access (see below)         |
 /// | `-LZSeed hero`            | the hero seed library without PhotoKit, fake Apple Maps (see below) |
@@ -35,10 +36,19 @@ import LZLibrary
 /// `-LZSeed hero` serves the 561 items of ``SeedScenario/hero`` (seed artwork as thumbnails) with the seed's fake
 /// Apple Maps at 600 requests a minute, into an in-memory index. It implies `-LZPhotos full`; with
 /// `-LZPhotos limited` only the first 40 items are shared.
+///
+/// Search depends on the unlock: a free search covers the last 12 months, so review launches state it. `make screens`
+/// and the review queries run with `-LZUnlocked 1` (the whole seed library); `-LZUnlocked 0` shows the free tier, and
+/// buying from its "N more from earlier years" row unlocks in place:
+///
+///     xcrun simctl launch <device> com.waleedsamouh.lahza -LZSkipOnboarding 1 -LZSeed hero \
+///         -LZNow 2026-10-28T12:00:00+03:00 -LZUnlocked 1 -LZQuery "Al-Nakheel Park"
 struct DebugLaunch {
     var freshInstall = false
     var skipOnboarding = false
     var fakeStore = false
+    /// `-LZUnlocked`: the fake store, already unlocked (true) or free (false).
+    var unlocked: Bool?
     /// `-LZStoreKit`: purchases straight over StoreKit (``StoreKitPurchasesClient``).
     var storeKit = false
     /// `-LZPhotos`: the fake photo library's starting access.
@@ -81,10 +91,18 @@ struct DebugLaunch {
     /// The arguments as `value(key)` reads them (launch arguments land in `UserDefaults`).
     static func parse(_ value: (String) -> String?) -> DebugLaunch {
         func flag(_ key: String) -> Bool { ["1", "yes", "true"].contains(value(key)?.lowercased() ?? "") }
+        func choice(_ key: String) -> Bool? {
+            switch value(key)?.lowercased() {
+            case "1", "yes", "true": true
+            case "0", "no", "false": false
+            default: nil
+            }
+        }
         return DebugLaunch(
             freshInstall: flag("LZFreshInstall"),
             skipOnboarding: flag("LZSkipOnboarding"),
             fakeStore: flag("LZFakeStore"),
+            unlocked: choice("LZUnlocked"),
             storeKit: flag("LZStoreKit"),
             photos: value("LZPhotos").flatMap { name in PhotoAccess.allCases.first { $0.rawValue.lowercased() == name.lowercased() } },
             seed: value("LZSeed")?.lowercased(),
@@ -108,6 +126,7 @@ struct DebugLaunch {
             dependencies.kv = kv
             labels.append(freshInstall ? "fresh-install" : "skip-onboarding")
         }
+        let fakeStore = fakeStore || unlocked != nil
         if fakeStore || storeKit {
             // Test purchases never touch the real defaults (the cached unlock): run on in-memory
             // storage, carrying over only whether onboarding was done.
@@ -119,7 +138,13 @@ struct DebugLaunch {
             // A Test Store key, so the paywall says "Test purchases only".
             dependencies.billingEnvironment = BillingEnvironment(apiKey: "test_local_store", configuration: .debug)
         }
-        if fakeStore {
+        if let unlocked {
+            dependencies.purchases = FakePurchasesClient(unlocked: unlocked)
+            // The first screen already knows, before the fake store answers.
+            dependencies.kv.setString(unlocked ? EntitlementStore.Status.unlocked.rawValue : EntitlementStore.Status.free.rawValue,
+                                      forKey: KVKey.device(KVSuffix.entitlementCache))
+            labels.append(unlocked ? "unlocked" : "free")
+        } else if fakeStore {
             dependencies.purchases = FakePurchasesClient()
             labels.append("fake-store")
         } else if storeKit {

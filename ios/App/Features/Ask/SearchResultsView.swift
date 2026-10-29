@@ -5,7 +5,8 @@ import SwiftUI
 
 /// Ask's results (search spec §7.1): what the query was understood as, the picker for an ambiguous place, the counts
 /// and what was searched, then moment cards in sections (trips under their headers), or why nothing matched with taps
-/// that widen the search. While it runs, skeleton cards; when it fails, a notice to try again.
+/// that widen the search. A free search ends with how many older photos also match and the unlock. While it runs,
+/// skeleton cards; when it fails, a notice to try again.
 struct SearchResultsView: View {
     /// Searches typed words (an example search).
     let search: (String) -> Void
@@ -78,7 +79,8 @@ nonisolated enum ResultRow: Identifiable, Hashable {
     }
 }
 
-/// The chips, notices and picker, the header, the sections, Show weaker and the coverage notes.
+/// The chips, notices and picker, the header, the sections, Show weaker, the older matches a free search leaves out
+/// and the coverage notes.
 private struct ResultsList: View {
     let result: SearchResult
     let showsWeaker: Bool
@@ -95,6 +97,8 @@ private struct ResultsList: View {
             if result.weakerCount > 0 {
                 ShowWeakerButton(count: result.weakerCount, isShown: showsWeaker)
             }
+            LockedResultsRow(count: result.lockedCount)
+                .padding(.top, LZSpace.sm)
             if !result.coverage.notes.isEmpty {
                 VStack(alignment: .leading, spacing: LZSpace.xs) {
                     ForEach(result.coverage.notes, id: \.self) { note in
@@ -243,10 +247,11 @@ private struct ChooseMoreButton: View {
 
 // MARK: No match
 
-/// Why nothing matched (the slot that found nothing), with taps that widen the search and their counts. Words Lahza
-/// can't search yet get the library's example searches instead. While the first build reads, or under limited access,
-/// it says what was searched, so "No photos" isn't taken as final. Photos without a location that match everything
-/// else still show under Location unknown, and weaker matches behind Show weaker.
+/// Why nothing matched (the slot that found nothing), with taps that widen the search and their counts. When no tap is
+/// left, the library's example searches follow, so there is always a next tap. A free search whose matches are all
+/// older says so and puts the unlock right under it. While the first build reads, or under limited access, it says
+/// what was searched, so "No photos" isn't taken as final. Photos without a location that match everything else still
+/// show under Location unknown, and weaker matches behind Show weaker.
 private struct NoMatchView: View {
     let result: SearchResult
     let showsWeaker: Bool
@@ -257,7 +262,13 @@ private struct NoMatchView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: LZSpace.lg) {
             QueryTop(result: result)
-            if let noMatch = result.noMatch {
+            if let noMatch = result.noMatch, noMatch.kind == .onlyEarlier {
+                // Not "nothing": the photos are there, older than a free search covers.
+                EmptyState(noMatch.headline, message: AskCopy.onlyEarlierDetail, systemImage: AskCopy.noMatchSymbol(noMatch.kind), tone: .neutral)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityIdentifier("ask-no-match")
+                LockedResultsRow(count: result.lockedCount)
+            } else if let noMatch = result.noMatch {
                 EmptyState(noMatch.headline, message: noMatch.detail ?? "", systemImage: AskCopy.noMatchSymbol(noMatch.kind), tone: .neutral)
                     .accessibilityElement(children: .combine)
                     .accessibilityIdentifier("ask-no-match")
@@ -303,6 +314,9 @@ private struct NoMatchView: View {
                         ShowWeakerButton(count: result.weakerCount, isShown: showsWeaker)
                     }
                 }
+            }
+            if result.noMatch?.kind != .onlyEarlier {
+                LockedResultsRow(count: result.lockedCount)
             }
         }
     }

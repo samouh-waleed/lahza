@@ -1,3 +1,4 @@
+import LZBilling
 import LZCore
 import LZDesign
 import LZIndex
@@ -239,6 +240,8 @@ nonisolated enum AskCopy {
     // MARK: Results
 
     static let tryAgain = "Try again"
+    /// Under "No matches in the last 12 months.", above the unlock row.
+    static let onlyEarlierDetail = BillingCopy.freeDetail
     static let chooseMore = "Choose more"
     static let show = "Show"
     static let hide = "Hide"
@@ -266,6 +269,7 @@ nonisolated enum AskCopy {
         case .onlyUnsupported: "eye.slash"
         case .future: "calendar.badge.exclamationmark"
         case .stillReading: "hourglass"
+        case .onlyEarlier: "clock.arrow.circlepath"
         case .placeNotFound, .placeEmpty, .onlyBeyondRadius: "mappin.slash"
         default: "magnifyingglass"
         }
