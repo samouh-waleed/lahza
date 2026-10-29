@@ -20,6 +20,7 @@ import Testing
     @Test func askSpeaksInThePresentTense() {
         #expect(AskCopy.capability == "Searches places, dates and photo types. Searching what’s in photos comes later.")
         #expect(AskCopy.subtitle == "Search by place, date or photo type, like “Dubai last December” or “videos from Eid”.")
+        #expect(AskCopy.prompt == "Dubai last December…")
         #expect(AskCopy.indexingCaption(.reading(done: 1, total: 2)) == "You can search now. Newest photos come first; trips appear when Lahza finishes.")
         #expect(AskCopy.indexingCaption(.organizing).hasPrefix("You can search now."))
         #expect(AskCopy.momentsNoun(1) == "moment" && AskCopy.momentsNoun(16) == "moments")
@@ -32,17 +33,22 @@ import Testing
     @Test func chipsSayWhatWasUnderstoodAndWhatWasLeftOut() async throws {
         let app = await SearchTestApp.ready()
         let result = try #require(await SearchTestApp.search(app, "soccer at Al-Nakheel Park"))
+        // What was understood first, then the words left out ("not yet"), each in word order; VoiceOver follows.
         let chips = QueryChipModel.chips(result.query)
-        #expect(chips.map(\.title) == ["soccer · not yet", "Al-Nakheel Park"])
-        #expect(chips.map(\.isSupported) == [false, true])
-        #expect(chips.map(\.accessibilityLabel) == ["soccer, not searchable yet", "Place, Al-Nakheel Park"])
+        #expect(chips.map(\.title) == ["Al-Nakheel Park", "soccer · not yet"])
+        #expect(chips.map(\.isSupported) == [true, false])
+        #expect(chips.map(\.accessibilityLabel) == ["Place, Al-Nakheel Park", "soccer, not searchable yet"])
         #expect(result.unsupportedNotice == "Lahza can’t see what’s in photos yet, so “soccer” was left out. Showing all your photos at Al-Nakheel Park.")
         #expect(SearchTestApp.bestCount(app) == SeedScenario.hero.items(.nakheel).count)
 
-        // Typed but not searched: the chips come from the words, and the place spins while it is looked up.
+        // Typed but not searched: the chips come from the words, in the same order, and the place spins while it is
+        // looked up.
         app.search.clear()
+        app.search.preview("soccer at Al-Nakheel Park")
+        #expect(await SearchTestApp.eventually(app) { app.search.parsed?.text == "soccer at Al-Nakheel Park" })
+        #expect(QueryChipModel.chips(try #require(app.search.parsed)).map(\.title) == ["Al-Nakheel Park", "soccer · not yet"])
         app.search.preview("videos at Al-Nakheel Park")
-        #expect(await SearchTestApp.eventually(app) { app.search.parsed != nil })
+        #expect(await SearchTestApp.eventually(app) { app.search.parsed?.text == "videos at Al-Nakheel Park" })
         let typed = QueryChipModel.chips(try #require(app.search.parsed), lookingUpPlace: true)
         #expect(typed.map(\.title) == ["Videos", "Al-Nakheel Park"])
         #expect(typed.map(\.systemImage) == ["film", "mappin"])
@@ -127,6 +133,41 @@ import Testing
         #expect(result.unsupportedNotice == nil)
         #expect(QueryChipModel.chips(result.query).map(\.title) == ["sunset · not yet"])
         #expect(searches() == before, "no Apple Maps search")
+    }
+
+    @Test func aNameNoPlaceConfirmsReadsAsAPlaceThatWasntFound() async throws {
+        // Apple Maps answers "Louvre" with "Musée du Louvre", which isn't the words typed.
+        var table = SeedMaps.hero
+        table.searches["louvre"] = [MapPlace(appleID: "louvre", name: "Musée du Louvre", category: .museum,
+                                             coordinate: Coordinate(latitude: 48.8606, longitude: 2.3376), cityName: "Paris", countryCode: "FR")]
+        let app = await SearchTestApp.ready(maps: FakeMapsClient(table))
+
+        // While typing, a name that only might be a place shows as a place (never a "not yet" pill).
+        app.search.preview("Louvre")
+        #expect(await SearchTestApp.eventually(app) { app.search.parsed?.text == "Louvre" })
+        let typed = QueryChipModel.chips(try #require(app.search.parsed), lookingUpPlace: true)
+        #expect(typed.map(\.title) == ["Louvre"])
+        #expect(typed.map(\.systemImage) == ["mappin"])
+        #expect(typed.map(\.isSupported) == [true] && typed.map(\.isLoading) == [true])
+
+        // Once searched, it is still a place: one that wasn't found.
+        let result = try #require(await SearchTestApp.search(app, "Louvre"))
+        let chips = QueryChipModel.chips(result.query)
+        #expect(chips.map(\.title) == ["Louvre"])
+        #expect(chips.map(\.systemImage) == ["mappin"])
+        #expect(chips.map(\.accessibilityLabel) == ["Place, Louvre"])
+        let noMatch = try #require(result.noMatch)
+        #expect(noMatch.headline == "Couldn’t find “Louvre” in your photos or on the map.")
+        #expect(AskCopy.noMatchSymbol(noMatch.kind) == "mappin.slash")
+
+        // Next to a place search finds, a leftover word previews as a place, then is left out ("not yet", last).
+        app.search.clear()
+        app.search.preview("kebab at Al-Nakheel Park")
+        #expect(await SearchTestApp.eventually(app) { app.search.parsed?.text == "kebab at Al-Nakheel Park" })
+        #expect(QueryChipModel.chips(try #require(app.search.parsed)).map(\.title) == ["Kebab", "Al-Nakheel Park"])
+        let kebab = try #require(await SearchTestApp.search(app, "kebab at Al-Nakheel Park"))
+        #expect(QueryChipModel.chips(kebab.query).map(\.title) == ["Al-Nakheel Park", "kebab · not yet"])
+        #expect(kebab.noMatch == nil)
     }
 
     @Test func thePickerSearchesTheOtherPlace() async throws {

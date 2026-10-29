@@ -13,18 +13,18 @@ nonisolated struct QueryChipModel: Identifiable, Hashable {
     /// The place is being looked up (the chip spins).
     var isLoading = false
 
-    /// The chips of a searched query, in slot order.
+    /// The chips of a searched query.
     static func chips(_ query: ResolvedQuery) -> [QueryChipModel] {
-        query.slots.map { slot in
+        ordered(query.slots.map { slot in
             QueryChipModel(id: slot.id, kind: slot.slot.kind, title: slot.isSupported ? slot.chip : AskCopy.notYet(slot.chip, kind: slot.slot.kind),
                            systemImage: slot.systemImage, isSupported: slot.isSupported)
-        }
+        })
     }
 
     /// The chips of a query not searched yet (typing, or still searching), from its words; the place spins while it is
-    /// looked up.
+    /// looked up. Words that only might be a place show as a place until search says otherwise.
     static func chips(_ parsed: ParsedQuery, lookingUpPlace: Bool = false) -> [QueryChipModel] {
-        parsed.slots.map { slot in
+        ordered(parsed.slots.map { slot in
             let supported = SearchCapabilities.v0.supports(slot.value)
             let words = slot.value.phrase()
             let symbol: String = switch slot.value {
@@ -36,7 +36,13 @@ nonisolated struct QueryChipModel: Identifiable, Hashable {
             }
             return QueryChipModel(id: slot.id, kind: slot.kind, title: supported ? AskCopy.capitalized(words) : AskCopy.notYet(words, kind: slot.kind),
                                   systemImage: symbol, isSupported: supported, isLoading: lookingUpPlace && slot.kind == .place)
-        }
+        })
+    }
+
+    /// What search understood first, then the words it can't search yet ("soccer · not yet"), each in word order;
+    /// VoiceOver reads them in the same order.
+    private static func ordered(_ chips: [QueryChipModel]) -> [QueryChipModel] {
+        chips.filter(\.isSupported) + chips.filter { !$0.isSupported }
     }
 
     /// "Place, Al-Nakheel Park"; "soccer, not searchable yet".

@@ -170,7 +170,7 @@ nonisolated enum AskCopy {
     static let navigationTitle = "Ask Lahza"
     static let title = "What do you remember?"
     static let subtitle = "Search by place, date or photo type, like “Dubai last December” or “videos from Eid”."
-    static let prompt = "Soccer at the park last summer…"
+    static let prompt = "Dubai last December…"
     static let privacy = "Your photos stay on this iPhone."
     static let searching = "Searching your photos…"
     static let needsAccess = "Lahza needs photo access to search."
