@@ -53,9 +53,13 @@ struct AskScreen: View {
                     model.search.preview(value)
                 }
             }
-            // A search started elsewhere (-LZQuery), or the words of edited chips, show in the field.
+            // A search started elsewhere (-LZQuery), or the words of edited chips, show in the field; removing the last
+            // chip empties it.
             .onChange(of: model.search.text) { _, text in
-                guard !text.isEmpty else { return }
+                guard !text.isEmpty else {
+                    if model.search.state == .idle { query = "" }
+                    return
+                }
                 if text != query { query = text }
                 submitted = text
                 proxy.scrollTo(Self.top, anchor: .top)
@@ -192,6 +196,7 @@ nonisolated enum AskCopy {
     static let notSearchableYet = "not searchable yet"
     static let lookingUpValue = "Looking up"
     static let unsupportedHint = "Explains why it was left out"
+    static let editHint = "Edit"
     static let exampleHint = "Searches for it"
 
     /// "soccer · not yet"; a date Lahza couldn't use keeps its own words ("National day of which country?").

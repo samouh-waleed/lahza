@@ -3,19 +3,26 @@ import LZIndex
 import LZSearch
 import SwiftUI
 
-/// Ask's results (search spec §7.1): what the query was understood as, the picker for an ambiguous place, the counts
-/// and what was searched, then moment cards in sections (trips under their headers), or why nothing matched with taps
-/// that widen the search. A free search ends with how many older photos also match and the unlock. While it runs,
-/// skeleton cards; when it fails, a notice to try again.
+/// Ask's results (search spec §7.1): what the query was understood as (each chip opens its editor), the picker for an
+/// ambiguous place, the counts and what was searched, then moment cards in sections (trips under their headers), or
+/// why nothing matched with taps that widen the search. A free search ends with how many older photos also match and
+/// the unlock. While it runs, skeleton cards; when it fails, a notice to try again.
 struct SearchResultsView: View {
     /// Searches typed words (an example search).
     let search: (String) -> Void
     @Environment(AppModel.self) private var model
+    /// The chip whose editor is open (the sheet lives here, so it stays while an edit searches again).
+    @State private var editing: EditedSlot?
 
     var body: some View {
         Group { content }
             // Cards and moment detail name the country away from home, and trips by their rows.
             .task(id: model.index.version) { await model.moments.load() }
+            .sheet(item: $editing) { ChipEditorSheet(slotID: $0.id) }
+    }
+
+    private func edit(_ slot: Int) {
+        editing = EditedSlot(id: slot)
     }
 
     @ViewBuilder private var content: some View {
@@ -28,9 +35,9 @@ struct SearchResultsView: View {
                 .lzPage()
                 .padding(.vertical, LZSpace.lg)
         case .results(let result):
-            ResultsList(result: result, showsWeaker: store.request?.showWeaker ?? false)
+            ResultsList(result: result, showsWeaker: store.request?.showWeaker ?? false, edit: edit)
         case .noMatch(let result):
-            NoMatchView(result: result, showsWeaker: store.request?.showWeaker ?? false, search: search)
+            NoMatchView(result: result, showsWeaker: store.request?.showWeaker ?? false, search: search, edit: edit)
                 .lzPage()
                 .padding(.vertical, LZSpace.lg)
         case .failed(let message):
@@ -84,11 +91,12 @@ nonisolated enum ResultRow: Identifiable, Hashable {
 private struct ResultsList: View {
     let result: SearchResult
     let showsWeaker: Bool
+    let edit: (Int) -> Void
     @State private var showsUnknown = false
 
     var body: some View {
         LazyVStack(alignment: .leading, spacing: LZSpace.md) {
-            QueryTop(result: result)
+            QueryTop(result: result, edit: edit)
                 .padding(.bottom, LZSpace.sm)
             ResultsHeader(result: result)
             ForEach(ResultRow.rows(result.sections, showsUnknown: showsUnknown)) { row in
@@ -168,15 +176,17 @@ private struct ShowWeakerButton: View {
     }
 }
 
-/// What the query was understood as, the notice about words left out, and the picker for an ambiguous place.
+/// What the query was understood as (a chip opens its editor), the notice about words left out, and the picker for an
+/// ambiguous place.
 private struct QueryTop: View {
     let result: SearchResult
+    let edit: (Int) -> Void
     @Environment(AppModel.self) private var model
 
     var body: some View {
         VStack(alignment: .leading, spacing: LZSpace.lg) {
             let chips = QueryChipModel.chips(result.query)
-            if !chips.isEmpty { UnderstoodAsRow(chips: chips) }
+            if !chips.isEmpty { UnderstoodAsRow(chips: chips, edit: edit) }
             if let notice = result.unsupportedNotice {
                 Notice(.info, message: notice)
                     .accessibilityIdentifier("ask-unsupported-notice")
@@ -256,12 +266,13 @@ private struct NoMatchView: View {
     let result: SearchResult
     let showsWeaker: Bool
     let search: (String) -> Void
+    let edit: (Int) -> Void
     @Environment(AppModel.self) private var model
     @State private var showsUnknown = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: LZSpace.lg) {
-            QueryTop(result: result)
+            QueryTop(result: result, edit: edit)
             if let noMatch = result.noMatch, noMatch.kind == .onlyEarlier {
                 // Not "nothing": the photos are there, older than a free search covers.
                 EmptyState(noMatch.headline, message: AskCopy.onlyEarlierDetail, systemImage: AskCopy.noMatchSymbol(noMatch.kind), tone: .neutral)

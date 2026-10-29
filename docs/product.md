@@ -63,7 +63,7 @@ iPhone users, mostly on iPhone 15 Pro or newer, with large libraries, who rememb
 - Cloud AI.
 - Accounts.
 
-**Business model:** freemium. Search over the last 12 months is free, and a one-time purchase unlocks the whole library (no subscription). The Moments timeline is free.
+**Business model:** freemium. Search over the last 12 months is free, and a one-time purchase unlocks the whole library (no subscription). A free search shows its last-12-months results, then how many earlier photos also match, with the unlock. The Moments timeline is free.
 
 ## What we must prove first
 

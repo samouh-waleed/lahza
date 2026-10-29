@@ -10,7 +10,7 @@ import Testing
 /// A free user's search on Ask (decision 34, E11) over the fake hero library at the spec's now: the last 12 months, the
 /// older matches counted for the unlock row, the answer when every match is older, examples that count what a tap
 /// shows, and an unlock that shows the earlier years at once. Expectations come from the scenario's dates. Also E17
-/// (examples after a no-match with no offer left) and `-LZUnlocked`.
+/// (examples after a no-match with no offer left), E18 (onboarding's example) and `-LZUnlocked`.
 @MainActor @Suite struct FreeSearchTests {
     static let hero = SeedScenario.hero
 
@@ -90,6 +90,12 @@ import Testing
         #expect(result.noMatch?.kind == .placeNotFound(.unconfirmed))
         #expect(result.noMatch?.offers.isEmpty == true)
         #expect(result.noMatch?.examples.map(\.text).first == "Dubai trip")
+    }
+
+    /// E18: onboarding quotes the same example as the field.
+    @Test func onboardingQuotesTheFieldsExample() {
+        #expect(OnboardingCopy.promises.first?.detail == "“Dubai last December” is enough.")
+        #expect(AskCopy.prompt == "Dubai last December…")
     }
 
     @Test func theUnlockedArgumentStartsTheFakeStoreUnlockedOrFree() {

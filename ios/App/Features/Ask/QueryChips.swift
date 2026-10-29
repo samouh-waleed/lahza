@@ -2,7 +2,7 @@ import LZDesign
 import LZSearch
 import SwiftUI
 
-/// One "Understood as" chip: a slot as search read it (search spec §7.1). Read-only until chip editing comes.
+/// One "Understood as" chip: a slot as search read it (search spec §7.1). A searched query's chips open their editor.
 nonisolated struct QueryChipModel: Identifiable, Hashable {
     var id: Int
     var kind: SlotKind
@@ -45,16 +45,18 @@ nonisolated struct QueryChipModel: Identifiable, Hashable {
         chips.filter(\.isSupported) + chips.filter { !$0.isSupported }
     }
 
-    /// "Place, Al-Nakheel Park"; "soccer, not searchable yet".
+    /// "Place, Al-Nakheel Park"; "soccer, not searchable yet" (VoiceOver adds "button" and the edit hint when it edits).
     var accessibilityLabel: String {
         guard isSupported else { return "\(title.replacingOccurrences(of: AskCopy.notYetSuffix, with: "")), \(AskCopy.notSearchableYet)" }
         return "\(AskCopy.slotName(kind)), \(title)"
     }
 }
 
-/// "UNDERSTOOD AS" and the query's chips, wrapping.
+/// "UNDERSTOOD AS" and the query's chips, wrapping. With `edit`, a tap opens the chip's editor; without (while typing
+/// or searching), the chips only show what was understood.
 struct UnderstoodAsRow: View {
     let chips: [QueryChipModel]
+    var edit: ((Int) -> Void)?
 
     var body: some View {
         VStack(alignment: .leading, spacing: LZSpace.xs) {
@@ -64,7 +66,7 @@ struct UnderstoodAsRow: View {
                 .accessibilityAddTraits(.isHeader)
             GlassEffectContainer(spacing: LZSpace.sm) {
                 LZFlowLayout(spacing: LZSpace.sm, lineSpacing: 0) {
-                    ForEach(chips) { QueryChip(chip: $0) }
+                    ForEach(chips) { QueryChip(chip: $0, edit: edit) }
                 }
             }
         }
@@ -73,14 +75,21 @@ struct UnderstoodAsRow: View {
     }
 }
 
-/// A slot chip (glass, with the slot's symbol), or for words Lahza can't search yet a neutral pill whose tap says why.
+/// A slot chip (glass, with the slot's symbol), or for words Lahza can't search yet a neutral pill. A searched chip
+/// opens its editor (the unsupported one says why and offers Remove); while typing, a slot chip only shows and the
+/// pill explains itself in a popover.
 struct QueryChip: View {
     let chip: QueryChipModel
+    var edit: ((Int) -> Void)?
     @State private var explains = false
 
     var body: some View {
-        if chip.isSupported {
-            // Read-only: the chip editors come later, so it never acts as a button.
+        if chip.isSupported, let edit, !chip.isLoading {
+            LZChip(chip.title, systemImage: chip.systemImage, isSelected: false) { edit(chip.id) }
+                .accessibilityLabel(chip.accessibilityLabel)
+                .accessibilityHint(AskCopy.editHint)
+                .accessibilityIdentifier("ask-chip-\(chip.kind.rawValue)")
+        } else if chip.isSupported {
             LZChip(chip.title, systemImage: chip.systemImage, isSelected: false, isLoading: chip.isLoading) {}
                 .allowsHitTesting(false)
                 .accessibilityElement(children: .ignore)
@@ -89,7 +98,7 @@ struct QueryChip: View {
                 .accessibilityRemoveTraits(.isButton)
                 .accessibilityIdentifier("ask-chip-\(chip.kind.rawValue)")
         } else {
-            Button { explains = true } label: {
+            Button { if let edit { edit(chip.id) } else { explains = true } } label: {
                 Pill(chip.title, systemImage: "info.circle", tone: .neutral)
                     .lzHitTarget()
             }
