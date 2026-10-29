@@ -122,7 +122,7 @@ struct PlacePickerRow: View {
                         LZChip(choice.label, systemImage: "mappin", isSelected: choice.id == picker.chosen) {
                             if choice.id != picker.chosen { choose(choice) }
                         }
-                        .accessibilityLabel(AskCopy.spokenChoice(choice.label))
+                        .accessibilityLabel(AskCopy.spokenChoice(choice))
                     }
                 }
             }

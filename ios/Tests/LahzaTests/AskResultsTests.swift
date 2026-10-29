@@ -139,10 +139,27 @@ import Testing
         #expect(picker.choices.map(\.label) == ["Riyadh · \(salam)", "Dubai · \(salamDubai)"])
         #expect(SearchTestApp.bestCount(app) == salam)
         let dubai = try #require(picker.choices.last)
-        #expect(AskCopy.spokenChoice(dubai.label) == "Dubai, \(salamDubai) photos")
+        #expect(AskCopy.spokenChoice(dubai) == "Dubai, \(salamDubai) photos")
+        var one = dubai
+        one.candidate.photoCount = 1
+        #expect(AskCopy.spokenChoice(one) == "Dubai, 1 photo")
         app.search.choose(dubai)
         #expect(await SearchTestApp.eventually(app) { app.search.result?.id != result.id && app.search.result?.noMatch == nil })
         #expect(SearchTestApp.bestCount(app) == salamDubai)
+        // The picker stays with Dubai ticked, so Riyadh is a tap away.
+        #expect(app.search.result?.query.picker?.chosen == dubai.id)
+    }
+
+    @Test func aNoMatchStillOffersTheOtherPlace() async throws {
+        let app = await SearchTestApp.ready()
+        // 10 photos at Riyadh's Salam Park (2025) and 8 at Dubai's (2024): search runs with Riyadh's, which has none in 2024.
+        let result = try #require(await SearchTestApp.search(app, "Salam Park 2024"))
+        #expect(result.noMatch?.kind == .combination)
+        let picker = try #require(result.query.picker, "the no-match keeps the picker")
+        let dubai = try #require(picker.choices.first { $0.candidate.context == "Dubai" })
+        app.search.choose(dubai)
+        #expect(await SearchTestApp.eventually(app) { app.search.result?.noMatch == nil && app.search.result?.id != result.id })
+        #expect(SearchTestApp.bestCount(app) == SeedScenario.hero.items(.dubai1).count { $0.title == SeedPlace.salamParkDubai.name && $0.isLocated })
     }
 
     @Test func showWeakerAddsAndRemovesTheWeakerSection() async throws {

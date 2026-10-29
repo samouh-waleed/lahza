@@ -32,7 +32,7 @@ struct AskScreen: View {
                     }
                     .lzPage()
                     .accessibilityIdentifier("ask-deleted")
-                } else if submitted != nil, state != .noAccess {
+                } else if submitted != nil, state != .noAccess, model.search.state != .idle {
                     SearchResultsView { search($0, proxy: proxy) }
                 } else {
                     home(state, status: status, access: access, proxy: proxy)
@@ -59,6 +59,10 @@ struct AskScreen: View {
                 submitted = text
                 proxy.scrollTo(Self.top, anchor: .top)
             }
+            // A search typed before Lahza could read the library runs once it can.
+            .onChange(of: access.canRead) { _, canRead in
+                if canRead, let submitted, model.search.state == .idle { model.search.submit(submitted) }
+            }
             .task(id: model.index.version) {
                 if model.search.examples.isEmpty { model.search.refreshExamples(after: .zero) }
             }
@@ -73,7 +77,7 @@ struct AskScreen: View {
                 Text(AskCopy.title).lzText(.displayLarge).foregroundStyle(.lz(.ink))
                 Text(AskCopy.subtitle).lzText(.body).foregroundStyle(.lz(.muted))
             }
-            if submitted != nil {
+            if submitted != nil, !access.canRead {
                 Notice(.info, message: AskCopy.needsAccess)
             } else if !query.isEmpty, let parsed = model.search.parsed, !parsed.slots.isEmpty {
                 UnderstoodAsRow(chips: QueryChipModel.chips(parsed))
@@ -228,11 +232,14 @@ nonisolated enum AskCopy {
     static func spokenExample(_ example: ExampleSearch) -> String { "\(example.text), \(MomentCopy.count(example.count, "result"))" }
 
     /// "Riyadh, 10 photos" for the picker's "Riyadh · 10".
-    static func spokenChoice(_ label: String) -> String { label.replacingOccurrences(of: " · ", with: ", ") + " photos" }
+    static func spokenChoice(_ choice: PlacePicker.Choice) -> String {
+        "\(choice.candidate.context ?? choice.candidate.subtitle), \(MomentCopy.count(choice.candidate.photoCount, "photo"))"
+    }
 
     // MARK: Results
 
     static let tryAgain = "Try again"
+    static let chooseMore = "Choose more"
     static let show = "Show"
     static let hide = "Hide"
     static let tripEyebrow = "TRIP"

@@ -133,6 +133,13 @@ import Testing
         #expect(MomentCopy.zoneNote(london, deviceZone: riyadh) == "London time")
         moment.endWall = moment.startWall
         #expect(MomentCopy.timeSpan(moment, locale: Locale(identifier: "en_GB")) == "17:00")
+        // Past midnight (the London party, 22:00–02:30): times only, never the dates.
+        moment.startWall = Int64(LocalTime.day(year: 2021, month: 12, day: 31)) * 86_400 + 22 * 3_600
+        moment.endWall = moment.startWall + 270 * 60
+        let party = MomentCopy.timeSpan(moment, locale: Locale(identifier: "en_GB"))
+        #expect(party.hasPrefix("22:00\u{2009}–\u{2009}") && party.hasSuffix("2:30"), "\(party)")
+        let canada = MomentCopy.timeSpan(moment, locale: Locale(identifier: "en_CA"))
+        #expect(!canada.contains("2021") && canada.contains("10:00") && canada.contains("2:30"), "\(canada)")
     }
 
     @Test func placeLinesNameTheCountryAwayFromHome() {

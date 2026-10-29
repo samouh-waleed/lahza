@@ -25,8 +25,7 @@ struct MomentDetailScreen: View {
                         gridSection(MomentCopy.matchesTitle(split.matches.count), members: split.matches)
                             .accessibilityIdentifier("moment-matches")
                         if !split.others.isEmpty {
-                            gridSection(MomentCopy.alsoTitle(split.others.count), members: split.others)
-                                .opacity(0.6)
+                            gridSection(MomentCopy.alsoTitle(split.others.count), members: split.others, dimmed: true)
                                 .accessibilityIdentifier("moment-also")
                         }
                     } else {
@@ -62,13 +61,15 @@ struct MomentDetailScreen: View {
         return model.search.result?.cards.first { $0.id == ref.key }
     }
 
-    private func gridSection(_ title: String, members: [MomentDetailRows.Member]) -> some View {
+    /// A titled grid; `dimmed` fades the photos (the rest of a moment opened from a search), never the title.
+    private func gridSection(_ title: String, members: [MomentDetailRows.Member], dimmed: Bool = false) -> some View {
         VStack(alignment: .leading, spacing: LZSpace.sm) {
             Text(title)
                 .lzText(.label)
                 .foregroundStyle(.lz(.muted))
                 .accessibilityAddTraits(.isHeader)
             MomentGrid(members: members)
+                .opacity(dimmed ? 0.6 : 1)
         }
     }
 }

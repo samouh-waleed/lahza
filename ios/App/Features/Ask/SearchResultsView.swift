@@ -29,7 +29,7 @@ struct SearchResultsView: View {
         case .results(let result):
             ResultsList(result: result, showsWeaker: store.request?.showWeaker ?? false)
         case .noMatch(let result):
-            NoMatchView(result: result, search: search)
+            NoMatchView(result: result, showsWeaker: store.request?.showWeaker ?? false, search: search)
                 .lzPage()
                 .padding(.vertical, LZSpace.lg)
         case .failed(let message):
@@ -82,41 +82,18 @@ nonisolated enum ResultRow: Identifiable, Hashable {
 private struct ResultsList: View {
     let result: SearchResult
     let showsWeaker: Bool
-    @Environment(AppModel.self) private var model
     @State private var showsUnknown = false
 
     var body: some View {
-        let today = MomentCopy.today(now: model.dependencies.clock.now, zone: model.dependencies.deviceTimeZone())
-        let home = model.moments.homeCountryCode
-        let zone = model.dependencies.deviceTimeZone()
         LazyVStack(alignment: .leading, spacing: LZSpace.md) {
             QueryTop(result: result)
                 .padding(.bottom, LZSpace.sm)
             ResultsHeader(result: result)
             ForEach(ResultRow.rows(result.sections, showsUnknown: showsUnknown)) { row in
-                switch row {
-                case .section(let section):
-                    sectionHeader(section)
-                        .padding(.top, LZSpace.lg)
-                case .trip(let group, _):
-                    SectionHeader(group.title, eyebrow: AskCopy.tripEyebrow, caption: MomentCopy.tripCaption(group.trip),
-                                  actionTitle: AskCopy.seeTrip) {
-                        model.open(.trip(TripRef(startDay: group.trip.startDay, origin: .ask)))
-                    }
-                    .padding(.top, LZSpace.sm)
-                    .accessibilityIdentifier("result-trip-\(group.trip.startDay)")
-                case .card(let card):
-                    MomentCardView(card: card, today: today, homeCountry: home, deviceZone: zone) {
-                        model.open(.moment(MomentRef(key: card.id, origin: .ask, searchID: result.id)))
-                    }
-                }
+                ResultRowView(row: row, result: result, showsUnknown: $showsUnknown)
             }
             if result.weakerCount > 0 {
-                LZButton(showsWeaker ? AskCopy.hideWeaker : AskCopy.showWeaker(result.weakerCount), role: .quiet) {
-                    model.search.setShowWeaker(!showsWeaker)
-                }
-                .padding(.top, LZSpace.sm)
-                .accessibilityIdentifier("ask-show-weaker")
+                ShowWeakerButton(count: result.weakerCount, isShown: showsWeaker)
             }
             if !result.coverage.notes.isEmpty {
                 VStack(alignment: .leading, spacing: LZSpace.xs) {
@@ -133,19 +110,57 @@ private struct ResultsList: View {
         .padding(.vertical, LZSpace.lg)
         .accessibilityIdentifier("ask-results")
     }
+}
 
-    @ViewBuilder
-    private func sectionHeader(_ section: ResultSection) -> some View {
-        Group {
-            if section.tier == .locationUnknown {
-                SectionHeader(section.title, caption: section.caption, actionTitle: showsUnknown ? AskCopy.hide : AskCopy.show) {
-                    showsUnknown.toggle()
+/// One row of a result: a section's header (Location unknown opens and closes), a trip's header, or a moment card.
+private struct ResultRowView: View {
+    let row: ResultRow
+    let result: SearchResult
+    @Binding var showsUnknown: Bool
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        switch row {
+        case .section(let section):
+            Group {
+                if section.tier == .locationUnknown {
+                    SectionHeader(section.title, caption: section.caption, actionTitle: showsUnknown ? AskCopy.hide : AskCopy.show) {
+                        showsUnknown.toggle()
+                    }
+                } else {
+                    SectionHeader(section.title, caption: section.caption)
                 }
-            } else {
-                SectionHeader(section.title, caption: section.caption)
+            }
+            .accessibilityIdentifier("result-section-\(section.tier)")
+            .padding(.top, LZSpace.lg)
+        case .trip(let group, _):
+            SectionHeader(group.title, eyebrow: AskCopy.tripEyebrow, caption: MomentCopy.tripCaption(group.trip), actionTitle: AskCopy.seeTrip) {
+                model.open(.trip(TripRef(startDay: group.trip.startDay, origin: .ask)))
+            }
+            .padding(.top, LZSpace.sm)
+            .accessibilityIdentifier("result-trip-\(group.trip.startDay)")
+        case .card(let card):
+            let zone = model.dependencies.deviceTimeZone()
+            MomentCardView(card: card, today: MomentCopy.today(now: model.dependencies.clock.now, zone: zone), homeCountry: model.moments.homeCountryCode,
+                           deviceZone: zone) {
+                model.open(.moment(MomentRef(key: card.id, origin: .ask, searchID: result.id)))
             }
         }
-        .accessibilityIdentifier("result-section-\(section.tier)")
+    }
+}
+
+/// "Show 12 weaker matches" / "Hide weaker matches".
+private struct ShowWeakerButton: View {
+    let count: Int
+    let isShown: Bool
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        LZButton(isShown ? AskCopy.hideWeaker : AskCopy.showWeaker(count), role: .quiet) {
+            model.search.setShowWeaker(!isShown)
+        }
+        .padding(.top, LZSpace.sm)
+        .accessibilityIdentifier("ask-show-weaker")
     }
 }
 
@@ -175,47 +190,73 @@ private struct ResultsHeader: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: LZSpace.xs) {
-            // The noun goes under the number at accessibility text sizes.
-            LZAdaptiveStack(spacing: LZSpace.sm, verticalAlignment: .firstTextBaseline) {
-                LZNumeral(result.totals.moments.formatted(), role: .numeral)
+            VStack(alignment: .leading, spacing: LZSpace.xs) {
+                // The noun goes under the number at accessibility text sizes.
+                LZAdaptiveStack(spacing: LZSpace.sm, verticalAlignment: .firstTextBaseline) {
+                    LZNumeral(result.totals.moments.formatted(), role: .numeral)
+                        .foregroundStyle(.lz(.ink))
+                    Text(AskCopy.momentsNoun(result.totals.moments))
+                        .lzText(.body)
+                        .foregroundStyle(.lz(.muted))
+                }
+                Text(MomentCopy.counts(photos: result.totals.photos, videos: result.totals.videos))
+                    .lzText(.subheadline)
                     .foregroundStyle(.lz(.ink))
-                Text(AskCopy.momentsNoun(result.totals.moments))
-                    .lzText(.body)
-                    .foregroundStyle(.lz(.muted))
+                CoverageLines(coverage: result.coverage)
             }
-            Text(MomentCopy.counts(photos: result.totals.photos, videos: result.totals.videos))
-                .lzText(.subheadline)
-                .foregroundStyle(.lz(.ink))
-            Text(result.coverage.caption)
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("ask-results-header")
+            if result.coverage.isLimited { ChooseMoreButton() }
+        }
+    }
+}
+
+/// What was searched ("Searching the 40 photos you’ve shared"), and while the first build runs, how far it has read.
+private struct CoverageLines: View {
+    let coverage: Coverage
+
+    var body: some View {
+        Text(coverage.caption)
+            .lzText(.caption)
+            .foregroundStyle(.lz(.muted))
+            .accessibilityIdentifier("ask-coverage")
+        if let header = coverage.header {
+            Label(header, systemImage: "hourglass")
                 .lzText(.caption)
                 .foregroundStyle(.lz(.muted))
-            if let header = result.coverage.header {
-                Label(header, systemImage: "hourglass")
-                    .lzText(.caption)
-                    .foregroundStyle(.lz(.muted))
-                    .accessibilityIdentifier("ask-partial")
-            }
+                .accessibilityIdentifier("ask-partial")
         }
-        .accessibilityElement(children: .combine)
-        .accessibilityIdentifier("ask-results-header")
+    }
+}
+
+/// Under limited access: shares more photos with Lahza (the system's picker), as the library card does.
+private struct ChooseMoreButton: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        LZButton(AskCopy.chooseMore, role: .quiet, size: .small) {
+            Task { await model.chooseLimitedPhotos() }
+        }
+        .accessibilityIdentifier("ask-choose-more")
     }
 }
 
 // MARK: No match
 
 /// Why nothing matched (the slot that found nothing), with taps that widen the search and their counts. Words Lahza
-/// can't search yet get the library's example searches instead. Photos without a location that match everything
-/// else still show under Location unknown.
+/// can't search yet get the library's example searches instead. While the first build reads, or under limited access,
+/// it says what was searched, so "No photos" isn't taken as final. Photos without a location that match everything
+/// else still show under Location unknown, and weaker matches behind Show weaker.
 private struct NoMatchView: View {
     let result: SearchResult
+    let showsWeaker: Bool
     let search: (String) -> Void
     @Environment(AppModel.self) private var model
     @State private var showsUnknown = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: LZSpace.lg) {
-            let chips = QueryChipModel.chips(result.query)
-            if !chips.isEmpty { UnderstoodAsRow(chips: chips) }
+            QueryTop(result: result)
             if let noMatch = result.noMatch {
                 EmptyState(noMatch.headline, message: noMatch.detail ?? "", systemImage: AskCopy.noMatchSymbol(noMatch.kind), tone: .neutral)
                     .accessibilityElement(children: .combine)
@@ -247,24 +288,19 @@ private struct NoMatchView: View {
                         .padding(.top, LZSpace.sm)
                 }
             }
-            let unknown = result.sections.filter { $0.tier == .locationUnknown }
-            if !unknown.isEmpty {
-                let today = MomentCopy.today(now: model.dependencies.clock.now, zone: model.dependencies.deviceTimeZone())
-                ForEach(ResultRow.rows(unknown, showsUnknown: showsUnknown)) { row in
-                    switch row {
-                    case .section(let section):
-                        SectionHeader(section.title, caption: section.caption, actionTitle: showsUnknown ? AskCopy.hide : AskCopy.show) {
-                            showsUnknown.toggle()
-                        }
-                        .padding(.top, LZSpace.lg)
-                        .accessibilityIdentifier("result-section-\(section.tier)")
-                    case .trip(let group, _):
-                        SectionHeader(group.title, eyebrow: AskCopy.tripEyebrow, caption: MomentCopy.tripCaption(group.trip))
-                    case .card(let card):
-                        MomentCardView(card: card, today: today, homeCountry: model.moments.homeCountryCode,
-                                       deviceZone: model.dependencies.deviceTimeZone()) {
-                            model.open(.moment(MomentRef(key: card.id, origin: .ask, searchID: result.id)))
-                        }
+            if result.coverage.isPartial || result.coverage.isLimited {
+                VStack(alignment: .leading, spacing: LZSpace.xs) {
+                    CoverageLines(coverage: result.coverage)
+                    if result.coverage.isLimited { ChooseMoreButton() }
+                }
+            }
+            if !result.sections.isEmpty || result.weakerCount > 0 {
+                VStack(alignment: .leading, spacing: LZSpace.md) {
+                    ForEach(ResultRow.rows(result.sections, showsUnknown: showsUnknown)) { row in
+                        ResultRowView(row: row, result: result, showsUnknown: $showsUnknown)
+                    }
+                    if result.weakerCount > 0 {
+                        ShowWeakerButton(count: result.weakerCount, isShown: showsWeaker)
                     }
                 }
             }

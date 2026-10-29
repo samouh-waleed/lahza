@@ -108,7 +108,7 @@ In search v0 (`LZSearch`), English rules do all the parsing. They fill the same 
 ## Privacy
 
 - Photos, embeddings and any face data never leave the device. There is no account, no backend and no analytics on content.
-- Place-name lookups send photo-cluster coordinates and typed place names to Apple Maps, not to Lahza.
+- Place-name lookups send photo-cluster coordinates, and typed place names with the home's rough area (rounded to whole degrees), to Apple Maps, not to Lahza. Answers to typed places are kept on the device for 30 days.
 - At launch Lahza checks the Plus status with RevenueCat (which manages App Store purchases); RevenueCat receives an anonymous ID and the purchase status, never photos.
 - The only data users can choose to send is opt-in result feedback.
 - Index files are protected at rest, excluded from backups, and deletable from Settings.

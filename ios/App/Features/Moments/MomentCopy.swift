@@ -105,15 +105,18 @@ nonisolated enum MomentCopy {
     /// "Greece trip" (a row's badge).
     static func tripBadge(_ trip: TripRow) -> String { "\(trip.label) trip" }
 
-    /// "5:00 – 6:40 PM" in the moment's own local time; one time for a single item.
+    /// "5:00 – 6:40 PM" in the moment's own local time; one time for a single item. A moment past midnight keeps
+    /// times only ("10:00 PM – 2:30 AM"): its day is in the title.
     static func timeSpan(_ moment: MomentRow, locale: Locale = .autoupdatingCurrent) -> String {
         let start = Date(timeIntervalSince1970: TimeInterval(moment.startWall))
         let end = Date(timeIntervalSince1970: TimeInterval(moment.endWall))
-        let style = Date.IntervalFormatStyle(date: .omitted, time: .shortened, locale: locale, calendar: utcCalendar, timeZone: .gmt)
-        guard end.timeIntervalSince(start) >= 60 else {
-            return start.formatted(Date.FormatStyle(date: .omitted, time: .shortened, locale: locale, calendar: utcCalendar, timeZone: .gmt))
+        let time = Date.FormatStyle(date: .omitted, time: .shortened, locale: locale, calendar: utcCalendar, timeZone: .gmt)
+        guard end.timeIntervalSince(start) >= 60 else { return start.formatted(time) }
+        guard utcCalendar.isDate(start, inSameDayAs: end) else {
+            // The interval format would add both dates; thin spaces around the dash, as it writes them.
+            return "\(start.formatted(time))\u{2009}–\u{2009}\(end.formatted(time))"
         }
-        return (start..<end).formatted(style)
+        return (start..<end).formatted(Date.IntervalFormatStyle(date: .omitted, time: .shortened, locale: locale, calendar: utcCalendar, timeZone: .gmt))
     }
 
     /// "10:00 AM": when the moment started, in its own local time (a trip's rows, under their day).
