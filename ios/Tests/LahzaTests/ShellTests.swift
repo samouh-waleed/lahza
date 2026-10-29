@@ -6,7 +6,7 @@ import Testing
 @testable import Lahza
 
 @MainActor @Suite struct ShellTests {
-    private static let allRoutes: [Route] = [.ask, .moments, .settings, .photoAccess, .appearance, .privacy, .subscription, .acknowledgements, .searchIndex,
+    private static let allRoutes: [Route] = [.ask, .moments, .settings, .photoAccess, .appearance, .privacy, .fullLibrary, .acknowledgements, .searchIndex,
                                              .paywall, .onboarding] + Route.developerRoutes
 
     private func model(onboarded: Bool = false, photos: FakePhotoLibraryClient? = nil) -> AppModel {
@@ -222,7 +222,8 @@ import Testing
     // MARK: Library census (DEBUG)
 
     @Test func libraryCensusIsADebugRouteOnTheSettingsTab() {
-        #expect(Route.developerRoutes == [.libraryCensus, .indexInspector])
+        #expect(Route.developerRoutes == [.libraryCensus, .indexInspector, .lockedResults])
+        #expect(Route(debugName: "locked-results") == .lockedResults)
         #expect(Route.libraryCensus.debugName == "library-census")
         #expect(Route(debugName: "library-census") == .libraryCensus)
         #expect(Route.libraryCensus.tab == .settings)

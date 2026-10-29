@@ -18,13 +18,14 @@ public enum Brand {
     public static let supportEmail: String? = nil
 
     /// RevenueCat entitlement identifier that unlocks the full library.
-    public static let plusEntitlement = "lahza_plus"
+    public static let fullLibraryEntitlement = "full_library"
 
     /// Store products and offering. Placeholders until the products exist in App Store Connect
     /// and RevenueCat (template-migration D9).
     public enum Products {
-        public static let plusMonthly = "lahza_plus_monthly"
-        public static let plusAnnual = "lahza_plus_annual"
+        /// The full-library unlock: one non-consumable, bought once (decision 32). RevenueCat sells it
+        /// as the offering's lifetime package.
+        public static let fullLibrary = "lahza_full_library"
         /// RevenueCat offering identifier.
         public static let offering = "default"
     }

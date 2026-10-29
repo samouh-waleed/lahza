@@ -9,7 +9,7 @@ struct KeyValueStoreTests {
         #expect(KVKey.storage("x") == "lahza.x")
         #expect(KVKey.device(KVSuffix.onboardingCompleted) == "lahza.onboarding.completed.v1")
         #expect(KVKey.device(KVSuffix.appearance) == "lahza.appearance.mode.v1")
-        #expect(KVKey.device(KVSuffix.entitlementCache) == "lahza.billing.entitlement.v1")
+        #expect(KVKey.device(KVSuffix.entitlementCache) == "lahza.billing.entitlement.v2")
     }
 
     private func exercise(_ store: any KeyValueStore) throws {

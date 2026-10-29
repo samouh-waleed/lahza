@@ -107,7 +107,7 @@ Pipeline:
 
 - Photos, embeddings and any face data never leave the device. There is no account, no backend and no analytics on content.
 - Place-name lookups send photo-cluster coordinates and typed place names to Apple Maps, not to Lahza.
-- At launch Lahza checks the Plus status with RevenueCat (which manages App Store purchases); RevenueCat receives an anonymous ID and the purchase status, never photos.
+- At launch Lahza asks RevenueCat (which manages App Store purchases) whether the full library is unlocked; RevenueCat receives an anonymous ID and the purchase status, never photos.
 - The only data users can choose to send is opt-in result feedback.
 - Index files are protected at rest, excluded from backups, and deletable from Settings.
 - Third-party licenses (the model's Apache NOTICE, the GeoNames place list's CC-BY) are credited on an Acknowledgements screen.
@@ -116,7 +116,7 @@ Pipeline:
 
 - SwiftUI, Swift 6, iOS 26+, iPhone only
 - The app started from a private iOS template (used with permission): its design system, navigation shell, settings and RevenueCat paywall were kept; its accounts, ads, backend sync and content were removed
-- RevenueCat for purchases (anonymous app user, entitlement checked on the device)
+- RevenueCat for purchases: one non-consumable full-library unlock (anonymous app user, entitlement checked on the device)
 - SQLite (GRDB) + FTS5 + a flat vector file, searched with Accelerate (when indexing lands)
 - SigLIP 2 B/16, English-trimmed, 8-bit, delivered with Background Assets (when indexing lands)
 - Foundation Models + rule-based parser (when search lands)
@@ -127,9 +127,9 @@ Pipeline:
 |---|---|
 | `ios/project.yml` | XcodeGen spec; the Xcode project is generated (`make project`) and not committed |
 | `ios/App/` | The app: `Shell/` (composition root, dependencies, preferences), `Navigation/`, `Chrome/`, `Features/` (Ask, Moments, Library, Onboarding, Settings, Paywall), `Debug/` (launch arguments, developer screens) |
-| `ios/Packages/LahzaKit/` | Swift package: `LZCore` (brand, environment, storage, clock, log), `LZBilling` (RevenueCat, entitlement, paywall model), `LZDesign` (tokens, type, components, motion), `LZLibrary` (photo access: PhotoKit client, fake, access store, the shared fetch rules; the library reader and image provider the index uses, live and fake; the library census for spike S2, whose screen is DEBUG-only; the DEBUG seed library), `LZGeo` (coordinates, local time and the moment rule, the offline GeoNames gazetteer, place-name folding, the Apple Maps client), `LZIndex` (the on-device search index: GRDB storage, library sync, the structure pass, the Apple Maps place-name queue, read queries and the stores the Ask, Moments and Settings screens observe; GRDB stays inside it). Modules use the `LZ` prefix |
+| `ios/Packages/LahzaKit/` | Swift package: `LZCore` (brand, environment, storage, clock, log), `LZBilling` (the one-time unlock: RevenueCat client, a StoreKit-only client for local testing, entitlement, paywall model), `LZDesign` (tokens, type, components, motion), `LZLibrary` (photo access: PhotoKit client, fake, access store, the shared fetch rules; the library reader and image provider the index uses, live and fake; the library census for spike S2, whose screen is DEBUG-only; the DEBUG seed library), `LZGeo` (coordinates, local time and the moment rule, the offline GeoNames gazetteer, place-name folding, the Apple Maps client), `LZIndex` (the on-device search index: GRDB storage, library sync, the structure pass, the Apple Maps place-name queue, read queries and the stores the Ask, Moments and Settings screens observe; GRDB stays inside it). Modules use the `LZ` prefix |
 | `ios/Tools/gazetteer/` | Source, licence and curated aliases of the bundled GeoNames place list; `make gazetteer` rebuilds it with the `lz-gazetteer` package tool |
-| `ios/Config/` | xcconfig files; secrets go only in the git-ignored `Local.xcconfig` |
+| `ios/Config/` | xcconfig files (secrets go only in the git-ignored `Local.xcconfig`) and `Lahza.storekit`, the local store products for Simulator purchases |
 | `ios/Tests/` | App-hosted tests |
 
 Everything runs from the command line (`cd ios`): `make run` builds and launches in the Simulator, `make test` runs the package tests on the Mac and the app tests on the Simulator. The Xcode IDE is never needed, only the installed toolchain.

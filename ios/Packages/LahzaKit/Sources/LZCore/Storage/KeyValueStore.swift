@@ -116,6 +116,7 @@ public enum KVSuffix {
     public static let onboardingCompleted = "onboarding.completed.v1"
     /// Settings › Appearance: system, light or dark.
     public static let appearance = "appearance.mode.v1"
-    /// The last entitlement RevenueCat reported, so an offline launch knows the unlock state.
-    public static let entitlementCache = "billing.entitlement.v1"
+    /// The last entitlement RevenueCat reported, so an offline launch knows the unlock state
+    /// (`free` or `unlocked`; v1 held the template's subscription plan).
+    public static let entitlementCache = "billing.entitlement.v2"
 }

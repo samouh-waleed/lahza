@@ -60,7 +60,7 @@ public struct BillingEnvironment: Sendable, Equatable {
     public var explicitTestStore: Bool
     /// The RevenueCat offering id (default ``Brand/Products/offering``, `default`).
     public var offeringIdentifier: String
-    /// The RevenueCat entitlement id (default ``Brand/plusEntitlement``, `lahza_plus`).
+    /// The RevenueCat entitlement id (default ``Brand/fullLibraryEntitlement``, `full_library`).
     public var entitlementIdentifier: String
     /// The web URL + `/terms`.
     public var termsURL: URL
@@ -73,7 +73,7 @@ public struct BillingEnvironment: Sendable, Equatable {
         apiKey: String?,
         explicitTestStore: Bool = false,
         offeringIdentifier: String = Brand.Products.offering,
-        entitlementIdentifier: String = Brand.plusEntitlement,
+        entitlementIdentifier: String = Brand.fullLibraryEntitlement,
         termsURL: URL = LegalLinks.productionTerms,
         privacyURL: URL = LegalLinks.productionPrivacy,
         configuration: AppEnvironment.Configuration = .current

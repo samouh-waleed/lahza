@@ -85,7 +85,8 @@ nonisolated enum Route: Hashable, Sendable {
     case photoAccess
     case appearance
     case privacy
-    case subscription
+    /// Settings › Full library: the unlock's status and Restore purchases.
+    case fullLibrary
     case acknowledgements
     /// Settings › Search index.
     case searchIndex
@@ -102,11 +103,13 @@ nonisolated enum Route: Hashable, Sendable {
     case libraryCensus
     /// Settings › Developer › Index inspector.
     case indexInspector
+    /// Settings › Developer › Locked results: the "N more from earlier years" row, for review.
+    case lockedResults
     #endif
 
     // MARK: Modals
 
-    /// Lahza Plus plans (full screen).
+    /// The one-time full-library unlock (full screen).
     case paywall
     /// Onboarding again, from Settings.
     case onboarding
@@ -120,11 +123,11 @@ nonisolated enum Route: Hashable, Sendable {
         switch self {
         case .ask: .ask
         case .moments: .moments
-        case .settings, .photoAccess, .appearance, .privacy, .subscription, .acknowledgements, .searchIndex: .settings
+        case .settings, .photoAccess, .appearance, .privacy, .fullLibrary, .acknowledgements, .searchIndex: .settings
         case .moment(let ref): ref.origin
         case .trip(let ref): ref.origin
         #if DEBUG
-        case .libraryCensus, .indexInspector: .settings
+        case .libraryCensus, .indexInspector, .lockedResults: .settings
         #endif
         case .paywall, .onboarding, .notFound: nil
         }
@@ -133,9 +136,9 @@ nonisolated enum Route: Hashable, Sendable {
     var presentation: RoutePresentation {
         switch self {
         case .ask, .moments, .settings: .tabRoot
-        case .photoAccess, .appearance, .privacy, .subscription, .acknowledgements, .searchIndex, .moment, .trip: .push
+        case .photoAccess, .appearance, .privacy, .fullLibrary, .acknowledgements, .searchIndex, .moment, .trip: .push
         #if DEBUG
-        case .libraryCensus, .indexInspector: .push
+        case .libraryCensus, .indexInspector, .lockedResults: .push
         #endif
         case .paywall, .onboarding: .fullScreen
         case .notFound: .sheet(.medium)
@@ -156,7 +159,7 @@ nonisolated enum Route: Hashable, Sendable {
     /// Routes that exist only in DEBUG builds (developer tools).
     static var developerRoutes: [Route] {
         #if DEBUG
-        return [.libraryCensus, .indexInspector]
+        return [.libraryCensus, .indexInspector, .lockedResults]
         #else
         return []
         #endif
@@ -171,7 +174,7 @@ nonisolated enum Route: Hashable, Sendable {
         case .photoAccess: "photo-access"
         case .appearance: "appearance"
         case .privacy: "privacy"
-        case .subscription: "subscription"
+        case .fullLibrary: "full-library"
         case .acknowledgements: "acknowledgements"
         case .searchIndex: "search-index"
         case .moment: "moment"
@@ -179,6 +182,7 @@ nonisolated enum Route: Hashable, Sendable {
         #if DEBUG
         case .libraryCensus: "library-census"
         case .indexInspector: "index-inspector"
+        case .lockedResults: "locked-results"
         #endif
         case .paywall: "paywall"
         case .onboarding: "onboarding"
@@ -188,7 +192,7 @@ nonisolated enum Route: Hashable, Sendable {
 
     init?(debugName: String) {
         // Moments and trips need a key, so they are not deep-linkable.
-        let all: [Route] = [.ask, .moments, .settings, .photoAccess, .appearance, .privacy, .subscription, .acknowledgements, .searchIndex, .paywall,
+        let all: [Route] = [.ask, .moments, .settings, .photoAccess, .appearance, .privacy, .fullLibrary, .acknowledgements, .searchIndex, .paywall,
                             .onboarding] + Route.developerRoutes
         guard let match = all.first(where: { $0.debugName == debugName.lowercased() }) else { return nil }
         self = match

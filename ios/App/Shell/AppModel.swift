@@ -222,6 +222,6 @@ nonisolated enum RootScreen: Hashable, Sendable {
 
     /// A paywall model over the shared purchase service and entitlement.
     func makePaywallModel() -> PaywallModel {
-        PaywallModel(purchases: purchases, entitlement: entitlement, environment: dependencies.billingEnvironment, clock: dependencies.clock)
+        PaywallModel(purchases: purchases, entitlement: entitlement, environment: dependencies.billingEnvironment)
     }
 }

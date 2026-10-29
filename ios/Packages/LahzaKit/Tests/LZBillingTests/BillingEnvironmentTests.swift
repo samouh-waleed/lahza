@@ -18,10 +18,10 @@ import Testing
     }
 
     @Test func storeProductsMatchExactlyOrWithABasePlan() {
-        #expect(RevenueCatKey.matchesStoreProduct("lahza.plus.monthly", "lahza.plus.monthly"))
-        #expect(RevenueCatKey.matchesStoreProduct("lahza.plus.monthly:base", "lahza.plus.monthly"))
-        #expect(!RevenueCatKey.matchesStoreProduct("lahza.plus.monthly2", "lahza.plus.monthly"))
-        #expect(!RevenueCatKey.matchesStoreProduct("lahza.plus", "lahza.plus.monthly"))
+        #expect(RevenueCatKey.matchesStoreProduct("lahza_full_library", "lahza_full_library"))
+        #expect(RevenueCatKey.matchesStoreProduct("lahza_full_library:base", "lahza_full_library"))
+        #expect(!RevenueCatKey.matchesStoreProduct("lahza_full_library2", "lahza_full_library"))
+        #expect(!RevenueCatKey.matchesStoreProduct("lahza_full", "lahza_full_library"))
     }
 
     @Test func testStoreModeNeedsADebugBuild() throws {
