@@ -143,7 +143,10 @@ private struct PhotosStep: View {
             IconBadge("photo.on.rectangle.angled", tone: .accent, size: 56)
             VStack(alignment: .leading, spacing: LZSpace.sm) {
                 Text(OnboardingCopy.photosTitle).lzText(.displaySmall).foregroundStyle(.lz(.ink))
-                Text(access.canAsk ? OnboardingCopy.photosBody : OnboardingCopy.photosBodyDecided)
+                Text(OnboardingCopy.photosBody)
+                    .lzText(.body)
+                    .foregroundStyle(.lz(.muted))
+                Text(access.canAsk ? OnboardingCopy.photosNext : OnboardingCopy.photosBodyDecided)
                     .lzText(.body)
                     .foregroundStyle(.lz(.muted))
             }
@@ -192,7 +195,8 @@ nonisolated enum OnboardingCopy {
         "No account, no tracking, no ads",
     ]
     static let photosTitle = "Lahza searches your photo library."
-    static let photosBody = "Next, iOS asks for photo access. With full access Lahza can search every photo, or you can pick just some."
+    static let photosBody = "Lahza reads the dates and places of your photos on this iPhone to find moments. Place names are looked up with Apple Maps; your photos never leave your device."
+    static let photosNext = "Next, iOS asks for photo access. With full access Lahza can search every photo, or you can pick just some."
     static let photosBodyDecided = "With full access Lahza can search every photo; with limited access, only the ones you pick."
     static let photosPoints: [(symbol: String, text: String)] = [
         ("iphone", "Read only on this iPhone"),

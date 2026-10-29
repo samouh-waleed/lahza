@@ -16,8 +16,12 @@ struct RouteScreen: View {
         case .privacy: PrivacySettingsScreen()
         case .subscription: SubscriptionSettingsScreen()
         case .acknowledgements: AcknowledgementsScreen()
+        case .searchIndex: SearchIndexScreen()
+        case .moment(let ref): MomentDetailScreen(ref: ref)
+        case .trip(let ref): TripDetailScreen(ref: ref)
         #if DEBUG
         case .libraryCensus: LibraryCensusScreen()
+        case .indexInspector: IndexInspectorScreen()
         #endif
         case .paywall: PaywallScreen()
         case .onboarding: OnboardingView(revisit: true)

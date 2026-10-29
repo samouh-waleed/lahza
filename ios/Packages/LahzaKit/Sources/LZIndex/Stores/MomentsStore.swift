@@ -1,0 +1,187 @@
+import Foundation
+import LZGeo
+import Observation
+
+/// The Moments tab's data (search spec §7.2): every moment newest first in month sections, paged by
+/// ``MomentKey`` 200 at a time, the moments per year for the year strip, and the trips. ``indexChanged()``
+/// reloads as many moments as are shown, so the list keeps its place.
+@MainActor @Observable public final class MomentsStore {
+    public enum Mode: String, CaseIterable, Sendable, Hashable {
+        case moments, trips
+    }
+
+    /// One local month of moments.
+    public struct MonthSection: Sendable, Hashable, Identifiable {
+        public var year: Int
+        public var month: Int
+        /// Every moment of the month, loaded or not.
+        public var total: Int
+        public var rows: [MomentRow]
+
+        /// yyyymm.
+        public var id: Int { year * 100 + month }
+    }
+
+    public struct YearCount: Sendable, Hashable, Identifiable {
+        public var year: Int
+        public var moments: Int
+
+        public var id: Int { year }
+    }
+
+    public var mode: Mode = .moments
+    public private(set) var sections: [MonthSection] = []
+    public private(set) var years: [YearCount] = []
+    public private(set) var trips: [TripRow] = []
+    /// The latest home base's country (ISO 3166 alpha-2): place lines name the country only away from it.
+    public private(set) var homeCountryCode: String?
+    /// More moments than are loaded.
+    public private(set) var hasMore = false
+    public private(set) var isLoading = false
+    /// Nothing loaded yet since the index (re)opened.
+    public private(set) var hasLoaded = false
+
+    public static let pageSize = 200
+
+    @ObservationIgnored private let index: IndexStore
+    @ObservationIgnored private var rows: [MomentRow] = []
+    @ObservationIgnored private var months: [Int: Int] = [:]
+    @ObservationIgnored private var loadedVersion: Int64 = -1
+    @ObservationIgnored private var loadedGeneration = -1
+    /// Counts reloads, so an older one that finishes last can't replace a newer one's rows.
+    @ObservationIgnored private var reloads = 0
+
+    public init(index: IndexStore) {
+        self.index = index
+    }
+
+    /// Every moment loaded so far, newest first.
+    public var moments: [MomentRow] { rows }
+
+    /// Loads the first page, unless what is loaded is current; after an index change, as many moments as are
+    /// loaded.
+    public func load() async {
+        guard let reader = index.reader else { return clear() }
+        guard reader.generation != loadedGeneration || index.version != loadedVersion else { return }
+        await reload(limit: reader.generation == loadedGeneration ? max(Self.pageSize, rows.count) : Self.pageSize)
+    }
+
+    /// The next page.
+    public func loadMore() async {
+        guard hasMore, !isLoading, let reader = index.reader, let last = rows.last else { return }
+        let ticket = reloads
+        isLoading = true
+        defer { isLoading = false }
+        do {
+            let page = try await reader.moments(after: last.key, limit: Self.pageSize)
+            // A reload while this page was read replaced the rows it follows.
+            guard ticket == reloads else { return }
+            rows += page
+            hasMore = page.count == Self.pageSize
+            rebuildSections()
+        } catch {
+            failed(ticket, error)
+        }
+    }
+
+    /// The index changed: reloads as many moments as are loaded, so the list stays where it is. Nothing loads
+    /// before the first ``load()``.
+    public func indexChanged() async {
+        guard index.reader != nil else { return clear() }
+        guard hasLoaded else { return }
+        await reload(limit: max(Self.pageSize, rows.count))
+    }
+
+    /// A trip's moments, oldest first (its day sections).
+    public func moments(of trip: TripRow) async -> [MomentRow] {
+        guard let reader = index.reader else { return [] }
+        let rows = (try? await reader.moments(after: nil, limit: max(1, trip.momentCount * 2 + 50), filter: MomentFilter(tripID: trip.id))) ?? []
+        return rows.reversed()
+    }
+
+    /// One moment and its items, or nil when it is gone.
+    public func moment(_ key: MomentKey) async -> MomentDetailRows? {
+        guard let reader = index.reader else { return nil }
+        return try? await reader.moment(key)
+    }
+
+    /// The section the year strip scrolls to: the newest month of `year`.
+    public func firstSection(of year: Int) -> MonthSection.ID? {
+        sections.first { $0.year == year }?.id
+    }
+
+    /// Loads pages until `year` has a section (the year strip jumps to an older year), and returns it.
+    public func loadThrough(year: Int) async -> MonthSection.ID? {
+        while firstSection(of: year) == nil, hasMore, !Task.isCancelled {
+            let loaded = rows.count
+            await loadMore()
+            if rows.count == loaded { break }
+        }
+        return firstSection(of: year)
+    }
+
+    private func reload(limit: Int) async {
+        guard let reader = index.reader else { return clear() }
+        let version = index.version
+        reloads += 1
+        let ticket = reloads
+        isLoading = true
+        defer { if ticket == reloads { isLoading = false } }
+        do {
+            async let page = reader.moments(after: nil, limit: limit)
+            async let monthCounts = reader.momentMonths()
+            async let tripRows = reader.trips()
+            async let home = reader.homeBase(year: nil)
+            let (loaded, counts, loadedTrips, homeBase) = try await (page, monthCounts, tripRows, home)
+            guard ticket == reloads else { return }
+            rows = loaded
+            hasMore = loaded.count == limit
+            months = Dictionary(counts.map { ($0.id, $0.moments) }, uniquingKeysWith: +)
+            years = Dictionary(grouping: counts, by: \.year).map { YearCount(year: $0.key, moments: $0.value.reduce(0) { $0 + $1.moments }) }
+                .sorted { $0.year > $1.year }
+            trips = loadedTrips
+            homeCountryCode = homeBase?.countryCode
+            loadedVersion = version
+            loadedGeneration = reader.generation
+            hasLoaded = true
+            rebuildSections()
+        } catch {
+            failed(ticket, error)
+        }
+    }
+
+    /// A read failed: a closed index shows nothing. A cancelled read (its screen went away) or one a newer reload
+    /// overtook leaves the rows as they are.
+    private func failed(_ ticket: Int, _ error: any Error) {
+        guard ticket == reloads, !Task.isCancelled, !(error is CancellationError) else { return }
+        clear()
+    }
+
+    private func rebuildSections() {
+        var sections: [MonthSection] = []
+        for row in rows {
+            let date = LocalTime.civil(day: row.key.day)
+            let id = date.year * 100 + date.month
+            if sections.last?.id == id {
+                sections[sections.count - 1].rows.append(row)
+            } else {
+                sections.append(MonthSection(year: date.year, month: date.month, total: months[id] ?? 0, rows: [row]))
+            }
+        }
+        self.sections = sections
+    }
+
+    /// The index is off or closed: nothing to show.
+    private func clear() {
+        rows = []
+        sections = []
+        years = []
+        trips = []
+        homeCountryCode = nil
+        months = [:]
+        hasMore = false
+        hasLoaded = false
+        loadedVersion = -1
+        loadedGeneration = -1
+    }
+}

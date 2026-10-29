@@ -132,8 +132,8 @@ nonisolated enum PhotoAccessCopy {
     static func cardBody(_ access: PhotoAccess) -> String {
         switch access {
         case .notDetermined: "Lahza reads your photos on this iPhone to search them. Continue, and iOS asks for access."
-        case .full: "Search indexing arrives in a later update and will cover your whole library."
-        case .limited: "When search arrives, it covers only what you share. Choose more, or turn on full access in iPhone Settings."
+        case .full: "Lahza indexes your whole library on this iPhone."
+        case .limited: "Lahza indexes only what you share. Choose more, or turn on full access in iPhone Settings."
         case .denied: "Lahza can’t search your photos without it. Turn it on in iPhone Settings."
         case .restricted: "Screen Time or an organisation’s profile blocks it."
         }

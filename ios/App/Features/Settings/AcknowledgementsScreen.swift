@@ -4,7 +4,7 @@ import SwiftUI
 
 /// Third-party software, fonts and data, with their licence texts bundled in the app as the licences
 /// require (for CC BY data, the attribution and a link to the licence). New entries land as the matching
-/// features do: SigLIP 2 (Apache-2.0, with its NOTICE) and GRDB (MIT).
+/// features do: SigLIP 2 (Apache-2.0, with its NOTICE).
 struct AcknowledgementsScreen: View {
     private struct Entry: Identifiable {
         let name: String
@@ -16,6 +16,7 @@ struct AcknowledgementsScreen: View {
     }
 
     private let software = [
+        Entry(name: "GRDB", licence: "MIT License", url: "https://github.com/groue/GRDB.swift", file: "GRDB-LICENSE"),
         Entry(name: "RevenueCat purchases-ios", licence: "MIT License", url: "https://github.com/RevenueCat/purchases-ios", file: "RevenueCat-LICENSE"),
     ]
     private let fonts = [

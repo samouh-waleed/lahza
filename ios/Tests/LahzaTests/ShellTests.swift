@@ -6,16 +6,17 @@ import Testing
 @testable import Lahza
 
 @MainActor @Suite struct ShellTests {
-    private static let allRoutes: [Route] = [.ask, .moments, .settings, .photoAccess, .appearance, .privacy, .subscription, .acknowledgements, .paywall, .onboarding]
-        + Route.developerRoutes
+    private static let allRoutes: [Route] = [.ask, .moments, .settings, .photoAccess, .appearance, .privacy, .subscription, .acknowledgements, .searchIndex,
+                                             .paywall, .onboarding] + Route.developerRoutes
 
     private func model(onboarded: Bool = false, photos: FakePhotoLibraryClient? = nil) -> AppModel {
         var dependencies = AppDependencies.testHost()
         if onboarded { AppPreferences(kv: dependencies.kv).markOnboardingCompleted(at: Date()) }
         if let photos {
             dependencies.photoLibrary = photos
-            // The census reads the same fake library, as under `-LZPhotos`.
+            // The census and the index read the same fake library, as under `-LZPhotos`.
             dependencies.censusSource = FakeCensusSource(library: photos, pace: .zero)
+            dependencies.libraryReader = FakeLibraryReader(.empty, following: photos)
         }
         dependencies.autoBoot = false
         return AppModel(dependencies: dependencies)
@@ -221,7 +222,7 @@ import Testing
     // MARK: Library census (DEBUG)
 
     @Test func libraryCensusIsADebugRouteOnTheSettingsTab() {
-        #expect(Route.developerRoutes == [.libraryCensus])
+        #expect(Route.developerRoutes == [.libraryCensus, .indexInspector])
         #expect(Route.libraryCensus.debugName == "library-census")
         #expect(Route(debugName: "library-census") == .libraryCensus)
         #expect(Route.libraryCensus.tab == .settings)
