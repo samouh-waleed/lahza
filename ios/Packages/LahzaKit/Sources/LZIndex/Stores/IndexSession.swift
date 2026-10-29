@@ -56,7 +56,7 @@ public final class IndexSession: Sendable {
     public let indexer: LibraryIndexer
     public let placeNames: PlaceNameQueue
     public let reader: IndexReader
-    /// Search's writes (Apple Maps answers, picked places).
+    /// Search's and Settings' writes (Apple Maps answers, picked places, saved places, the home choice).
     public let writer: UserDataWriter
     public let generation: Int
 
@@ -70,6 +70,6 @@ public final class IndexSession: Sendable {
                                     network: dependencies.network, notify: { await indexer.enqueue(.restructure) },
                                     policy: dependencies.placeNamePolicy)
         reader = IndexReader(database: database, generation: generation)
-        writer = UserDataWriter(database: database, clock: dependencies.clock)
+        writer = UserDataWriter(database: database, clock: dependencies.clock, changed: { await indexer.enqueue(.restructure) })
     }
 }

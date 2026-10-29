@@ -22,6 +22,9 @@ nonisolated struct ViewerItem: Identifiable, Hashable {
     var moment: MomentRow?
     /// Why the search matched it; empty outside a search's matches.
     var reasons: [Reason]
+    /// The search's S and slot scores (DEBUG shows them under the reasons); nil outside a search's matches.
+    var score: Double?
+    var slotScores: [SlotKind: Double] = [:]
 
     init(hit: AssetHit, moment: MomentRow?) {
         id = hit.id
@@ -33,9 +36,11 @@ nonisolated struct ViewerItem: Identifiable, Hashable {
         isFavorite = hit.isFavorite
         self.moment = moment
         reasons = hit.reasons
+        score = hit.score
+        slotScores = hit.slotScores
     }
 
-    init(member: MomentDetailRows.Member, moment: MomentRow, reasons: [Reason] = []) {
+    init(member: MomentDetailRows.Member, moment: MomentRow, hit: AssetHit? = nil) {
         id = member.id
         localID = member.localID
         isVideo = member.isVideo
@@ -44,7 +49,9 @@ nonisolated struct ViewerItem: Identifiable, Hashable {
         wall = member.wall
         isFavorite = member.isFavorite
         self.moment = moment
-        self.reasons = reasons
+        reasons = hit?.reasons ?? []
+        score = hit?.score
+        slotScores = hit?.slotScores ?? [:]
     }
 
     /// A search's grid, in its order (each tile with its card's moment).
@@ -337,6 +344,15 @@ struct WhyThisMatchedSheet: View {
                 }
                 .padding(.horizontal, LZLayout.gutter)
                 .accessibilityIdentifier("why-this-matched")
+                #if DEBUG
+                if let line = ViewerCopy.scoreLine(item) {
+                    Text(line)
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.lz(.muted))
+                        .padding(.horizontal, LZLayout.gutter)
+                        .padding(.top, LZSpace.md)
+                }
+                #endif
                 Text(AskCopy.capability)
                     .lzText(.caption)
                     .foregroundStyle(.lz(.muted))
@@ -352,6 +368,15 @@ struct WhyThisMatchedSheet: View {
 // MARK: Copy
 
 nonisolated enum ViewerCopy {
+    #if DEBUG
+    /// DEBUG (spec §8.3): "S 0.82 = place 1.00 · time 0.67".
+    static func scoreLine(_ item: ViewerItem) -> String? {
+        guard let score = item.score else { return nil }
+        let slots = [SlotKind.place, .time, .event].compactMap { kind in item.slotScores[kind].map { "\(kind.rawValue) \(String(format: "%.2f", $0))" } }
+        return (["S \(String(format: "%.2f", score))"] + (slots.isEmpty ? [] : ["= " + slots.joined(separator: " · ")])).joined(separator: " ")
+    }
+    #endif
+
     static let close = "Close"
     static let whyThisMatched = "Why this matched"
     static let loading = "Loading"

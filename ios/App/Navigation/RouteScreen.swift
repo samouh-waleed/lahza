@@ -17,6 +17,7 @@ struct RouteScreen: View {
         case .fullLibrary: FullLibrarySettingsScreen()
         case .acknowledgements: AcknowledgementsScreen()
         case .searchIndex: SearchIndexScreen()
+        case .savedPlaces: SavedPlacesScreen()
         case .moment(let ref): MomentDetailScreen(ref: ref)
         case .trip(let ref): TripDetailScreen(ref: ref)
         #if DEBUG

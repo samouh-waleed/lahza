@@ -134,6 +134,13 @@ public actor SearchEngine {
         return result
     }
 
+    /// A saved place was added, renamed or removed: the next parse rebuilds the vocabulary (its aliases), and places
+    /// are resolved again.
+    public func savedPlacesChanged() async {
+        await vocabulary.release()
+        resolutions = [:]
+    }
+
     /// Drops the caches (memory warning): the vocabulary, resolved places, the time context and examples.
     public func releaseCaches() async {
         await vocabulary.release()

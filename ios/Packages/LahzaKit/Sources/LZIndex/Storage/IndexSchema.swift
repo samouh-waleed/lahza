@@ -18,6 +18,9 @@ enum IndexSchema {
     /// User tables: they survive a rebuild and are erased by purge and Delete index.
     static let userTables = ["saved_place", "place_choice"]
 
+    /// User values kept in `meta`: like the user tables, they survive a rebuild.
+    static let userMetaKeys: [MetaKey] = [.homeOverride]
+
     /// Every table, in schema order (the inspector's row counts).
     static let tables = [
         "meta", "zone", "asset", "moment", "trip", "home_base", "place", "place_name", "cell", "dirty_day",
@@ -179,21 +182,25 @@ enum IndexSchema {
 
         var rowCount: Int { tables.values.reduce(0) { $0 + $1.count } }
 
-        /// Reads every user table it can; a table that can't be read (damaged, missing) is skipped.
+        /// Reads every user table it can, and the user values in `meta`; a table that can't be read (damaged,
+        /// missing) is skipped.
         static func export(_ reader: any DatabaseReader) -> UserRows {
             var rows = UserRows()
-            for table in IndexSchema.userTables {
+            let keys = IndexSchema.userMetaKeys.map { "'\($0.rawValue)'" }.joined(separator: ", ")
+            let queries = IndexSchema.userTables.map { ($0, "SELECT * FROM \($0)") } + [("meta", "SELECT * FROM meta WHERE key IN (\(keys))")]
+            for (table, sql) in queries {
                 let fetched = try? reader.read { db in
-                    try Row.fetchAll(db, sql: "SELECT * FROM \(table)").map { row in
+                    try Row.fetchAll(db, sql: sql).map { row in
                         Dictionary(row.columnNames.map { ($0, row[$0] as DatabaseValue) }, uniquingKeysWith: { $1 })
                     }
                 }
-                if let fetched { rows.tables[table] = fetched }
+                if let fetched, !(table == "meta" && fetched.isEmpty) { rows.tables[table] = fetched }
             }
             return rows
         }
 
-        /// Inserts the kept rows into the new schema, column by column where the new table still has them.
+        /// Inserts the kept rows into the new schema, column by column where the new table still has them, then
+        /// mirrors the saved places into `place` again (the structure pass labels moments with them).
         func reimport(_ writer: any DatabaseWriter) throws {
             try writer.write { db in
                 for (table, rows) in tables {
@@ -207,6 +214,7 @@ enum IndexSchema {
                                        arguments: StatementArguments(kept.map(\.value)))
                     }
                 }
+                try SavedPlaceRows.mirrorAll(db)
             }
         }
     }

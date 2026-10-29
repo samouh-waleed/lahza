@@ -7,7 +7,7 @@ import Testing
 
 @MainActor @Suite struct ShellTests {
     private static let allRoutes: [Route] = [.ask, .moments, .settings, .photoAccess, .appearance, .privacy, .fullLibrary, .acknowledgements, .searchIndex,
-                                             .paywall, .onboarding] + Route.developerRoutes
+                                             .savedPlaces, .paywall, .onboarding] + Route.developerRoutes
 
     private func model(onboarded: Bool = false, photos: FakePhotoLibraryClient? = nil) -> AppModel {
         var dependencies = AppDependencies.testHost()

@@ -229,6 +229,13 @@ import Observation
         }
     }
 
+    /// A saved place was added, renamed or removed: the next parse knows its name at once (the shown search runs again
+    /// with the index change the write made).
+    public func savedPlacesChanged() {
+        guard let engine else { return }
+        Task { await engine.savedPlacesChanged() }
+    }
+
     /// Rebuilds the example searches after a pause (they need the index's counts).
     public func refreshExamples(after delay: Duration? = nil) {
         examplesTask?.cancel()
@@ -253,6 +260,14 @@ import Observation
         guard let engine else { return }
         Task { await engine.releaseCaches() }
     }
+
+    #if DEBUG
+    /// The index inspector's query lab: `text` through the engine, step by step (nil while search or the index is off).
+    public func lab(_ text: String) async throws -> QueryLabReport? {
+        guard let engine, let reader = index.reader else { return nil }
+        return try await engine.lab(text, reader: reader, appleMaps: index.appleMapsNames)
+    }
+    #endif
 
     /// Returns once the search, preview and examples in flight are done (tests).
     public func settled() async {

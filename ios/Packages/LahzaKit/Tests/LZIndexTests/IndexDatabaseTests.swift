@@ -15,6 +15,7 @@ import Testing
                 INSERT INTO place_choice (phrase, place_key, radius_m, updated_utc) VALUES ('salam park', 'mk:salam', NULL, 3);
                 INSERT INTO poi_cache (cell, fetched_at, status) VALUES ('th3xm4b', 4, 1);
                 INSERT INTO map_search_cache (key, fetched_at, payload) VALUES ('sufra grill', 5, x'00');
+                INSERT INTO meta (key, value) VALUES ('homeOverride', 'none');
                 """)
         }
     }
@@ -108,6 +109,10 @@ import Testing
             let rebuilt = try IndexDatabase.open(.directory(url))
             #expect(try await userRows(rebuilt).saved == ["My pitch"])
             #expect(try await userRows(rebuilt).choices == ["mk:salam"])
+            #expect(try await rebuilt.read { db in try String.fetchOne(db, sql: "SELECT value FROM meta WHERE key = 'homeOverride'") } == "none",
+                    "the home choice is kept too")
+            #expect(try await rebuilt.read { db in try String.fetchAll(db, sql: "SELECT n.name FROM place_name n JOIN place p ON p.id = n.place_id WHERE p.key = 'saved:1' ORDER BY n.name") }
+                    == ["my pitch", "pitch"], "saved places are mirrored into the place index again")
             #expect(try await Fixture.count(rebuilt, "asset") == 0)
             #expect(try await Fixture.count(rebuilt, "poi_cache") == 0, "only the user tables survive")
             #expect(try await Fixture.meta(rebuilt).phase == .idle)

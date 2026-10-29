@@ -31,6 +31,15 @@ enum MetaKey: String, CaseIterable {
     case structureDue
     case mapsBackoffUntil
     case lastSync, lastFullScan
+    /// ``HomeOverride``: the person's home choice when it isn't a saved place (absent: estimate it). A user value:
+    /// Rebuild keeps it and a rebuild at open carries it over (``IndexSchema/userMetaKeys``).
+    case homeOverride
+}
+
+/// ``MetaKey/homeOverride``'s values.
+enum HomeOverride: String {
+    /// No home: no home bases, so no trips, and "home" finds nothing.
+    case none
 }
 
 /// Where a full scan is (``MetaKey/scanPhase``).

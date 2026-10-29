@@ -61,7 +61,9 @@ enum SearchFixture {
             await queue.run()
             await indexer.settled()
         }
-        return HeroIndex(database: database, reader: IndexReader(database: database), writer: UserDataWriter(database: database, clock: clock))
+        // Saved-place writes ask for a restructure, as the session's writer does.
+        let writer = UserDataWriter(database: database, clock: clock, changed: { await indexer.enqueue(.restructure) })
+        return HeroIndex(database: database, indexer: indexer, reader: IndexReader(database: database), writer: writer)
     }
 
     /// The vocabulary the app would build for `reader`.
@@ -73,6 +75,7 @@ enum SearchFixture {
 
 struct HeroIndex: Sendable {
     let database: IndexDatabase
+    let indexer: LibraryIndexer
     let reader: IndexReader
     let writer: UserDataWriter
 }

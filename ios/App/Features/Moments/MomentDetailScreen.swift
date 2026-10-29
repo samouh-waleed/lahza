@@ -6,14 +6,15 @@ import SwiftUI
 
 /// One moment: its day, place, time span (with the zone when it isn't this iPhone's), counts and every item in a
 /// grid. Shared by Ask and Moments: opened from a search, it shows the search's reasons and its matches first, then
-/// the rest of the moment dimmed. A tile opens the viewer on its grid (a match with why it matched). Save place comes
-/// later.
+/// the rest of the moment dimmed. A tile opens the viewer on its grid (a match with why it matched). Save place (toolbar)
+/// names the area around the moment's centre.
 struct MomentDetailScreen: View {
     let ref: MomentRef
     @Environment(AppModel.self) private var model
     @State private var detail: MomentDetailRows?
     @State private var loaded = false
     @State private var viewing: ViewerSession?
+    @State private var saving: SavedPlaceDraft?
 
     var body: some View {
         ScrollView {
@@ -43,6 +44,18 @@ struct MomentDetailScreen: View {
         }
         .background(.lz(.bg))
         .fullScreenCover(item: $viewing) { AssetViewer(session: $0) }
+        .sheet(item: $saving) { SavedPlaceSheet(draft: $0) }
+        .toolbar {
+            if let moment = detail?.moment, let center = moment.center, model.savedPlaces.isAvailable {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button(SavedPlacesCopy.saveTitle) {
+                        saving = .new(center: center, placeLine: MomentCopy.placeLine(moment, homeCountry: model.moments.homeCountryCode))
+                    }
+                    .accessibilityHint(SavedPlacesCopy.saveHint)
+                    .accessibilityIdentifier("moment-save-place")
+                }
+            }
+        }
         .navigationTitle(detail.map { MomentCopy.shortDay($0.moment.key.day) } ?? MomentCopy.momentTitle)
         .navigationBarTitleDisplayMode(.inline)
         .accessibilityIdentifier("moment-detail")
@@ -92,10 +105,10 @@ nonisolated struct MomentMatches: Equatable {
         others = members.filter { !hits.contains($0.id) }
     }
 
-    /// A grid's items for the viewer, each match with its reasons from the search's card.
+    /// A grid's items for the viewer, each match with its reasons (and scores) from the search's card.
     static func viewerItems(_ members: [MomentDetailRows.Member], moment: MomentRow, card: MomentCard?) -> [ViewerItem] {
-        let reasons = Dictionary((card?.hits ?? []).map { ($0.id, $0.reasons) }, uniquingKeysWith: { first, _ in first })
-        return members.map { ViewerItem(member: $0, moment: moment, reasons: reasons[$0.id] ?? []) }
+        let hits = Dictionary((card?.hits ?? []).map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        return members.map { ViewerItem(member: $0, moment: moment, hit: hits[$0.id]) }
     }
 }
 
