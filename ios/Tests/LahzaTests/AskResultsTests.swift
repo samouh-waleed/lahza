@@ -8,8 +8,8 @@ import Testing
 @testable import Lahza
 
 /// Ask's results over the fake hero library (search spec §7.1, §9.2): the chips, the rows of sections, trips and
-/// cards, the no-match taps, the only-unsupported answer, the picker, Show weaker and a moment opened
-/// from a search.
+/// cards, the no-match taps, the only-unsupported answer, the picker, Show weaker, the partial-build header and a
+/// moment opened from a search.
 @MainActor @Suite struct AskResultsTests {
     private let riyadh = TimeZone(identifier: "Asia/Riyadh")!
 
@@ -161,6 +161,29 @@ import Testing
         #expect(app.search.request?.showWeaker == true)
         app.search.setShowWeaker(false)
         #expect(await SearchTestApp.eventually(app) { app.search.result?.sections.contains { $0.tier == .weaker } == false })
+    }
+
+    @Test func aSearchDuringTheFirstBuildSaysHowFarItHasRead() async throws {
+        var dependencies = SearchTestApp.dependencies()
+        dependencies.indexSettings.batchSize = 50
+        dependencies.indexSettings.pacePerBatch = .milliseconds(400)
+        let app = AppModel(dependencies: dependencies)
+        // Polls without waiting for the index to settle (that would wait for the build to finish).
+        func poll(_ condition: () -> Bool) async -> Bool {
+            for _ in 0..<500 where !condition() { try? await Task.sleep(for: .milliseconds(20)) }
+            return condition()
+        }
+        app.start()
+        #expect(await poll {
+            guard case .reading(let done, _) = app.index.status.phase else { return false }
+            return done >= 50 && app.index.status.isPartial && app.index.reader != nil
+        })
+        app.search.submit("Al-Nakheel Park")
+        #expect(await poll { app.search.result != nil })
+        let result = try #require(app.search.result)
+        #expect(result.coverage.isPartial)
+        #expect(result.coverage.header?.hasPrefix("Searched your photos since ") == true)
+        #expect(result.coverage.caption.hasSuffix(" so far"))
     }
 
     @Test func aMomentOpenedFromASearchShowsItsMatchesFirst() async throws {
