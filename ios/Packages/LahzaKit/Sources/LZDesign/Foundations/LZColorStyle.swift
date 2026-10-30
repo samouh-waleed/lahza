@@ -68,15 +68,28 @@ nonisolated extension Color {
         return LZPalette.rgba(token, .light).color
         #endif
     }
+
+    /// A token's light colour in dark too, following Increase Contrast, for fills the system draws white glyphs on
+    /// (a List's swipe actions): the dark tones are pastel, and white doesn't read on them. `danger` is 6.6:1 under
+    /// white (9.2:1 with Increase Contrast).
+    public static func lzUnderWhite(_ token: LZColorToken) -> Color {
+        #if canImport(UIKit)
+        return Color(uiColor: LZDynamicColor.uiColor(token, opaque: true, alwaysLight: true))
+        #elseif canImport(AppKit)
+        return Color(nsColor: LZDynamicColor.nsColor(token, opaque: true, alwaysLight: true))
+        #else
+        return LZPalette.rgba(token, .light).color
+        #endif
+    }
 }
 
 /// Builds platform dynamic colours outside the main actor: the providers are called by the
 /// render system on whatever thread resolves the colour.
 nonisolated enum LZDynamicColor {
     #if canImport(UIKit)
-    static func uiColor(_ token: LZColorToken, opaque: Bool) -> UIColor {
+    static func uiColor(_ token: LZColorToken, opaque: Bool, alwaysLight: Bool = false) -> UIColor {
         UIColor { traits in
-            let appearance = LZAppearance(isDark: traits.userInterfaceStyle == .dark,
+            let appearance = LZAppearance(isDark: !alwaysLight && traits.userInterfaceStyle == .dark,
                                           increasedContrast: traits.accessibilityContrast == .high,
                                           reduceTransparency: opaque)
             let c = LZPalette.rgba(token, appearance)
@@ -84,10 +97,10 @@ nonisolated enum LZDynamicColor {
         }
     }
     #elseif canImport(AppKit)
-    static func nsColor(_ token: LZColorToken, opaque: Bool) -> NSColor {
+    static func nsColor(_ token: LZColorToken, opaque: Bool, alwaysLight: Bool = false) -> NSColor {
         NSColor(name: nil) { appearance in
             let match = appearance.bestMatch(from: [.aqua, .darkAqua, .accessibilityHighContrastAqua, .accessibilityHighContrastDarkAqua])
-            let resolved = LZAppearance(isDark: match == .darkAqua || match == .accessibilityHighContrastDarkAqua,
+            let resolved = LZAppearance(isDark: !alwaysLight && (match == .darkAqua || match == .accessibilityHighContrastDarkAqua),
                                         increasedContrast: match == .accessibilityHighContrastAqua || match == .accessibilityHighContrastDarkAqua,
                                         reduceTransparency: opaque)
             let c = LZPalette.rgba(token, resolved)

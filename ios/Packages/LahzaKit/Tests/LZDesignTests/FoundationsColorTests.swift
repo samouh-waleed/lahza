@@ -172,6 +172,23 @@ struct FoundationsColorTests {
         #expect(opaqueSoft.opacity == 1)
     }
 
+    @Test("A fill under white glyphs keeps its light tone in dark, so white reads on it")
+    func fillUnderWhiteGlyphs() {
+        for increased in [false, true] {
+            let tone = LZPalette.rgba(.danger, LZAppearance(isDark: false, increasedContrast: increased))
+            #expect(LZRGBA.white.contrast(with: tone) >= 4.5, "white on danger, Increase Contrast \(increased)")
+        }
+        #expect(LZRGBA.white.contrast(with: LZPalette.rgba(.danger, LZAppearance(isDark: true))) < 3, "why: the dark tone is pastel")
+        #if canImport(AppKit)
+        var resolved: NSColor?
+        NSAppearance(named: .darkAqua)?.performAsCurrentDrawingAppearance {
+            resolved = LZDynamicColor.nsColor(.danger, opaque: true, alwaysLight: true).usingColorSpace(.sRGB)
+        }
+        let expected = LZPalette.rgba(.danger, LZAppearance(isDark: false))
+        #expect(abs(Double(resolved?.redComponent ?? 0) - expected.red) < 0.01 && abs(Double(resolved?.greenComponent ?? 0) - expected.green) < 0.01)
+        #endif
+    }
+
     @Test func toneMapping() {
         #expect(LZTone.gold.foreground == .goldText)
         #expect(LZTone.sage.fill == .sageSoft)

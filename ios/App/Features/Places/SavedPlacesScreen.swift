@@ -52,8 +52,9 @@ struct SavedPlacesScreen: View {
                                 // No full swipe and no destructive role (a List removes such a row before the
                                 // answer): the button only asks.
                                 .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                    // The system draws a white glyph: the dark danger tone is too light for it.
                                     Button(SavedPlacesCopy.deleteShort, systemImage: "trash") { deletion.ask(place) }
-                                        .tint(Color.lz(.danger))
+                                        .tint(Color.lzUnderWhite(.danger))
                                 }
                                 .confirmsDeletion(of: place, $deletion) { delete($0) }
                                 .accessibilityIdentifier("saved-place-row")
