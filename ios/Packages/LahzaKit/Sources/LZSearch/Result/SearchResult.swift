@@ -16,6 +16,7 @@ public struct SearchResult: Sendable, Identifiable {
     /// The slots left out ("soccer", "with Ahmed"), in text order.
     public var unsupported: [QuerySlot]
     /// "Lahza can't see what's in photos yet, so “soccer” was left out. Showing all your photos at Al-Nakheel Park."
+    /// Above a no-match it ends at "left out.".
     public var unsupportedNotice: String?
     /// Hits behind "Show weaker" (counted even when they aren't shown).
     public var weakerCount: Int

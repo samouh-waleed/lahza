@@ -199,6 +199,24 @@ import Testing
         }
     }
 
+    /// A word left out above a no-match doesn't promise "Showing all your photos in Dubai…" (E23); above photos it does.
+    @Test func aLeftOutWordAboveANoMatchPromisesNoPhotos() async throws {
+        let search = try await HeroSearch.shared.value
+        let leftOut = "Lahza can’t search for everything you asked yet, so “near my house” was left out."
+        for (text, scope, kind) in [("Dubai near my house last December", Self.free, NoMatch.Kind?.none),
+                                    ("Dubai near my house last December", SearchScope.wholeLibrary, nil),
+                                    ("Dubai near my house", Self.free, .onlyEarlier)] {
+            let result = try await search.search(request(text, scope: scope))
+            let noMatch = try #require(result.noMatch, "\(text)")
+            if let kind { #expect(noMatch.kind == kind, "\(text)") }
+            #expect(result.items(.best).isEmpty && result.items(.more).isEmpty, "\(text)")
+            #expect(result.unsupportedNotice == leftOut, "\(text)")
+        }
+        let shown = try await search.search(request("Dubai near my house", scope: .wholeLibrary))
+        #expect(shown.noMatch == nil)
+        #expect(shown.unsupportedNotice == leftOut + " Showing all your photos in Dubai.")
+    }
+
     /// While free, countries whose photos are all older come after those whose tap shows photos, so they never push
     /// one out of the 8; the most photos first, as ever.
     @Test func olderOnlyCountriesNeverPushOutOnesThatShowPhotos() {

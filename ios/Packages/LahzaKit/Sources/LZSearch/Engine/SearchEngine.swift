@@ -125,8 +125,9 @@ public actor SearchEngine {
 
         let result = SearchResult(id: UUID(), query: query.resolved, sections: built.sections, totals: built.totals, coverage: coverage, noMatch: noMatch,
                                   unsupported: query.unsupported.map(\.slot),
+                                  // "Showing all your photos …" only when photos match: above a no-match it would promise none (E23).
                                   unsupportedNotice: noMatch?.kind == .onlyUnsupported ? nil
-                                      : copy.unsupportedNotice(query.unsupported, text: parsed.text, showing: query.showingPhrase(copy)),
+                                      : copy.unsupportedNotice(query.unsupported, text: parsed.text, showing: matched ? query.showingPhrase(copy) : nil),
                                   weakerCount: hits.count(where: { $0.tier == .weaker }), lockedCount: locked, timings: timings)
         log.info("Search: slots \(parsed.slots.map(\.kind.rawValue).joined(separator: ",")), \(result.totals.moments) moments, "
                  + "\(result.totals.items) items, \(hits.count(where: { $0.tier == .locationUnknown })) unlocated, \(locked) locked, "

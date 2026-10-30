@@ -327,7 +327,8 @@ struct SearchCopy {
     // MARK: Unsupported
 
     /// "Lahza can't see what's in photos yet, so “soccer” was left out. Showing all your photos at Al-Nakheel Park."
-    /// Dates Lahza couldn't use are quoted as typed (their chip says why).
+    /// Dates Lahza couldn't use are quoted as typed (their chip says why). With no `showing` (nothing matched) it ends
+    /// at "left out.".
     func unsupportedNotice(_ unsupported: [ResolvedSlot], text: String, showing: String?) -> String? {
         guard !unsupported.isEmpty else { return nil }
         let words = unsupported.map { "“\($0.slot.kind == .time ? $0.slot.span?.substring(of: text) ?? $0.chip : $0.chip)”" }
