@@ -21,6 +21,7 @@ queries=(
     "33|Salam Park|1"
     "free-01|Al-Nakheel Park|0"
     "free-07|Greece|0"
+    "free-11|Dubai last December|0"
     "grid-01|Al-Nakheel Park|1|grid"
     "grid-07|Greece|1|grid"
     "grid-free-01|Al-Nakheel Park|0|grid"

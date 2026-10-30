@@ -39,7 +39,7 @@ struct SavedPlaceSheet: View {
     @State private var count: Int?
     @State private var saving = false
     @State private var failure: String?
-    @State private var confirmDelete = false
+    @State private var deletion = SavedPlaceDeletion()
     /// The name field was edited (a problem shows only then, or at Save).
     @State private var touched = false
 
@@ -92,13 +92,9 @@ struct SavedPlaceSheet: View {
                         .disabled(problem != nil || !model.savedPlaces.isAvailable)
                         .accessibilityIdentifier("saved-place-save")
                     if case .edit(let place) = draft {
-                        LZButton(SavedPlacesCopy.delete, systemImage: "trash", role: .destructive, size: .small) { confirmDelete = true }
+                        LZButton(SavedPlacesCopy.delete, systemImage: "trash", role: .destructive, size: .small) { deletion.ask(place) }
                             .accessibilityIdentifier("saved-place-delete")
-                            .confirmationDialog(SavedPlacesCopy.deleteTitle(place.name), isPresented: $confirmDelete, titleVisibility: .visible) {
-                                Button(SavedPlacesCopy.delete, role: .destructive) { delete(place) }
-                            } message: {
-                                Text(SavedPlacesCopy.deleteMessage)
-                            }
+                            .confirmsDeletion(of: place, $deletion) { delete($0) }
                     }
                 }
                 .padding(.horizontal, LZLayout.gutter)
@@ -168,6 +164,34 @@ struct SavedPlaceSheet: View {
             } catch {
                 failure = SavedPlacesCopy.writeFailed
             }
+        }
+    }
+}
+
+/// Deleting a saved place always asks first, from the edit sheet's Delete place or the list's swipe (VoiceOver's
+/// delete action is the swipe's): "Delete “My pitch”?" with Delete place, or Cancel to keep it (E21).
+nonisolated struct SavedPlaceDeletion: Equatable {
+    /// The place being asked about.
+    private(set) var asking: Int64?
+
+    mutating func ask(_ place: SavedPlaceRow) { asking = place.id }
+
+    /// Cancel, or the question went away: the place stays.
+    mutating func cancel() { asking = nil }
+
+    func isAsking(about place: SavedPlaceRow) -> Bool { asking == place.id }
+}
+
+extension View {
+    /// The question about `place`, from this view, while `deletion` asks it; Delete place calls `delete`.
+    func confirmsDeletion(of place: SavedPlaceRow, _ deletion: Binding<SavedPlaceDeletion>, delete: @escaping (SavedPlaceRow) -> Void) -> some View {
+        confirmationDialog(SavedPlacesCopy.deleteTitle(place.name),
+                           isPresented: Binding(get: { deletion.wrappedValue.isAsking(about: place) },
+                                                set: { if !$0, deletion.wrappedValue.isAsking(about: place) { deletion.wrappedValue.cancel() } }),
+                           titleVisibility: .visible) {
+            Button(SavedPlacesCopy.delete, role: .destructive) { delete(place) }
+        } message: {
+            Text(SavedPlacesCopy.deleteMessage)
         }
     }
 }

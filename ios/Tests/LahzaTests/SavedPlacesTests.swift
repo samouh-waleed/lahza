@@ -55,6 +55,62 @@ import Testing
         #expect(await eventually(app) { labels(app, keys) == Array(repeating: "Al-Nakheel Park", count: 10) })
     }
 
+    /// E21: the list's swipe shows Delete, which asks the edit sheet's question about that place; Cancel keeps it,
+    /// Delete place removes it.
+    @Test func aSwipedDeleteAsksFirst() async throws {
+        let app = await SearchTestApp.ready(.unlocked)
+        let (_, center) = try await nakheel(app)
+        try await app.savedPlaces.save(name: "My pitch", center: center, radius: 250, isHome: false)
+        try await app.savedPlaces.save(name: "Our cabin", center: Coordinate(latitude: center.latitude + 0.05, longitude: center.longitude),
+                                       radius: 100, isHome: false)
+        let pitch = try #require(app.savedPlaces.places.first { $0.name == "My pitch" })
+        let cabin = try #require(app.savedPlaces.places.first { $0.name == "Our cabin" })
+
+        var deletion = SavedPlaceDeletion()
+        deletion.ask(pitch)
+        #expect(deletion.isAsking(about: pitch) && !deletion.isAsking(about: cabin), "only the swiped row asks")
+        #expect(SavedPlacesCopy.deleteTitle(pitch.name) == "Delete “My pitch”?")
+        #expect(SavedPlacesCopy.delete == "Delete place" && SavedPlacesCopy.deleteShort == "Delete")
+        deletion.cancel()
+        #expect(!deletion.isAsking(about: pitch))
+        await app.savedPlaces.load()
+        #expect(app.savedPlaces.places.map(\.name) == ["My pitch", "Our cabin"], "Cancel keeps it")
+
+        deletion.ask(pitch)
+        try await app.savedPlaces.delete(pitch.id)
+        #expect(app.savedPlaces.places.map(\.name) == ["Our cabin"], "Delete place removes only it")
+    }
+
+    /// E22: "at my pitch" before any place is saved says so, as a place, with the examples, and never asks Apple Maps;
+    /// "home" after No home says it was chosen.
+    @Test func anUnsavedNameAndNoHomeSaySo() async throws {
+        let maps = SeedMaps.client()
+        let app = await SearchTestApp.ready(.unlocked, maps: maps)
+        func searches() -> Int { maps.calls.count { if case .search = $0 { true } else { false } } }
+        let before = searches()
+        let result = try #require(await SearchTestApp.search(app, "at my pitch"))
+        #expect(result.noMatch?.kind == .placeNotFound(.notSaved))
+        #expect(result.noMatch?.headline == "You have no saved place called “my pitch”.")
+        #expect(result.noMatch?.detail == "Save one from a moment.")
+        #expect(result.noMatch?.examples.isEmpty == false && result.noMatch?.offers.isEmpty == true)
+        let chips = QueryChipModel.chips(result.query)
+        #expect(chips.map(\.title) == ["My pitch"] && chips.allSatisfy(\.isSupported), "a place chip, not “not yet”")
+        #expect(chips.first?.accessibilityLabel == "Place, My pitch")
+        #expect(QueryChipModel.chips(result.query.parsed).map(\.title) == ["My pitch"], "and while typing")
+        #expect(AskCopy.noMatchSymbol(.placeNotFound(.notSaved)) == "mappin.slash")
+        #expect(result.query.slots.map(ChipEditorKind.init) == [.place(.notFound(.notSaved))], "its editor: why, and Remove")
+        #expect(ChipEditorCopy.notFound(.notSaved) == "None of your saved places goes by this name. Save one from a moment to search it by name.")
+        let dog = try #require(await SearchTestApp.search(app, "photos of my dog"))
+        #expect(QueryChipModel.chips(dog.query).map(\.title) == ["dog · not yet"])
+        #expect(searches() == before, "never sent to Apple Maps")
+
+        try await app.savedPlaces.setHome(.noHome)
+        #expect(await SearchTestApp.eventually(app) { app.moments.trips.isEmpty }, "the home bases are gone")
+        let home = try #require(await SearchTestApp.search(app, "home"))
+        #expect(home.noMatch?.headline == "You chose No home.")
+        #expect(home.noMatch?.detail == "Choose one in Settings › Saved places.")
+    }
+
     @Test func rebuildKeepsSavedPlacesAndDeleteIndexRemovesThem() async throws {
         let app = await SearchTestApp.ready(.unlocked)
         let (keys, center) = try await nakheel(app)

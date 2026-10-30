@@ -88,7 +88,7 @@ struct ChipEditorSheet: View {
 // MARK: Place
 
 /// The places the words may mean (the one searched ticked), "Search Apple Maps for “X”" while the search hasn't asked,
-/// and for an area its radius and "near".
+/// and for an area its radius and "near". A name no saved place goes by, or a home there isn't, says why.
 private struct PlaceEditor: View {
     let slot: ResolvedSlot
     let query: ResolvedQuery
@@ -98,6 +98,9 @@ private struct PlaceEditor: View {
 
     var body: some View {
         let candidates = Array(resolution.candidates.prefix(ChipEditorCopy.maxCandidates))
+        if case .notFound(let reason) = resolution, let explanation = ChipEditorCopy.notFound(reason) {
+            EditorExplanation(text: explanation)
+        }
         if !candidates.isEmpty {
             EditorSection(ChipEditorCopy.places) {
                 LZRowGroup {
@@ -380,6 +383,16 @@ nonisolated enum ChipEditorCopy {
         switch event {
         case .trip: "Photos from your trips: two or more days in a row away from home."
         case .abroad: "Photos from your trips outside your home country."
+        }
+    }
+
+    /// Why a place chip found no place, where nothing can be looked up instead (a name no saved place goes by, home).
+    static func notFound(_ reason: PlaceNotFound) -> String? {
+        switch reason {
+        case .notSaved: "None of your saved places goes by this name. Save one from a moment to search it by name."
+        case .choseNoHome: "You chose No home. Choose one in Settings › Saved places."
+        case .noHome: "Lahza hasn’t worked out your home yet. Save it from a photo."
+        default: nil
         }
     }
 

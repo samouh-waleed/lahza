@@ -10,7 +10,8 @@ import Testing
 /// A free user's search on Ask (decision 34, E11) over the fake hero library at the spec's now: the last 12 months, the
 /// older matches counted for the unlock row, the answer when every match is older, examples that count what a tap
 /// shows, and an unlock that shows the earlier years at once. Expectations come from the scenario's dates. Also E17
-/// (examples after a no-match with no offer left), E18 (onboarding's example) and `-LZUnlocked`.
+/// (examples after a no-match with no offer left), E18 (onboarding's example), E19 (an offer whose matches are all
+/// older), E20 (the caption) and `-LZUnlocked`.
 @MainActor @Suite struct FreeSearchTests {
     static let hero = SeedScenario.hero
 
@@ -62,6 +63,45 @@ import Testing
         #expect(app.search.result?.lockedCount == 0 && app.search.request?.scope == .wholeLibrary)
         #expect(numbers(app.search.result, .best) == Set(greece.filter(\.isLocated).map(\.number)))
         #expect(!LockedResultsRow.isShown(lockedCount: 75, isUnlocked: app.entitlement.isUnlocked))
+    }
+
+    /// E19: free "Dubai last December" keeps the Dubai offer, counted by the trips' photos (all older than the window);
+    /// its tap gives the all-older answer with an unlock row of the same count.
+    @Test func anOlderOnlyOfferLandsOnTheUnlockRow() async throws {
+        let app = await SearchTestApp.ready(.free)
+        let since = try window(app)
+        let dubai = Self.hero.items(.dubai1) + Self.hero.items(.dubai2)
+        #expect(dubai.count == 57 && dubai.allSatisfy { $0.utc! < since })
+        let result = try #require(await SearchTestApp.search(app, "Dubai last December"))
+        let noMatch = try #require(result.noMatch)
+        #expect(noMatch.kind == .combination)
+        #expect(noMatch.headline == "57 in Dubai, none in December 2025.", "the headline and Closest stay")
+        #expect(noMatch.detail?.hasPrefix("Closest: ") == true)
+        let offer = try #require(noMatch.offers.first)
+        #expect(AskCopy.offer(offer) == "Dubai, any time · \(dubai.count)")
+        #expect(noMatch.offers.dropFirst().first?.label == "December 2025, anywhere")
+
+        app.search.widen(offer)
+        #expect(await SearchTestApp.eventually(app) { app.search.result?.noMatch?.kind == .onlyEarlier })
+        let tapped = try #require(app.search.result)
+        #expect(app.search.text == "Dubai")
+        #expect(tapped.noMatch?.headline == "No matches in the last 12 months.")
+        #expect(tapped.lockedCount == offer.count, "the row counts what the offer said")
+        #expect(LockedResultsRow.isShown(lockedCount: tapped.lockedCount, isUnlocked: app.entitlement.isUnlocked))
+        #expect(BillingCopy.moreFromEarlierYears(tapped.lockedCount, locale: Locale(identifier: "en_US")) == "57 more from earlier years")
+    }
+
+    /// E20: a free search's caption names its window; unlocked, it counts the library again.
+    @Test func aFreeCaptionNamesTheWindow() async throws {
+        let app = await SearchTestApp.ready(.free)
+        let result = try #require(await SearchTestApp.search(app, "Al-Nakheel Park"))
+        #expect(result.coverage.caption == "Searched your last 12 months")
+        let paywall = app.makePaywallModel()
+        await paywall.load()
+        await paywall.purchase()
+        #expect(app.entitlement.isUnlocked)
+        #expect(await SearchTestApp.eventually(app) { app.search.result?.id != result.id && app.search.result?.lockedCount == 0 })
+        #expect(app.search.result?.coverage.caption == "Searched all \(Self.hero.items.count) photos")
     }
 
     /// The examples a free user sees count what tapping them shows.

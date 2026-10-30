@@ -5,12 +5,14 @@ import LZSearch
 import SwiftUI
 
 /// Settings › Saved places (search spec §7.3): home first (the estimate, a place set as home, or none) with Change…,
-/// then the places the person named. A place opens its sheet (rename, radius, home, delete); a swipe deletes it.
+/// then the places the person named. A place opens its sheet (rename, radius, home, delete); a swipe shows Delete,
+/// which asks first as the sheet does (E21).
 struct SavedPlacesScreen: View {
     @Environment(AppModel.self) private var model
     @State private var editing: SavedPlaceDraft?
     @State private var choosingHome = false
     @State private var failure: String?
+    @State private var deletion = SavedPlaceDeletion()
 
     var body: some View {
         let store = model.savedPlaces
@@ -47,10 +49,13 @@ struct SavedPlacesScreen: View {
                             ListRow(place.name, subtitle: SavedPlacesCopy.placeSubtitle(place, photos: store.photoCounts[place.id]),
                                     systemImage: place.isHome ? "house" : "mappin.and.ellipse", accessory: .chevron) { editing = .edit(place) }
                                 .row(separator: true)
-                                .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                                    Button(SavedPlacesCopy.deleteShort, systemImage: "trash", role: .destructive) { delete(place) }
+                                // No full swipe and no destructive role (a List removes such a row before the
+                                // answer): the button only asks.
+                                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                    Button(SavedPlacesCopy.deleteShort, systemImage: "trash") { deletion.ask(place) }
                                         .tint(Color.lz(.danger))
                                 }
+                                .confirmsDeletion(of: place, $deletion) { delete($0) }
                                 .accessibilityIdentifier("saved-place-row")
                         }
                         if let failure {
