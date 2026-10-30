@@ -28,7 +28,7 @@ struct QueryToken: Sendable, Hashable {
 /// Splits a query into words: runs of letters and digits. Apostrophes and transliteration marks inside a word vanish
 /// ("year's" → `years`, "Dir'iyah" → `diriyah`); every other mark separates words and is kept in the next word's gap.
 enum QueryTokenizer {
-    private static let apostrophes: Set<Unicode.Scalar> = ["'", "\u{2019}", "\u{2018}", "\u{02BC}", "\u{02BB}", "\u{02BF}", "\u{02BE}", "`", "\u{00B4}"]
+    static let apostrophes: Set<Unicode.Scalar> = ["'", "\u{2019}", "\u{2018}", "\u{02BC}", "\u{02BB}", "\u{02BF}", "\u{02BE}", "`", "\u{00B4}"]
 
     static func tokens(_ text: String) -> [QueryToken] {
         let scalars = Array(text.unicodeScalars)

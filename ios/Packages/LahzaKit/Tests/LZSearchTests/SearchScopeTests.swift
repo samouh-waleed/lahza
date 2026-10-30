@@ -152,6 +152,62 @@ import Testing
         let caughtUp = try await search.engine.search(request("2025"), reader: search.index.reader, writer: search.index.writer, index: read)
         #expect(caughtUp.coverage.caption == "Searched your last 12 months")
         #expect(SearchCopy(locale: SearchFixture.uk, resolver: SearchFixture.saudi()).lastPeriod(since: Self.since, now: SearchFixture.now) == "last 12 months")
+
+        // A first build stopped short of the window (paused, starting again, failed: no total) says "so far", free or
+        // not; stopped past the window's start, the window was all searched.
+        let august2026 = Date(timeIntervalSince1970: 1_785_542_400)
+        for scope in [Self.free, .wholeLibrary] {
+            let paused = try await search.engine.search(request("2026", scope: scope), reader: search.index.reader, writer: search.index.writer,
+                                                        index: SearchIndexContext(isPartial: true, coveredSince: august2026))
+            #expect(paused.coverage.caption == "Searched \(Self.hero.items.count) photos so far")
+            #expect(paused.coverage.header == "Searched your photos since Aug 2026, still reading older ones")
+        }
+        let pastStart = try await search.engine.search(request("2026"), reader: search.index.reader, writer: search.index.writer,
+                                                       index: SearchIndexContext(isPartial: true, coveredSince: Date(timeIntervalSince1970: 1_710_460_800)))
+        #expect(pastStart.coverage.caption == "Searched your last 12 months")
+    }
+
+    /// Unlocked too, the place-and-dates offers count the search their tap runs, so the trips stay: "December 2025,
+    /// anywhere" (3 photos, none on a trip) goes.
+    @Test func combinationOffersKeepTheTrips() async throws {
+        let search = try await HeroSearch.shared.value
+        for text in ["Dubai trips last December", "Dubai abroad 2026"] {
+            for scope in [Self.free, .wholeLibrary] {
+                let result = try await search.search(request(text, scope: scope))
+                let noMatch = try #require(result.noMatch)
+                #expect(noMatch.kind == .combination && noMatch.offers.map(\.label) == ["Dubai, any time"], "\(text)")
+                for offer in noMatch.offers {
+                    let tapped = try await search.search(tap(offer, on: result, scope: scope))
+                    let shown = scope == .wholeLibrary ? tapped.items(.best).count : tapped.lockedCount
+                    #expect(shown == offer.count, "\(text): \(offer.label)")
+                }
+            }
+        }
+    }
+
+    /// "anywhere" searches no place: a "my …" name left out next to the place goes with it, so the tap shows what the
+    /// offer counted.
+    @Test func anywhereLeavesNoPlaceBehind() async throws {
+        let search = try await HeroSearch.shared.value
+        for scope in [Self.free, .wholeLibrary] {
+            let result = try await search.search(request("Dubai near my house last December", scope: scope))
+            #expect(result.query.slots.map(\.chip) == ["Dubai", "near my house", "Last December · Dec 2025"])
+            let december = try #require(result.noMatch?.offers.first { $0.label == "December 2025, anywhere" })
+            let tapped = try await search.search(tap(december, on: result, scope: scope))
+            #expect(tapped.query.parsed.text == "last December")
+            #expect(tapped.noMatch == nil && tapped.items(.best).count == december.count)
+        }
+    }
+
+    /// While free, countries whose photos are all older come after those whose tap shows photos, so they never push
+    /// one out of the 8; the most photos first, as ever.
+    @Test func olderOnlyCountriesNeverPushOutOnesThatShowPhotos() {
+        func offer(_ name: String, _ count: Int) -> WideningOffer { WideningOffer(label: name, count: count, edits: []) }
+        let older = (1...9).map { (offer: offer("Older \($0)", 100 + $0), olderOnly: true) }
+        let offers = NoMatchBuilder.countryOffers(older + [(offer("Recent", 3), false)])
+        #expect(offers.count == NoMatchBuilder.maxCountryOffers && offers.last?.label == "Recent")
+        #expect(offers.map(\.count) == offers.map(\.count).sorted(by: >))
+        #expect(NoMatchBuilder.countryOffers([(offer("Recent", 5), false), (offer("Older", 50), true)]).map(\.label) == ["Older", "Recent"])
     }
 
     /// The examples of a free search count its months, so a tap shows the count; older-only ones are left out.

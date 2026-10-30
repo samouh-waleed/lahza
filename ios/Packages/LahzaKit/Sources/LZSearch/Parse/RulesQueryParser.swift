@@ -182,38 +182,73 @@ struct RuleScan {
                 index = last + 1
                 continue
             }
-            if start > index, let last = unsavedName(from: start) {
-                add(.place(.alias(.unsaved(original(start, last)), relation: relation)), first: start, last: last, claimed: index..<last + 1)
-                index = last + 1
+            if start > index, let name = ownName(after: first, from: start) {
+                switch name {
+                case .unsaved(let last):
+                    add(.place(.alias(.unsaved(original(start, last)), relation: relation)), first: start, last: last, claimed: index..<last + 1)
+                    index = last + 1
+                case .content(let last):
+                    add(.visual(original(start + 1, last)), first: start + 1, last: last, claimed: index..<last + 1)
+                    index = last + 1
+                }
                 continue
             }
             index += 1
         }
     }
 
-    /// The end of "my pitch", "our cabin" after a place preposition (`start` is at "my" or "our") when no saved place
-    /// goes by the name: a place of the person's own, which search says isn't saved and never looks up (E22). The name
-    /// runs to a word that ends a place name, at most 4 words, and ends at its last place word ("my pitch" in "at my
-    /// pitch playing soccer"); without one, words about what's in photos make it no place ("near my dog", "from my
-    /// sister"). People ("my family"), the photo library ("in my camera roll") and known places stay as they were.
-    private func unsavedName(from start: Int) -> Int? {
+    /// "my …" or "our …" after a place preposition when no saved place goes by the name (E22).
+    private enum OwnName {
+        /// A place of the person's own that search says isn't saved and never looks up ("at my pitch"): its last word.
+        case unsaved(last: Int)
+        /// Words about what's in photos, never a place and never looked up ("from my uncle", "in my twenties"): its
+        /// last word.
+        case content(last: Int)
+    }
+
+    /// The prepositions after which "my …" is a place even with no word saying so ("at my mazraa"). After "in", "from"
+    /// and "by" it rarely is ("in my twenties", "from my uncle", "by my side") without a place word or "'s".
+    static let ownPlacePrepositions: Set<String> = ["at", "near", "around", "inside"]
+
+    /// What "my pitch", "our cabin" is after `preposition` (`start` is at "my" or "our"). The name runs to a word that
+    /// ends a place name or names a trip, at most 4 words, and ends at its last place word ("my pitch" in "at my pitch
+    /// playing soccer") or a last word with "'s" ("my mom's"); words before a trip describe it ("from my road trip").
+    /// Without a place word, words about what's in photos make it no place ("near my dog"), and so does any preposition
+    /// but at, near, around and inside: those words stay words about photos, as typed. People ("my family"), the photo
+    /// library ("in my camera roll") and known places stay as they were.
+    private func ownName(after preposition: String, from start: Int) -> OwnName? {
         guard let determiner = word(start), ["my", "our"].contains(determiner) else { return nil }
         var end = start + 1
         while let word = word(end), end < start + 5, !tokens[end].followsPunctuation {
-            if lexicon.stopWords.contains(word) || lexicon.placePrepositions[word] != nil || word == "to" || lexicon.filler.contains(word) { break }
+            if lexicon.stopWords.contains(word) || lexicon.placePrepositions[word] != nil || word == "to" || lexicon.filler.contains(word)
+                || lexicon.events[word] != nil { break }
             end += 1
         }
-        var words = tokens[start + 1..<end].map(\.text)
-        if let last = words.lastIndex(where: Self.ownPlaceWords.contains) {
-            words.removeSubrange((last + 1)...)
-        } else if words.contains(where: lexicon.contentWords.contains) {
-            return nil
-        }
-        guard !words.isEmpty, lexicon.people[[determiner] + words] == nil, lexicon.people[words] == nil,
-              !words.contains(where: Self.libraryWords.contains) else { return nil }
+        if let next = word(end), lexicon.events[next] != nil, !tokens[end].followsPunctuation { return nil }
+        guard end > start + 1 else { return nil }
+        let placeEnd = (start + 1..<end).last { Self.ownPlaceWords.contains(tokens[$0].text) } ?? (isPossessive(end - 1) ? end - 1 : nil)
+        let last = placeEnd ?? end - 1
+        let words = tokens[start + 1...last].map(\.text)
+        if placeEnd == nil, words.contains(where: lexicon.contentWords.contains) { return nil }
+        guard lexicon.people[[determiner] + words] == nil, lexicon.people[words] == nil, !words.contains(where: Self.libraryWords.contains) else { return nil }
         let name = words.joined(separator: " ")
         guard !PlaceNames.variants(name).contains(where: { context.vocabulary.knows($0, bare: false, lexicon: lexicon) }) else { return nil }
-        return start + words.count
+        if placeEnd != nil || Self.ownPlacePrepositions.contains(preposition) { return .unsaved(last: last) }
+        // Words about photos: unless a part is a known place or people, which the later recognisers keep.
+        for first in start + 1...last {
+            if lexicon.people[[tokens[first].text]] != nil { return nil }
+            for stop in first...last where context.vocabulary.knows(folded(first, stop), bare: true, lexicon: lexicon) { return nil }
+        }
+        return .content(last: last)
+    }
+
+    /// "mom's", "parents'": a word standing for a place of theirs ("at my mom's").
+    private func isPossessive(_ index: Int) -> Bool {
+        let typed = Array(original(index, index).unicodeScalars)
+        if typed.count > 2, ["s", "S"].contains(typed[typed.count - 1]), QueryTokenizer.apostrophes.contains(typed[typed.count - 2]) { return true }
+        // An apostrophe after the word isn't part of it.
+        let after = TextSpan(location: tokens[index].range.upperBound, length: 1).substring(of: text)
+        return after?.unicodeScalars.first.map(QueryTokenizer.apostrophes.contains) ?? false
     }
 
     /// Place words, and kinds of places of one's own that are also words about what's in photos ("my office"): what a
@@ -221,7 +256,9 @@ struct RuleScan {
     static let ownPlaceWords = placeWords.union([
         "office", "room", "bedroom", "kitchen", "classroom", "shop", "store", "gym", "building", "tent", "campsite", "playground", "pool",
         "cabin", "chalet", "villa", "flat", "apartment", "studio", "cottage", "lodge", "camp", "ranch", "yard", "backyard", "balcony", "roof",
-        "rooftop", "garage", "majlis", "istiraha", "compound", "spot",
+        "rooftop", "garage", "majlis", "istiraha", "compound", "spot", "work", "workplace", "uni", "college", "dorm", "hometown", "neighborhood",
+        "neighbourhood", "barn", "shed", "porch", "patio", "terrace", "orchard", "estiraha", "esteraha", "istraha", "mazraa", "mazraah",
+        "shalay", "shaleh", "diwaniya", "diwaniyah",
     ])
 
     /// Words for the photo library itself: "photos in my library" means no place.

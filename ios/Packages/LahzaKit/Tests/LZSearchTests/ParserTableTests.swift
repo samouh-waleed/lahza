@@ -305,6 +305,28 @@ import Testing
         c("near my dog", [.visual("dog")]),
         c("from my sister", [.visual("sister")]),
         c("near my family", [.people("my family")]),
+        // A place word or "'s" names a place after any preposition; without one, only after at, near, around or inside.
+        c("at my uncle's", [unsaved("my uncle's")]),
+        c("from my mom's", [unsaved("my mom's", .from)]),
+        c("at my mazraa", [unsaved("my mazraa")]),
+        c("from my hometown", [unsaved("my hometown", .from)]),
+        c("by my pool", [unsaved("my pool", .near)]),
+        c("photos from my uncle", [.visual("uncle")]),
+        c("photos by my boyfriend", [.visual("boyfriend")]),
+        c("photos taken by my boss", [.visual("boss")]),
+        c("near my uncle", [.visual("uncle")]),
+        c("photos from my WhatsApp", [.visual("WhatsApp")]),
+        c("photos from my childhood", [.visual("childhood")]),
+        c("in my twenties", [.visual("twenties")]),
+        c("by my side", [.visual("side")]),
+        c("photos from my Riyadh friends", [place("Riyadh"), .people("friends")]),
+        // Trips stay trips: words naming one end the name, and words before one describe it.
+        c("photos from my travels", [trip]),
+        c("from my travel photos", [trip]),
+        c("photos from my overseas trip", [.event(.abroad), trip]),
+        c("from my travels in Greece", [trip, place("Greece")]),
+        c("from our Dubai trip", [place("Dubai"), trip]),
+        c("from my visit to Paris", [.visual("visit"), place("Paris", .to)]),
         c("photos of us", [.people("us")]),
     ]
 

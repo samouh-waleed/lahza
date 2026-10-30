@@ -106,6 +106,26 @@ import Testing
         #expect(search.maps.calls.isEmpty)
     }
 
+    /// E22 is for places only: "my …" after "from", "in" or "by" with no place word stays words about photos, as do
+    /// people after "near"; words naming a trip still search trips. None of it is looked up.
+    @Test func peopleAndTripsAfterMyAreNoPlace() async throws {
+        let search = try await HeroSearch()
+        for text in ["photos from my uncle", "photos by my boyfriend", "photos from my WhatsApp", "in my twenties", "near my uncle"] {
+            let result = try await search.search(text)
+            #expect(result.noMatch?.kind == .onlyUnsupported, "\(text)")
+            #expect(result.query.slots.map(\.slot.kind) == [.visual] && result.query.slots.map(\.isSupported) == [false], "\(text)")
+        }
+        let trips = try await search.search("trips")
+        let travels = try await search.search("photos from my travels")
+        #expect(travels.noMatch == nil && travels.query.slots.map(\.chip) == ["Trips"])
+        #expect(Set(travels.items(.best).map(\.id)) == Set(trips.items(.best).map(\.id)))
+        let greece = try await search.search("from my travels in Greece")
+        #expect(greece.noMatch == nil && greece.query.slots.map(\.chip) == ["Trips", "Greece"])
+        let overseas = try await search.search("photos from my overseas trip")
+        #expect(overseas.noMatch == nil && overseas.query.slots.map(\.chip) == ["Abroad", "Trips"])
+        #expect(search.maps.calls.isEmpty)
+    }
+
     /// "home" after the person chose No home says so; before Lahza has worked one out, it says that.
     @Test func homeAfterNoHomeSaysYouChoseIt() async throws {
         let search = try await HeroSearch()

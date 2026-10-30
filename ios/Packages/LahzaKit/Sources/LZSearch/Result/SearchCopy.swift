@@ -295,13 +295,16 @@ struct SearchCopy {
 
     /// "Searched all 563 photos"; a free search (`since`) "Searched your last 12 months" (E20), its unlock row counting
     /// the rest. Limited access and the first build's progress keep their own words, free or not: they say which photos
-    /// Lahza has, which the window doesn't change.
+    /// Lahza has, which the window doesn't change. A first build that has stopped short (paused, starting again,
+    /// failed) of the dates searched reads "Searched 1,200 photos so far", never "all" or the whole window.
     func coverageCaption(searched: Int, index: SearchIndexContext, since: Date?, now: Date) -> String {
         let count = searched.formatted(.number.locale(locale))
         if index.isLimited { return searched == 1 ? "Searching the 1 photo you’ve shared" : "Searching the \(count) photos you’ve shared" }
         if index.isPartial, let total = index.libraryTotal, total > searched {
             return "Searched \(count) of about \(total.formatted(.number.locale(locale))) so far"
         }
+        let covered = !index.isPartial || index.libraryTotal != nil || (since.flatMap { since in index.coveredSince.map { $0 <= since } } ?? false)
+        if !covered { return searched == 1 ? "Searched 1 photo so far" : "Searched \(count) photos so far" }
         if let since { return "Searched your \(lastPeriod(since: since, now: now))" }
         return searched == 1 ? "Searched 1 photo" : "Searched all \(count) photos"
     }
