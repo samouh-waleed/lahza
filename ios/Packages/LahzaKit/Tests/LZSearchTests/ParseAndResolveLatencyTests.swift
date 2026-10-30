@@ -7,8 +7,10 @@ import Testing
 @testable import LZSearch
 
 /// The query targets (search spec §6.9): a parse under 10 ms and an own-index place resolve under 20 ms, measured as the
-/// 95th percentile on the Mac in the debug build `make test-kit` uses (release is faster).
-@Suite struct ParseAndResolveLatencyTests {
+/// 95th percentile on the Mac in the debug build `make test-kit` uses (release is faster). `make test-kit` runs this
+/// suite on its own after the others, one test at a time: the other suites build hero indexes on every core, and a
+/// sample that waited for a core says nothing about the parser or the resolver.
+@Suite(.serialized) struct ParseAndResolveLatencyTests {
     private func p95(_ samples: [Duration]) -> Duration {
         let sorted = samples.sorted()
         return sorted[min(sorted.count - 1, Int((Double(sorted.count) * 0.95).rounded(.up)) - 1)]

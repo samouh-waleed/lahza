@@ -90,6 +90,8 @@ nonisolated enum Route: Hashable, Sendable {
     case acknowledgements
     /// Settings › Search index.
     case searchIndex
+    /// Settings › Saved places: the home and the places the person named.
+    case savedPlaces
 
     // MARK: Moments (pushed on the tab they were opened from; not deep-linkable)
 
@@ -123,7 +125,7 @@ nonisolated enum Route: Hashable, Sendable {
         switch self {
         case .ask: .ask
         case .moments: .moments
-        case .settings, .photoAccess, .appearance, .privacy, .fullLibrary, .acknowledgements, .searchIndex: .settings
+        case .settings, .photoAccess, .appearance, .privacy, .fullLibrary, .acknowledgements, .searchIndex, .savedPlaces: .settings
         case .moment(let ref): ref.origin
         case .trip(let ref): ref.origin
         #if DEBUG
@@ -136,7 +138,7 @@ nonisolated enum Route: Hashable, Sendable {
     var presentation: RoutePresentation {
         switch self {
         case .ask, .moments, .settings: .tabRoot
-        case .photoAccess, .appearance, .privacy, .fullLibrary, .acknowledgements, .searchIndex, .moment, .trip: .push
+        case .photoAccess, .appearance, .privacy, .fullLibrary, .acknowledgements, .searchIndex, .savedPlaces, .moment, .trip: .push
         #if DEBUG
         case .libraryCensus, .indexInspector, .lockedResults: .push
         #endif
@@ -177,6 +179,7 @@ nonisolated enum Route: Hashable, Sendable {
         case .fullLibrary: "full-library"
         case .acknowledgements: "acknowledgements"
         case .searchIndex: "search-index"
+        case .savedPlaces: "saved-places"
         case .moment: "moment"
         case .trip: "trip"
         #if DEBUG
@@ -192,8 +195,8 @@ nonisolated enum Route: Hashable, Sendable {
 
     init?(debugName: String) {
         // Moments and trips need a key, so they are not deep-linkable.
-        let all: [Route] = [.ask, .moments, .settings, .photoAccess, .appearance, .privacy, .fullLibrary, .acknowledgements, .searchIndex, .paywall,
-                            .onboarding] + Route.developerRoutes
+        let all: [Route] = [.ask, .moments, .settings, .photoAccess, .appearance, .privacy, .fullLibrary, .acknowledgements, .searchIndex,
+                            .savedPlaces, .paywall, .onboarding] + Route.developerRoutes
         guard let match = all.first(where: { $0.debugName == debugName.lowercased() }) else { return nil }
         self = match
     }

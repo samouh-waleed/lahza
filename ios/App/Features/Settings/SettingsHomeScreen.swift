@@ -27,6 +27,8 @@ struct SettingsHomeScreen: View {
                         .accessibilityIdentifier("settings-photo-access")
                     row(IndexCopy.screenTitle, "magnifyingglass", .searchIndex, value: IndexCopy.value(model.index.status))
                         .accessibilityIdentifier("settings-search-index")
+                    row(SavedPlacesCopy.screenTitle, "mappin.and.ellipse", .savedPlaces, value: SavedPlacesCopy.settingsValue(model.savedPlaces))
+                        .accessibilityIdentifier("settings-saved-places")
                 }
                 group("APP") {
                     row("Appearance", "circle.lefthalf.filled", .appearance)
@@ -62,6 +64,7 @@ struct SettingsHomeScreen: View {
         .navigationTitle("Settings")
         .navigationBarTitleDisplayMode(.inline)
         .accessibilityIdentifier("settings-home")
+        .task(id: model.index.version) { await model.savedPlaces.load() }
     }
 
     private func group<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {

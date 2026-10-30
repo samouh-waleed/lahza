@@ -1,3 +1,4 @@
+import LZBilling
 import LZCore
 import LZDesign
 import LZIndex
@@ -33,7 +34,7 @@ struct AskScreen: View {
                     .lzPage()
                     .accessibilityIdentifier("ask-deleted")
                 } else if submitted != nil, state != .noAccess, model.search.state != .idle {
-                    SearchResultsView { search($0, proxy: proxy) }
+                    SearchResultsView(search: { search($0, proxy: proxy) }, scrollTo: { proxy.scrollTo($0, anchor: .top) })
                 } else {
                     home(state, status: status, access: access, proxy: proxy)
                 }
@@ -52,9 +53,13 @@ struct AskScreen: View {
                     model.search.preview(value)
                 }
             }
-            // A search started elsewhere (-LZQuery), or the words of edited chips, show in the field.
+            // A search started elsewhere (-LZQuery), or the words of edited chips, show in the field; removing the last
+            // chip empties it.
             .onChange(of: model.search.text) { _, text in
-                guard !text.isEmpty else { return }
+                guard !text.isEmpty else {
+                    if model.search.state == .idle { query = "" }
+                    return
+                }
                 if text != query { query = text }
                 submitted = text
                 proxy.scrollTo(Self.top, anchor: .top)
@@ -191,6 +196,9 @@ nonisolated enum AskCopy {
     static let notSearchableYet = "not searchable yet"
     static let lookingUpValue = "Looking up"
     static let unsupportedHint = "Explains why it was left out"
+    /// On a searched query the pill opens its editor: why, and Remove.
+    static let unsupportedEditHint = "Explains why it was left out, and lets you remove it"
+    static let editHint = "Edit"
     static let exampleHint = "Searches for it"
 
     /// "soccer · not yet"; a date Lahza couldn't use keeps its own words ("National day of which country?").
@@ -239,6 +247,8 @@ nonisolated enum AskCopy {
     // MARK: Results
 
     static let tryAgain = "Try again"
+    /// Under "No matches in the last 12 months.", above the unlock row.
+    static let onlyEarlierDetail = BillingCopy.freeDetail
     static let chooseMore = "Choose more"
     static let show = "Show"
     static let hide = "Hide"
@@ -246,6 +256,15 @@ nonisolated enum AskCopy {
     static let seeTrip = "See trip"
     static let hideWeaker = "Hide weaker matches"
     static let noDate = "No date"
+    static let layoutLabel = "Show results as"
+
+    /// "Moments" or "Grid".
+    static func layoutName(_ layout: SearchStore.ResultsLayout) -> String {
+        switch layout {
+        case .moments: "Moments"
+        case .grid: "Grid"
+        }
+    }
 
     /// "moment" or "moments" after the header's number.
     static func momentsNoun(_ count: Int) -> String { count == 1 ? "moment" : "moments" }
@@ -266,6 +285,7 @@ nonisolated enum AskCopy {
         case .onlyUnsupported: "eye.slash"
         case .future: "calendar.badge.exclamationmark"
         case .stillReading: "hourglass"
+        case .onlyEarlier: "clock.arrow.circlepath"
         case .placeNotFound, .placeEmpty, .onlyBeyondRadius: "mappin.slash"
         default: "magnifyingglass"
         }

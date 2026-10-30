@@ -55,10 +55,13 @@ public struct MomentRow: Sendable, Hashable, Identifiable {
     public var cell: String?
     /// Up to three items for the row's thumbnails: the cover, then the others in time order.
     public var thumbnailLocalIDs: [String] = []
+    /// The median position of its located items (Save place); nil without one.
+    public var center: Coordinate?
 
     public init(id: Int64, key: MomentKey, endUTC: Int64, startWall: Int64, endWall: Int64, timeZone: String? = nil, itemCount: Int,
                 photoCount: Int, videoCount: Int, locatedCount: Int = 0, borrowedCount: Int = 0, label: String? = nil, cityName: String? = nil,
-                countryCode: String? = nil, tripID: Int64? = nil, coverLocalID: String? = nil, cell: String? = nil, thumbnailLocalIDs: [String] = []) {
+                countryCode: String? = nil, tripID: Int64? = nil, coverLocalID: String? = nil, cell: String? = nil, thumbnailLocalIDs: [String] = [],
+                center: Coordinate? = nil) {
         self.id = id
         self.key = key
         self.endUTC = endUTC
@@ -77,6 +80,7 @@ public struct MomentRow: Sendable, Hashable, Identifiable {
         self.coverLocalID = coverLocalID
         self.cell = cell
         self.thumbnailLocalIDs = thumbnailLocalIDs
+        self.center = center
     }
 }
 

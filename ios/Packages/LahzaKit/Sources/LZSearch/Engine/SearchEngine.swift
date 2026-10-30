@@ -28,7 +28,7 @@ public actor SearchEngine {
     private var contexts: EngineContext?
     /// The places resolved for each place expression, reused when the index changes under a shown search.
     private var resolutions: [ResolutionKey: (version: Int64, resolution: PlaceResolution)] = [:]
-    var examplesCache: (generation: Int, version: Int64, day: Int32, examples: [ExampleSearch])?
+    var examplesCache: (generation: Int, version: Int64, day: Int32, since: Int64?, examples: [ExampleSearch])?
     let log = Log("search")
 
     static let resolutionCacheSize = 64
@@ -82,13 +82,20 @@ public actor SearchEngine {
         let scoreStarted = ContinuousClock.now
         var scorer = Scorer(snapshot: snapshot, plan: query.plan)
         let (scored, unreliable) = query.canScore ? scorer.run() : ([], 0)
+        // A free search keeps what was taken since its start (undated photos too) and counts the rest as locked.
         var hits = scored
-        var locked = 0
+        var locked = 0, lockedMatches = 0
+        var since: Int64?
         if case .since(let date) = request.scope {
-            let since = Int64(date.timeIntervalSince1970)
-            let before = hits.count
-            hits.removeAll { snapshot.utc[Int($0.index)] < since }
-            locked = before - hits.count
+            let start = Int64(date.timeIntervalSince1970)
+            since = start
+            hits = scored.filter { hit in
+                let i = Int(hit.index)
+                guard snapshot.isDated(i), snapshot.utc[i] < start else { return true }
+                if hit.tier == .best || hit.tier == .more { lockedMatches += 1 }
+                if hit.tier != .weaker || request.showWeaker { locked += 1 }
+                return false
+            }
         }
         timings.score = ContinuousClock.now - scoreStarted
 
@@ -99,12 +106,20 @@ public actor SearchEngine {
         let built = try await assembler.assemble(shown, reader: reader)
         let matched = hits.contains { $0.tier == .best || $0.tier == .more }
         var noMatch: NoMatch?
-        if !matched {
-            let builder = NoMatchBuilder(snapshot: snapshot, query: query, copy: copy, context: context, index: index)
+        if !matched, lockedMatches > 0, case .since(let date) = request.scope {
+            // Everything that matched is older than a free search covers: say so, never "nothing".
+            noMatch = NoMatch(kind: .onlyEarlier, headline: copy.onlyEarlier(since: date, now: clock.now), detail: nil, offers: [], examples: [])
+        } else if !matched {
+            let builder = NoMatchBuilder(snapshot: snapshot, query: query, copy: copy, context: context, index: index, since: since,
+                                         showWeaker: request.showWeaker)
             noMatch = try await builder.build(reader: reader)
-            if noMatch?.kind == .onlyUnsupported, let examples = try? await examples(reader: reader, index: index) { noMatch?.examples = examples }
+            // No offer left (a lone name no place confirms, words Lahza can't search yet): the examples are the next tap.
+            if noMatch?.offers.isEmpty == true, let examples = try? await examples(reader: reader, index: index, scope: request.scope) {
+                noMatch?.examples = examples
+            }
         }
-        let coverage = assembler.coverage(searched: snapshot.count, index: index, unreliable: unreliable, borrowed: built.borrowed)
+        let start: Date? = if case .since(let date) = request.scope { date } else { nil }
+        let coverage = assembler.coverage(searched: snapshot.count, index: index, unreliable: unreliable, borrowed: built.borrowed, since: start)
         timings.group = ContinuousClock.now - groupStarted
         timings.total = ContinuousClock.now - started
 
@@ -114,10 +129,18 @@ public actor SearchEngine {
                                       : copy.unsupportedNotice(query.unsupported, text: parsed.text, showing: query.showingPhrase(copy)),
                                   weakerCount: hits.count(where: { $0.tier == .weaker }), lockedCount: locked, timings: timings)
         log.info("Search: slots \(parsed.slots.map(\.kind.rawValue).joined(separator: ",")), \(result.totals.moments) moments, "
-                 + "\(result.totals.items) items, \(hits.count(where: { $0.tier == .locationUnknown })) unlocated, no match \(noMatch.map { "\($0.kind)" } ?? "-"), "
+                 + "\(result.totals.items) items, \(hits.count(where: { $0.tier == .locationUnknown })) unlocated, \(locked) locked, "
+                 + "no match \(noMatch.map { "\($0.kind)" } ?? "-"), "
                  + "Apple Maps \(query.resolved.searchedAppleMaps ? 1 : 0), \(timings.total) (resolve \(timings.resolve), score \(timings.score))",
                  privacy: .public)
         return result
+    }
+
+    /// A saved place was added, renamed or removed: the next parse rebuilds the vocabulary (its aliases), and places
+    /// are resolved again.
+    public func savedPlacesChanged() async {
+        await vocabulary.release()
+        resolutions = [:]
     }
 
     /// Drops the caches (memory warning): the vocabulary, resolved places, the time context and examples.
@@ -190,7 +213,9 @@ public actor SearchEngine {
                 if case .unsupported(let message)? = timeResolution {
                     slots.append(ResolvedSlot(slot: slot, resolution: .unsupported, chip: message, systemImage: "info.circle"))
                 } else if let constraint = (timeSlots.count == 1 ? timeResolution : resolver.resolve(expression))?.constraint {
-                    slots.append(ResolvedSlot(slot: slot, resolution: .time(.constraint(constraint)), chip: constraint.label, systemImage: "calendar"))
+                    var resolved = ResolvedSlot(slot: slot, resolution: .time(.constraint(constraint)), chip: constraint.label, systemImage: "calendar")
+                    resolved.timePresets = resolver.presets(for: expression)
+                    slots.append(resolved)
                 }
             case .place:
                 if let place = places[slot.id] { slots.append(place) }
@@ -217,7 +242,8 @@ public actor SearchEngine {
     /// neither blocks the place nor spends the query's Apple Maps search. Once a place is searched, the other place
     /// slots are left out: a leftover word as words about what's in the photos, a name as a second place. Words that
     /// only might be a place and couldn't be looked up or confirmed ("Louvre" when Apple Maps names no place exactly
-    /// that) are the query's failing place only when no other place was found; otherwise they are left out the same way.
+    /// that), and "my …" naming no saved place, are the query's failing place only when no other place was found;
+    /// otherwise they are left out the same way.
     private func preparePlaces(_ parsed: ParsedQuery, overrides: ResolutionOverrides, environment: PlaceEnvironment, query: inout PreparedQuery,
                                reader: IndexReader, context: EngineContext, isRerun: Bool,
                                progress: (@Sendable (SearchProgress) -> Void)?) async throws -> [Int: ResolvedSlot] {
@@ -243,9 +269,10 @@ public actor SearchEngine {
             let resolution = try await resolvePlace(expression, override: override, environment: environment, generation: reader.generation,
                                                     version: context.version, isRerun: isRerun)
             if environment.allowance.searched { query.searchedAppleMaps = true }
+            if let missed = environment.allowance.missed { query.appleMapsMissed = missed }
             switch resolution {
             case .notFound(let reason):
-                if reason == .unconfirmed || expression.isMaybe {
+                if reason == .unconfirmed || reason == .notSaved || expression.isMaybe {
                     unresolved.append((slot, expression, reason, phrase, rank))
                 } else {
                     query.placeFailure = (slot.id, reason, phrase)
@@ -255,8 +282,12 @@ public actor SearchEngine {
                 query.placeSlot = (slot.id, candidate, PlaceDescription(candidate), phrase)
                 query.plan.place = PlaceTarget(candidate.resolved)
                 let near = (override?.near ?? (expression.relation == .near)) && candidate.resolved.breadth == 0
-                outcomes[slot.id] = ResolvedSlot(slot: slot, resolution: .place(resolution), chip: near ? "Near \(candidate.name)" : candidate.name,
-                                                 systemImage: "mappin")
+                var resolved = ResolvedSlot(slot: slot, resolution: .place(resolution), chip: near ? "Near \(candidate.name)" : candidate.name,
+                                            systemImage: "mappin")
+                if case .area = candidate.resolved, let natural = candidate.naturalRadius {
+                    resolved.radius = PlaceRadius(natural: natural, chosen: override?.radius, near: near)
+                }
+                outcomes[slot.id] = resolved
                 if case .ambiguous(_, let candidates) = resolution {
                     query.picker = PlacePicker(slot: slot.id, phrase: phrase, question: "Which \(candidate.name)?",
                                                choices: candidates.map { PlacePicker.Choice(candidate: $0, label: "\($0.context ?? $0.subtitle) · \($0.photoCount.formatted(.number.locale(locale)))") },
@@ -354,6 +385,7 @@ struct PreparedQuery: Sendable {
     var eventSlot: Int?
     var picker: PlacePicker?
     var searchedAppleMaps = false
+    var appleMapsMissed: PlaceNotFound?
 
     init(parsed: ParsedQuery) {
         self.parsed = parsed
@@ -365,7 +397,7 @@ struct PreparedQuery: Sendable {
     var canScore: Bool { placeFailure == nil && !plan.isEmpty && !(plan.time?.isFuture ?? false) }
 
     var resolved: ResolvedQuery {
-        ResolvedQuery(parsed: parsed, slots: slots, picker: picker, searchedAppleMaps: searchedAppleMaps)
+        ResolvedQuery(parsed: parsed, slots: slots, picker: picker, searchedAppleMaps: searchedAppleMaps, appleMapsMissed: appleMapsMissed)
     }
 
     /// "at Al-Nakheel Park during Ramadan 2024": what the results show, for the unsupported notice.

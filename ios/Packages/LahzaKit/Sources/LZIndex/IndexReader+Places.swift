@@ -113,6 +113,81 @@ extension IndexReader {
         }
     }
 
+    /// What Lahza uses as home: a saved place set as home, the person's "No home", or the estimate (the latest home base).
+    public func homeSetting() async throws -> HomeSetting {
+        if let saved = try await savedPlaces().first(where: \.isHome) { return .saved(saved) }
+        let none = try await database.read { db in try Meta.string(db, .homeOverride) == HomeOverride.none.rawValue }
+        if none { return .noHome }
+        return .estimated(try await homeBase(year: nil))
+    }
+
+    /// The places where photos are taken at night (geohash-6 tiles, 19:00–07:00 local), most nights first, with the
+    /// name most of their night photos' moments carry (their town or city where that is the home): Settings' home
+    /// choices. `isEstimate` marks the tile the home
+    /// rule picks without the person's choice (the latest year's best tile with enough nights).
+    public func homeCandidates(limit: Int) async throws -> [HomeCandidate] {
+        guard limit > 0 else { return [] }
+        return try await database.read { db in
+            struct Tile {
+                var days = Set<Int32>()
+                var latest: Int32 = .min
+                var latitudes: [Double] = []
+                var longitudes: [Double] = []
+                var places: [Int64: Int] = [:]
+                var nightsByYear: [Int: Set<Int32>] = [:]
+            }
+            var tiles: [String: Tile] = [:]
+            // Named by their moments' labels (a park, a hotel, a town), else their town or city; never by the home label.
+            let rows = try Row.fetchCursor(db, sql: """
+                SELECT a.day, a.wall_s, a.lat, a.lon, a.cell,
+                       COALESCE(CASE WHEN label.kind <> \(PlaceKind.home.rawValue) THEN label.id END, a.locality_place, a.city_place) AS place
+                FROM asset a LEFT JOIN moment m ON m.id = a.moment_id LEFT JOIN place label ON label.id = m.label_place
+                WHERE a.lat IS NOT NULL AND a.cell IS NOT NULL AND a.day IS NOT NULL AND a.wall_s IS NOT NULL AND a.flags & 32 = 0
+                """)
+            while let row = try rows.next() {
+                let minute = LocalTime.minuteOfDay(wallSeconds: row["wall_s"])
+                guard minute >= HomeBaseFinder.nightStart || minute < HomeBaseFinder.nightEnd else { continue }
+                let cell: String = row["cell"], day: Int32 = row["day"]
+                let key = String(cell.prefix(6))
+                var tile = tiles[key, default: Tile()]
+                tile.days.insert(day)
+                tile.latest = max(tile.latest, day)
+                tile.latitudes.append(row["lat"])
+                tile.longitudes.append(row["lon"])
+                if let place: Int64 = row["place"] { tile.places[place, default: 0] += 1 }
+                tile.nightsByYear[day.civilYear, default: []].insert(day)
+                tiles[key] = tile
+            }
+            // The home rule's pick: the latest year with a tile of enough nights, its best tile (a tie: the most recent).
+            var estimate: String?
+            let years = Set(tiles.values.flatMap(\.nightsByYear.keys)).sorted(by: >)
+            for year in years {
+                let best = tiles.compactMap { key, tile -> (key: String, nights: Int, latest: Int32)? in
+                    guard let nights = tile.nightsByYear[year], nights.count >= HomeBaseFinder.minimumDays else { return nil }
+                    return (key, nights.count, nights.max() ?? .min)
+                }.max { ($0.nights, $0.latest, $1.key) < ($1.nights, $1.latest, $0.key) }
+                if let best {
+                    estimate = best.key
+                    break
+                }
+            }
+            let ranked = tiles.sorted { ($0.value.days.count, $0.value.latest, $1.key) > ($1.value.days.count, $1.value.latest, $0.key) }.prefix(limit)
+            let placeIDs = ranked.compactMap { $0.value.places.max { ($0.value, $1.key) < ($1.value, $0.key) }?.key }
+            var names: [Int64: String] = [:]
+            if !placeIDs.isEmpty {
+                let marks = Array(repeating: "?", count: placeIDs.count).joined(separator: ", ")
+                for row in try Row.fetchAll(db, sql: "SELECT id, name FROM place WHERE id IN (\(marks))", arguments: StatementArguments(placeIDs)) {
+                    names[row["id"]] = row["name"]
+                }
+            }
+            return ranked.map { key, tile in
+                let place = tile.places.max { ($0.value, $1.key) < ($1.value, $0.key) }?.key
+                return HomeCandidate(tile: key, center: Coordinate(latitude: DayBuilder.median(tile.latitudes), longitude: DayBuilder.median(tile.longitudes)),
+                                     name: place.flatMap { names[$0] }, nights: tile.days.count, isEstimate: key == estimate)
+            }
+        }
+    }
+
     /// Every folded name variant of the places with at least `minPhotos` photos (the query parser's own place names).
     public func ownPlaceNames(minPhotos: Int = 1, limit: Int = 100_000) async throws -> Set<String> {
         try await database.read { db in

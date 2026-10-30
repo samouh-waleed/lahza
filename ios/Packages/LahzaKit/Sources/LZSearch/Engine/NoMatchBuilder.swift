@@ -5,12 +5,21 @@ import LZIndex
 /// Says why a search found nothing and offers taps that widen it (search spec §6.8), from per-slot counts on the
 /// snapshot: each slot alone, with the photo-type filter applied. Counts are Best matches, so a chip's number is what
 /// is inside the place or the dates. An offer is shown only with a count above 0; widening is never automatic.
+///
+/// A free search (`since`): what it says about the library counts every year ("57 in Dubai"), so it never reads as if
+/// the photos didn't exist; an offer counts what its tap shows, the photos since `since`, and goes at 0. An offer whose
+/// matches are all older is kept (E19): its tap gives the all-older answer, so it counts what that answer's unlock row
+/// counts.
 struct NoMatchBuilder {
     let snapshot: SearchSnapshot
     let query: PreparedQuery
     let copy: SearchCopy
     let context: EngineContext
     let index: SearchIndexContext
+    /// A free search's start (Unix seconds): offers count the photos taken since (and undated ones).
+    var since: Int64?
+    /// The search shows its Weaker section, so an all-older offer's tap counts those as locked too.
+    var showWeaker = false
 
     /// Areas count their photos this many radii out for the "widen" offer.
     static let widenFactor = 5.0
@@ -45,11 +54,11 @@ struct NoMatchBuilder {
                            detail: "Days away from home, two or more in a row, become trips.",
                            offers: offer("Not only trips", removing: query.eventSlot.map { [$0] } ?? [], plan: without(event: true)), examples: [])
         }
-        if let place = query.placeSlot, let placeCount, let time = query.timeExpression, let timeCount {
-            return combination(place: place, placeCount: placeCount, time: time, timeCount: timeCount)
+        if let place = query.placeSlot, let placeCount, let time = query.timeExpression, timeCount != nil {
+            return combination(place: place, placeCount: placeCount, time: time)
         }
         var offers: [WideningOffer] = []
-        if let place = query.placeSlot { offers += offer("Anywhere", removing: [place.id], plan: without(place: true)) }
+        if let place = query.placeSlot { offers += offer("Anywhere", removing: [place.id] + otherPlaceSlots, plan: without(place: true)) }
         if !query.timeSlots.isEmpty { offers += offer("Any time", removing: query.timeSlots, plan: without(time: true)) }
         if let event = query.eventSlot { offers += offer("Not only trips", removing: [event], plan: without(event: true)) }
         return NoMatch(kind: .nothing, headline: "Nothing matches all of that.", detail: nil, offers: offers, examples: [])
@@ -57,10 +66,37 @@ struct NoMatchBuilder {
 
     // MARK: Counting
 
-    /// Best matches of a plan.
+    /// Best matches of a plan in the whole library (what a headline says).
     func count(_ plan: ScoringPlan) -> Int {
         var scorer = Scorer(snapshot: snapshot, plan: plan)
         return scorer.run().hits.count(where: { $0.tier == .best })
+    }
+
+    /// What an offer of a plan counts, 0 to leave it out: the Best matches its tap shows (the whole library, or a free
+    /// search's photos since its start). While free, a plan with no match since the start but older ones is the
+    /// all-older answer, "No matches in the last 12 months." with "N more from earlier years": it counts that row's N,
+    /// as the search engine counts it (every older hit it would list).
+    func shown(_ plan: ScoringPlan) -> Int { reach(plan).count }
+
+    /// What an offer's tap shows: `count` as ``shown(_:)`` counts it, and whether those are all older than a free
+    /// search's start (the tap shows the unlock row, no photos).
+    func reach(_ plan: ScoringPlan) -> (count: Int, olderOnly: Bool) {
+        guard let since else { return (count(plan), false) }
+        var scorer = Scorer(snapshot: snapshot, plan: plan)
+        var best = 0, recent = 0, older = 0, locked = 0
+        for hit in scorer.run().hits {
+            let i = Int(hit.index)
+            let matches = hit.tier == .best || hit.tier == .more
+            if !snapshot.isDated(i) || snapshot.utc[i] >= since {
+                if hit.tier == .best { best += 1 }
+                if matches { recent += 1 }
+            } else {
+                if matches { older += 1 }
+                if hit.tier != .weaker || showWeaker { locked += 1 }
+            }
+        }
+        if best > 0 { return (best, false) }
+        return recent == 0 && older > 0 ? (locked, true) : (0, false)
     }
 
     private func without(place: Bool = false, time: Bool = false, event: Bool = false) -> ScoringPlan {
@@ -71,10 +107,20 @@ struct NoMatchBuilder {
         return plan
     }
 
+    /// The place slots other than the one searched (or failing): left out, they would be the place on a re-run, so an
+    /// offer that removes the place removes them too ("December 2025, anywhere" for "Dubai near my house last
+    /// December" searches no place, as it counted).
+    private var otherPlaceSlots: [Int] {
+        query.parsed.slots.compactMap { slot in
+            guard case .place = slot.value, slot.id != query.placeSlot?.id, slot.id != query.placeFailure?.id else { return nil }
+            return slot.id
+        }
+    }
+
     /// An offer that removes slots, if what is left finds something.
     private func offer(_ label: String, removing slots: [Int], plan: ScoringPlan) -> [WideningOffer] {
         guard !slots.isEmpty, !plan.isEmpty else { return [] }
-        let found = count(plan)
+        let found = shown(plan)
         return found > 0 ? [WideningOffer(label: label, count: found, edits: slots.map { .remove(slot: $0) })] : []
     }
 
@@ -87,11 +133,13 @@ struct NoMatchBuilder {
         case .mapsBusy: ("Couldn’t look up \(words) right now.", "Apple Maps is busy. Try again in a few minutes.")
         case .appleMapsOff: ("Couldn’t find \(words) in your photos.", "Apple Maps place names are off in Settings › Search index.")
         case .noHome: ("Lahza hasn’t worked out your home yet.", "Save it from a photo.")
+        case .choseNoHome: ("You chose No home.", "Choose one in Settings › Saved places.")
+        case .notSaved: ("You have no saved place called \(words).", "Save one from a moment.")
         case .noPlacesOfCategory: ("Lahza hasn’t found \(words) among your places yet.", nil)
         case .notFound, .unconfirmed: ("Couldn’t find \(words) in your photos or on the map.", nil)
         }
         return NoMatch(kind: .placeNotFound(failure.reason), headline: headline, detail: detail,
-                       offers: offer("Search without the place", removing: [failure.id], plan: query.plan), examples: [])
+                       offers: offer("Search without the place", removing: [failure.id] + otherPlaceSlots, plan: query.plan), examples: [])
     }
 
     /// The first build hasn't reached the dates asked for.
@@ -112,28 +160,43 @@ struct NoMatchBuilder {
             plan.event = query.plan.event
             let found = count(plan)
             if found > 0 {
+                let visible = shown(plan)
                 return NoMatch(kind: .onlyBeyondRadius,
                                headline: "None within \(copy.distance(radius)) of \(place.description.name). \(found.formatted(.number.locale(copy.locale))) within \(copy.distance(wider)).",
-                               detail: nil, offers: [WideningOffer(label: "Widen to \(copy.distance(wider))", count: found, edits: [.setRadius(slot: place.id, metres: wider)])],
+                               detail: nil,
+                               offers: visible > 0 ? [WideningOffer(label: "Widen to \(copy.distance(wider))", count: visible, edits: [.setRadius(slot: place.id, metres: wider)])] : [],
                                examples: [])
             }
         }
         let countries = try await reader.places(kinds: [.country], minPhotos: 1, limit: 30)
-        var offers: [WideningOffer] = []
+        var offers: [(offer: WideningOffer, olderOnly: Bool)] = []
         for country in countries {
             var plan = query.plan
             plan.place = PlaceTarget(.membership(level: .country, placeID: country.id, placeKey: country.key, center: nil))
-            let found = count(plan)
-            if found > 0 { offers.append(WideningOffer(label: country.name, count: found, edits: [.replacePlace(slot: place.id, placeKey: country.key, name: country.name)])) }
+            let found = reach(plan)
+            if found.count > 0 {
+                offers.append((WideningOffer(label: country.name, count: found.count, edits: [.replacePlace(slot: place.id, placeKey: country.key, name: country.name)]),
+                               found.olderOnly))
+            }
         }
-        offers.sort { $0.count > $1.count }
         let detail: String? = switch countries.count {
         case 0: nil
         case 1: "Your photos are from \(countries[0].name)."
         default: "Your photos are from \(countries.count) countries."
         }
         let at = place.description.isArea ? "at" : "in"
-        return NoMatch(kind: .placeEmpty, headline: "No photos \(at) \(place.description.fullName).", detail: detail, offers: Array(offers.prefix(8)), examples: [])
+        return NoMatch(kind: .placeEmpty, headline: "No photos \(at) \(place.description.fullName).", detail: detail,
+                       offers: Self.countryOffers(offers), examples: [])
+    }
+
+    static let maxCountryOffers = 8
+
+    /// The most photos first, at most 8. While free, countries whose photos the tap shows come before those whose
+    /// photos are all older (E19): those never push one that shows photos out.
+    static func countryOffers(_ offers: [(offer: WideningOffer, olderOnly: Bool)]) -> [WideningOffer] {
+        let kept = offers.filter { !$0.olderOnly }.map(\.offer).sorted { $0.count > $1.count }
+            + offers.filter(\.olderOnly).map(\.offer).sorted { $0.count > $1.count }
+        return kept.prefix(maxCountryOffers).sorted { $0.count > $1.count }
     }
 
     private func timeEmpty(_ time: TimeExpression) -> NoMatch {
@@ -181,15 +244,22 @@ struct NoMatchBuilder {
     /// "85 at Al-Nakheel Park, none during Ramadan 2024." with the nearest photo in time, and taps for the place at
     /// any time, the dates anywhere and the dates ±2 weeks.
     private func combination(place: (id: Int, candidate: PlaceCandidate, description: PlaceDescription, phrase: String), placeCount: Int,
-                             time: TimeExpression, timeCount: Int) -> NoMatch {
+                             time: TimeExpression) -> NoMatch {
         let name = copy.sentenceName(time)
         let headline = "\(placeCount.formatted(.number.locale(copy.locale))) \(place.description.phrase), none \(copy.preposition(time)) \(name)."
         var offers: [WideningOffer] = []
-        if placeCount > 0 {
-            offers.append(WideningOffer(label: "\(place.description.isHome ? "Home" : place.description.name), any time", count: placeCount,
+        // Each counts the search its tap runs: the event, if any, stays ("Dubai trips last December"), and "anywhere"
+        // drops every place word.
+        let placeShown = shown(without(time: true))
+        let timeShown = shown(without(place: true))
+        if placeShown > 0 {
+            offers.append(WideningOffer(label: "\(place.description.isHome ? "Home" : place.description.name), any time", count: placeShown,
                                         edits: query.timeSlots.map { .remove(slot: $0) }))
         }
-        if timeCount > 0 { offers.append(WideningOffer(label: "\(name.capitalizedFirst), anywhere", count: timeCount, edits: [.remove(slot: place.id)])) }
+        if timeShown > 0 {
+            offers.append(WideningOffer(label: "\(name.capitalizedFirst), anywhere", count: timeShown,
+                                        edits: ([place.id] + otherPlaceSlots).map { .remove(slot: $0) }))
+        }
         if let widened = widenedByTwoWeeks(), let slot = query.timeSlots.first {
             let found = countReplacing(time: widened)
             if found > 0 {
@@ -236,7 +306,7 @@ struct NoMatchBuilder {
         guard let constraint = TimeResolver(context: context.time).resolve(expression).constraint else { return 0 }
         var plan = query.plan
         plan.time = constraint
-        return count(plan)
+        return shown(plan)
     }
 
     private func replacing(_ slot: Int, with expression: TimeExpression, label: String) -> [WideningOffer] {

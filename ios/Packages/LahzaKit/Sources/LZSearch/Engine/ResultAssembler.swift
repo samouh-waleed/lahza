@@ -34,6 +34,8 @@ struct ResultAssembler {
         let identifiers = try await localIDs
         let trips = Dictionary(try await tripRows.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
 
+        let sources = borrowSources(hits)
+
         // Hits by card, in snapshot order (newest first): a moment, a day not yet grouped into moments, or no date.
         var order: [MomentKey] = []
         var byCard: [MomentKey: [ScoredAsset]] = [:]
@@ -71,7 +73,7 @@ struct ResultAssembler {
                     if hit.tier <= .more { borrowed += 1 }
                 }
                 if source == .gps, let position = snapshot.position(i) { cells.insert(GeoHash.encode(position, precision: 7)) }
-                assetHits.append(assetHit(hit, localID: identifiers[snapshot.id[i]] ?? "", cardTier: tier, trips: trips))
+                assetHits.append(assetHit(hit, localID: identifiers[snapshot.id[i]] ?? "", cardTier: tier, trips: trips, sources: sources))
             }
             let best = members.map(\.score).max() ?? 0
             cards.append(MomentCard(id: key, moment: moment, tier: tier, hits: assetHits, wholeCount: moment?.itemCount ?? members.count,
@@ -146,7 +148,7 @@ struct ResultAssembler {
 
     // MARK: Hits and reasons
 
-    private func assetHit(_ hit: ScoredAsset, localID: String, cardTier: Tier, trips: [Int64: TripRow]) -> AssetHit {
+    private func assetHit(_ hit: ScoredAsset, localID: String, cardTier: Tier, trips: [Int64: TripRow], sources: [Int32: [BorrowSource]]) -> AssetHit {
         let i = Int(hit.index)
         var scores: [SlotKind: Double] = [:]
         if let place = hit.place { scores[.place] = place.value }
@@ -154,19 +156,54 @@ struct ResultAssembler {
         if let event = hit.event { scores[.event] = event.value }
         return AssetHit(id: snapshot.id[i], localID: localID, kind: snapshot.isVideo(i) ? .video : .photo, duration: Double(snapshot.duration[i]),
                         utc: snapshot.isDated(i) ? snapshot.utc[i] : nil, wall: snapshot.isDated(i) ? snapshot.wall[i] : nil, tier: hit.tier,
-                        score: hit.score, slotScores: scores, reasons: reasons(hit, trips: trips), isNearby: hit.tier > cardTier && hit.tier == .more)
+                        score: hit.score, slotScores: scores, reasons: reasons(hit, trips: trips, sources: sources),
+                        isNearby: hit.tier > cardTier && hit.tier == .more, isFavorite: snapshot.has(.favorite, i))
+    }
+
+    /// A located item of a moment, which items of the moment without GPS take their position from.
+    struct BorrowSource {
+        var utc: Int64
+        var isVideo: Bool
+    }
+
+    /// The items with their own GPS of each moment holding a hit with a borrowed position, in time order (one pass over
+    /// the snapshot, only when such a hit is found).
+    private func borrowSources(_ hits: [ScoredAsset]) -> [Int32: [BorrowSource]] {
+        let moments = Set(hits.compactMap { hit -> Int32? in
+            let i = Int(hit.index), source = snapshot.source(i)
+            return (source == .momentNear || source == .momentFar) && snapshot.moment[i] >= 0 ? snapshot.moment[i] : nil
+        })
+        guard !moments.isEmpty else { return [:] }
+        var sources: [Int32: [BorrowSource]] = [:]
+        for j in 0..<snapshot.count where snapshot.source(j) == .gps && snapshot.isDated(j) && moments.contains(snapshot.moment[j]) {
+            sources[snapshot.moment[j], default: []].append(BorrowSource(utc: snapshot.utc[j], isVideo: snapshot.isVideo(j)))
+        }
+        return sources.mapValues { $0.sorted { $0.utc < $1.utc } }
+    }
+
+    /// The item a borrowed position came from: the moment's located item nearest in time, the earlier on a tie (the
+    /// structure pass's rule).
+    private func borrowSource(of i: Int, in sources: [Int32: [BorrowSource]]) -> BorrowSource? {
+        guard snapshot.isDated(i), let located = sources[snapshot.moment[i]] else { return nil }
+        let utc = snapshot.utc[i]
+        return located.min { abs($0.utc - utc) < abs($1.utc - utc) }
     }
 
     /// The hit's reasons: place, borrowed location, time, trip, photo type.
-    func reasons(_ hit: ScoredAsset, trips: [Int64: TripRow]) -> [Reason] {
+    func reasons(_ hit: ScoredAsset, trips: [Int64: TripRow], sources: [Int32: [BorrowSource]] = [:]) -> [Reason] {
         let i = Int(hit.index)
+        let noun = snapshot.isVideo(i) ? "video" : "photo"
         var reasons: [Reason] = []
         if let evidence = hit.placeEvidence, let place = query.placeSlot?.description,
-           let reason = copy.placeReason(evidence, place: place, trips: trips) {
+           let reason = copy.placeReason(evidence, place: place, trips: trips, noun: noun) {
             reasons.append(reason)
-            if let borrowed = copy.borrowedReason(snapshot.source(i)) { reasons.append(borrowed) }
+            let source = borrowSource(of: i, in: sources)
+            if let borrowed = copy.borrowedReason(snapshot.source(i), noun: noun, from: source?.isVideo == true ? "video" : "photo",
+                                                  gap: source.map { $0.utc - snapshot.utc[i] }) {
+                reasons.append(borrowed)
+            }
         }
-        if let evidence = hit.timeEvidence, let reason = copy.timeReason(evidence, expression: query.timeExpression) { reasons.append(reason) }
+        if let evidence = hit.timeEvidence, let reason = copy.timeReason(evidence, expression: query.timeExpression, noun: noun) { reasons.append(reason) }
         if query.plan.event != nil, snapshot.trip[i] >= 0, let trip = trips[Int64(snapshot.trip[i])] { reasons.append(SearchCopy.tripReason(trip)) }
         if let media = query.plan.media {
             if media.kinds == [.video], snapshot.isVideo(i) { reasons.append(SearchCopy.videoReason(duration: Double(snapshot.duration[i]))) }
@@ -180,28 +217,36 @@ struct ResultAssembler {
     /// Up to two slot reasons at least half the hits share (most shared first, then in the hits' own order: place,
     /// time, trip, photo type), then the borrowed-location line.
     private func cardReasons(_ hits: [AssetHit], borrowed: Int) -> [Reason] {
-        var counts: [Reason: Int] = [:]
-        var first: [Reason: (hit: Int, index: Int)] = [:]
+        // Reasons that read the same on a pill are one reason (a sentence may say "photo" or "video").
+        struct Pill: Hashable {
+            var kind: Reason.Kind
+            var text: String
+            var systemImage: String
+        }
+        var counts: [Pill: Int] = [:]
+        var first: [Pill: (hit: Int, index: Int, reason: Reason)] = [:]
         for (position, hit) in hits.enumerated() {
             // Borrowed locations get their own line below.
-            var seen: Set<Reason> = []
+            var seen: Set<Pill> = []
             for (index, reason) in hit.reasons.enumerated() where reason.kind != .neutral && reason.systemImage != "link" {
-                guard seen.insert(reason).inserted else { continue }
-                counts[reason, default: 0] += 1
-                if first[reason] == nil { first[reason] = (position, index) }
+                let pill = Pill(kind: reason.kind, text: reason.text, systemImage: reason.systemImage)
+                guard seen.insert(pill).inserted else { continue }
+                counts[pill, default: 0] += 1
+                if first[pill] == nil { first[pill] = (position, index, reason) }
             }
         }
         let needed = Double(hits.count) * Self.sharedReasonShare
         var reasons = counts.filter { Double($0.value) >= needed }.keys
             .sorted { (-counts[$0]!, first[$0]!.hit, first[$0]!.index) < (-counts[$1]!, first[$1]!.hit, first[$1]!.index) }
-            .prefix(2).map { $0 }
+            .prefix(2).map { first[$0]!.reason }
         if borrowed > 0 { reasons.append(SearchCopy.borrowedCardReason(borrowed)) }
         return reasons
     }
 
     // MARK: Coverage
 
-    func coverage(searched: Int, index: SearchIndexContext, unreliable: Int, borrowed: Int) -> Coverage {
+    /// `since`: a free search's start (its caption names the window).
+    func coverage(searched: Int, index: SearchIndexContext, unreliable: Int, borrowed: Int, since: Date? = nil) -> Coverage {
         var notes: [String] = []
         if borrowed > 0 { notes.append("+\(borrowed.formatted(.number.locale(copy.locale))) without location from the same outing") }
         if query.plan.time != nil, unreliable > 0 {
@@ -215,8 +260,9 @@ struct ResultAssembler {
         }
         var header: String?
         if index.isPartial, let since = index.coveredSince { header = copy.partialHeader(since: since, zone: context.zone) }
+        let caption = copy.coverageCaption(searched: searched, index: index, since: since, now: context.time.now)
         return Coverage(searched: searched, libraryTotal: index.libraryTotal, isPartial: index.isPartial, coveredSince: index.coveredSince,
                         isLimited: index.isLimited, unlocatedShare: share, undatedExcluded: query.plan.time == nil ? 0 : unreliable,
-                        borrowedShown: borrowed, caption: copy.coverageCaption(searched: searched, index: index), header: header, notes: notes)
+                        borrowedShown: borrowed, caption: caption, header: header, notes: notes)
     }
 }

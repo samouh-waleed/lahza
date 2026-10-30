@@ -38,6 +38,8 @@ import Testing
         let (app, _) = app(access: .denied)
         app.start()
         #expect(Route(debugName: "search-index") == .searchIndex)
+        #expect(Route(debugName: "saved-places") == .savedPlaces)
+        #expect(Route.savedPlaces.tab == .settings && Route.savedPlaces.presentation == .push)
         #expect(Route(debugName: "index-inspector") == .indexInspector)
         #expect(Route(debugName: "moment") == nil, "moments need a key: not deep-linkable")
         app.open(.searchIndex)

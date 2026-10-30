@@ -19,7 +19,8 @@ public struct SearchResult: Sendable, Identifiable {
     public var unsupportedNotice: String?
     /// Hits behind "Show weaker" (counted even when they aren't shown).
     public var weakerCount: Int
-    /// Hits the freemium scope left out (always 0 in v0).
+    /// Hits a free search's scope left out: taken before ``SearchScope/since(_:)``, in the tiers the result lists
+    /// (Best, More and Location unknown; Weaker too while shown). 0 for the whole library.
     public var lockedCount: Int
     public var timings: Timings
 
@@ -38,6 +39,17 @@ public struct ResolvedQuery: Sendable, Hashable {
     public var picker: PlacePicker?
     /// The query asked Apple Maps.
     public var searchedAppleMaps: Bool
+    /// Why the Apple Maps search the place editor asked for couldn't be made (offline, busy); nil when it was made or
+    /// none was asked for.
+    public var appleMapsMissed: PlaceNotFound? = nil
+
+    /// The words of a place slot: as typed (or rendered after an edit), else the place's name.
+    public func typedWords(slot id: Int) -> String? {
+        guard let slot = parsed.slot(id) else { return nil }
+        if let typed = slot.span?.substring(of: parsed.text) { return typed }
+        if case .place(let place) = slot.value { return place.words }
+        return nil
+    }
 }
 
 /// One slot and what it resolved to.
@@ -57,10 +69,50 @@ public struct ResolvedSlot: Sendable, Hashable, Identifiable {
     public var chip: String
     /// SF Symbol for the chip.
     public var systemImage: String
+    /// A date chip's quick changes in its editor ("Summer 2025 · Every summer · Any time").
+    public var timePresets: [TimePreset] = []
+    /// An area place's radius, for the editor's Tight · Normal · Wide.
+    public var radius: PlaceRadius?
 
     public var id: Int { slot.id }
 
     public var isSupported: Bool { if case .unsupported = resolution { false } else { true } }
+}
+
+/// An area's radius as searched, and the place editor's choices: Tight is half its own radius, Normal its own, Wide
+/// twice it; "near" doubles whichever is chosen.
+public struct PlaceRadius: Sendable, Hashable {
+    public enum Choice: String, Sendable, Hashable, CaseIterable {
+        case tight, normal, wide
+
+        public var factor: Double {
+            switch self {
+            case .tight: 0.5
+            case .normal: 1
+            case .wide: 2
+            }
+        }
+    }
+
+    /// The place's own radius in metres (Normal).
+    public var natural: Double
+    /// The radius the person chose, before "near" (nil: the place's own).
+    public var chosen: Double?
+    public var near: Bool
+
+    public init(natural: Double, chosen: Double? = nil, near: Bool = false) {
+        self.natural = natural
+        self.chosen = chosen
+        self.near = near
+    }
+
+    public func metres(_ choice: Choice) -> Double { natural * choice.factor }
+
+    /// The choice the radius searched is, nil for another one (a "Widen to 2 km" tap).
+    public var choice: Choice? {
+        let radius = chosen ?? natural
+        return Choice.allCases.first { abs(metres($0) - radius) < 1 }
+    }
 }
 
 /// "Which Salam Park?" with a chip per candidate ("Riyadh · 10", "Dubai · 8"); choosing one replaces the slot's place
@@ -167,22 +219,45 @@ public struct AssetHit: Sendable, Hashable, Identifiable {
     public var reasons: [Reason]
     /// A More member of a better card ("nearby").
     public var isNearby: Bool
+    public var isFavorite: Bool
+
+    public init(id: Int64, localID: String, kind: MediaKind, duration: Double = 0, utc: Int64?, wall: Int64?, tier: Tier, score: Double = 1,
+                slotScores: [SlotKind: Double] = [:], reasons: [Reason] = [], isNearby: Bool = false, isFavorite: Bool = false) {
+        self.id = id
+        self.localID = localID
+        self.kind = kind
+        self.duration = duration
+        self.utc = utc
+        self.wall = wall
+        self.tier = tier
+        self.score = score
+        self.slotScores = slotScores
+        self.reasons = reasons
+        self.isNearby = isNearby
+        self.isFavorite = isFavorite
+    }
 }
 
-/// Why something matched, from fixed templates (never generated).
+/// Why something matched, from fixed templates (never generated): a pill's few words, and the sentence "Why this
+/// matched" says ("No GPS in this photo. Location comes from a photo taken 3 min earlier in the same outing.").
 public struct Reason: Sendable, Hashable {
     public enum Kind: String, Sendable, Hashable {
         case place, time, media, event, borrowed, caution, neutral
     }
 
     public var kind: Kind
+    /// The pill: "In Al-Nakheel Park", "Summer 2025", "Location from the same outing".
     public var text: String
     public var systemImage: String
+    /// The sentence: "Taken inside Al-Nakheel Park.", "Taken in summer 2025."
+    public var detail: String
 
-    public init(_ kind: Kind, _ text: String, _ systemImage: String) {
+    /// `detail` defaults to the pill's words as a sentence.
+    public init(_ kind: Kind, _ text: String, _ systemImage: String, detail: String? = nil) {
         self.kind = kind
         self.text = text
         self.systemImage = systemImage
+        self.detail = detail ?? "\(text)."
     }
 }
 
@@ -210,7 +285,8 @@ public struct Coverage: Sendable, Hashable {
     public var undatedExcluded: Int
     /// Hits whose location comes from the same outing.
     public var borrowedShown: Int
-    /// "Searched all 563 photos", "Searched 12,400 of about 31,204 so far", "Searching the 40 photos you've shared".
+    /// "Searched all 563 photos", "Searched your last 12 months" (free), "Searched 12,400 of about 31,204 so far",
+    /// "Searching the 40 photos you've shared".
     public var caption: String
     /// While the first build runs: "Searched your photos since Mar 2021, still reading older ones".
     public var header: String?
@@ -235,6 +311,8 @@ public struct NoMatch: Sendable, Hashable {
         case onlyUnsupported
         /// The dates are older than what the first build has read so far.
         case stillReading
+        /// A free search: everything that matched is older than the search's scope (``SearchResult/lockedCount``).
+        case onlyEarlier
         case nothing
     }
 
@@ -242,7 +320,7 @@ public struct NoMatch: Sendable, Hashable {
     public var headline: String
     public var detail: String?
     public var offers: [WideningOffer]
-    /// The library's example searches (only-unsupported queries).
+    /// The library's example searches, whenever no offer is left, so there is always a next tap.
     public var examples: [ExampleSearch]
 }
 

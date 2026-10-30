@@ -70,39 +70,62 @@ struct SearchCopy {
 
     // MARK: Reasons
 
-    func placeReason(_ evidence: PlaceEvidence, place: PlaceDescription, trips: [Int64: TripRow]) -> Reason? {
+    /// A place reason, and its sentence for "Why this matched". `noun` is "photo" or "video".
+    func placeReason(_ evidence: PlaceEvidence, place: PlaceDescription, trips: [Int64: TripRow], noun: String = "photo") -> Reason? {
         switch evidence {
         case .inside(let metro):
-            if place.isHome { return Reason(.place, "At home", "house") }
-            if place.isArea { return Reason(.place, "In \(place.name)", "mappin.circle") }
-            return Reason(.place, metro ? "In the \(place.name) area" : "In \(place.name)", "mappin")
+            if place.isHome { return Reason(.place, "At home", "house", detail: "Taken at home.") }
+            if place.isArea { return Reason(.place, "In \(place.name)", "mappin.circle", detail: "Taken inside \(place.name).") }
+            return metro
+                ? Reason(.place, "In the \(place.name) area", "mappin", detail: "Taken in the \(place.name) area.")
+                : Reason(.place, "In \(place.name)", "mappin", detail: "Taken in \(place.fullName).")
         case .near(let metres):
-            return Reason(.caution, "\(distance(metres)) from \(place.isHome ? "home" : place.name)", "mappin.and.ellipse")
+            let detail = place.isHome
+                ? "Taken \(distance(metres)) from home."
+                : "Taken \(distance(metres)) from the middle of \(place.name), just outside the area searched."
+            return Reason(.caution, "\(distance(metres)) from \(place.isHome ? "home" : place.name)", "mappin.and.ellipse", detail: detail)
         case .receivedSameDay:
-            return Reason(.borrowed, "Saved the day of your \(place.isHome ? "home" : place.name) visit", "tray.and.arrow.down")
+            return Reason(.borrowed, "Saved the day of your \(place.isHome ? "home" : place.name) visit", "tray.and.arrow.down",
+                          detail: "No location in this \(noun). It was saved the day you were \(place.phrase).")
         case .tripBorrow(let trip):
             let label = trips[Int64(trip)]?.label ?? place.name
-            return Reason(.borrowed, "During your \(label) trip", "airplane")
+            return Reason(.borrowed, "During your \(label) trip", "airplane", detail: "No location in this \(noun). It was taken during your \(label) trip.")
         case .unknown:
-            return Reason(.neutral, "No location data", "questionmark.circle")
+            return Reason(.neutral, "No location data", "questionmark.circle", detail: "No location in this \(noun), but everything else matches.")
         case .outside:
             return nil
         }
     }
 
-    func borrowedReason(_ source: SearchSnapshot.PositionSource) -> Reason? {
-        switch source {
-        case .momentNear: Reason(.borrowed, "Location from the same outing", "link")
-        case .momentFar: Reason(.borrowed, "Location from nearby photos", "link")
+    /// A borrowed location's reason. `gap` is the seconds from the item it borrowed from (negative: that one was taken
+    /// earlier), when known.
+    func borrowedReason(_ source: SearchSnapshot.PositionSource, noun: String = "photo", from sourceNoun: String = "photo", gap: Int64? = nil) -> Reason? {
+        let detail = gap.map { "No GPS in this \(noun). Location comes from a \(sourceNoun) taken \(Self.gapPhrase($0)) in the same outing." }
+            ?? "No GPS in this \(noun). Location comes from another \(sourceNoun) of the same outing."
+        return switch source {
+        case .momentNear: Reason(.borrowed, "Location from the same outing", "link", detail: detail)
+        case .momentFar: Reason(.borrowed, "Location from nearby photos", "link", detail: detail)
         case .gps, .none: nil
         }
     }
 
-    func timeReason(_ evidence: TimeEvidence, expression: TimeExpression?) -> Reason? {
+    /// "3 min earlier", "1 hr 20 min later", "seconds earlier", "at the same moment" (`seconds` negative: earlier).
+    static func gapPhrase(_ seconds: Int64) -> String {
+        let magnitude = abs(seconds)
+        guard magnitude > 0 else { return "at the same moment" }
+        let direction = seconds < 0 ? "earlier" : "later"
+        guard magnitude >= 60 else { return "seconds \(direction)" }
+        let minutes = Int((Double(magnitude) / 60).rounded())
+        guard minutes >= 60 else { return "\(minutes) min \(direction)" }
+        return minutes % 60 == 0 ? "\(minutes / 60) hr \(direction)" : "\(minutes / 60) hr \(minutes % 60) min \(direction)"
+    }
+
+    func timeReason(_ evidence: TimeEvidence, expression: TimeExpression?, noun: String = "photo") -> Reason? {
         guard let expression else { return nil }
+        let outside = "just outside the dates you asked for"
         switch evidence {
         case .inside:
-            return Reason(.time, timeInside(expression), "calendar")
+            return Reason(.time, timeInside(expression), "calendar", detail: timeSentence(expression))
         case .nearMiss(let days):
             let name = reasonName(expression)
             let text: String = switch days {
@@ -112,10 +135,11 @@ struct SearchCopy {
             case let days where days > 0: "\(days) days after \(name)"
             default: "\(-days) days before \(name)"
             }
-            return Reason(.caution, text, "calendar.badge.clock")
+            return Reason(.caution, text, "calendar.badge.clock", detail: "Taken \(Self.dayOffset(days, from: name)), \(outside).")
         case .minutesOff(let minutes):
             let name = timeInside(expression).lowercased()
-            return Reason(.caution, minutes > 0 ? "\(minutes) min after \(name)" : "\(-minutes) min before \(name)", "clock.badge.exclamationmark")
+            let text = minutes > 0 ? "\(minutes) min after \(name)" : "\(-minutes) min before \(name)"
+            return Reason(.caution, text, "clock.badge.exclamationmark", detail: "Taken \(text), just outside the time of day you asked for.")
         case .monthsOff(let days):
             let name = timeInside(expression).lowercased()
             let text: String = switch days {
@@ -124,24 +148,102 @@ struct SearchCopy {
             case let days where days > 0: "\(days) days after \(name)"
             default: "\(-days) days before \(name)"
             }
-            return Reason(.caution, text, "calendar.badge.clock")
+            return Reason(.caution, text, "calendar.badge.clock", detail: "Taken \(Self.dayOffset(days, from: name)), \(outside).")
         case .unreliable:
-            return Reason(.neutral, "No reliable date", "questionmark.circle")
+            return Reason(.neutral, "No reliable date", "questionmark.circle", detail: "This \(noun) has no reliable date.")
         case .wrongWeekday, .outside:
             return nil
         }
     }
 
-    static func videoReason(duration: Double) -> Reason {
-        Reason(.media, "Video · \(clock(duration))", "video")
+    /// "the day after Ramadan 1445", "2 days before summer 2025", "close to December 2025".
+    static func dayOffset(_ days: Int, from name: String) -> String {
+        switch days {
+        case 0: "close to \(name)"
+        case 1: "the day after \(name)"
+        case -1: "the day before \(name)"
+        case let days where days > 0: "\(days) days after \(name)"
+        default: "\(-days) days before \(name)"
+        }
     }
 
-    static let selfieReason = Reason(.media, "Selfie", "person.crop.square")
-    static let favoriteReason = Reason(.media, "Favorite", "heart")
-    static let screenshotReason = Reason(.media, "Screenshot (ranked lower)", "camera.viewfinder")
+    /// A photo inside the dates, as a sentence: "Taken in summer 2025.", "Taken during Ramadan 1445.", "Taken on a
+    /// Saturday.", "Taken in 2023, 3 years ago."; combinations and ranges name the dates ("Taken in the dates you asked
+    /// for: Saturday evening.").
+    func timeSentence(_ expression: TimeExpression) -> String {
+        switch expression {
+        case .year, .month, .season, .date:
+            return "Taken \(preposition(expression)) \(reasonName(expression))."
+        case .hijri(let event, .every, nil):
+            return "Taken during \(TimeResolver.hijriName(event))."
+        case .hijri:
+            return "Taken during \(reasonName(expression))."
+        case .holiday(let holiday, .every):
+            return "Taken on \(TimeResolver.holidayName(holiday))."
+        case .holiday:
+            return "Taken on \(timeInside(expression))."
+        case .ago(.year, let count, false):
+            return "Taken in \(resolver.todayDate.year - count), \(TimeResolver.count(count, .year)) ago."
+        case .ago(.month, let count, false):
+            let now = resolver.todayDate, total = now.year * 12 + now.month - 1 - count
+            return "Taken in \(LocalDateFormat.monthTitle(year: total / 12, month: total % 12 + 1, locale: locale)), \(TimeResolver.count(count, .month)) ago."
+        case .ago(let unit, let count, false):
+            return "Taken \(TimeResolver.count(count, unit)) ago."
+        case .ago(_, 0, true):
+            return "Taken on this day in an earlier year."
+        case .ago(.year, let count, true):
+            return "Taken around this day in \(resolver.todayDate.year - count)."
+        case .relativeDay(let offset):
+            return switch offset {
+            case 0: "Taken today."
+            case -1: "Taken yesterday."
+            default: "Taken \(TimeResolver.count(-offset, .day)) ago."
+            }
+        case .calendarUnit(let unit, let offset):
+            return "Taken \(offset == 0 ? "this" : "last") \(unit.rawValue)."
+        case .rolling(let unit, let count):
+            return "Taken in the past \(count == 1 ? unit.rawValue : TimeResolver.count(count, unit))."
+        case .weekday(let weekday, let qualifier):
+            let name = LocalDateFormat.weekdayName(weekday, locale: locale)
+            return switch qualifier {
+            case .last: "Taken last \(name)."
+            case .this: "Taken this \(name)."
+            case .every, .year: "Taken on a \(name)."
+            }
+        case .weekend(let qualifier):
+            return switch qualifier {
+            case .last: "Taken last weekend."
+            case .this: "Taken this weekend."
+            case .every, .year: "Taken on a weekend."
+            }
+        case .workdays:
+            return "Taken on a weekday."
+        case .partOfDay(let part):
+            let phrase = switch part {
+            case .morning: "in the morning"
+            case .noon: "around noon"
+            case .afternoon: "in the afternoon"
+            case .evening: "in the evening"
+            case .night: "at night"
+            case .lateNight: "late at night"
+            case .tonight: "tonight"
+            }
+            return "Taken \(phrase)."
+        case .ago, .range, .all:
+            return "Taken in the dates you asked for: \(timeInside(expression))."
+        }
+    }
+
+    static func videoReason(duration: Double) -> Reason {
+        Reason(.media, "Video · \(clock(duration))", "video", detail: "A video, \(clock(duration)) long.")
+    }
+
+    static let selfieReason = Reason(.media, "Selfie", "person.crop.square", detail: "A selfie, taken with the front camera.")
+    static let favoriteReason = Reason(.media, "Favorite", "heart", detail: "One of your favorites.")
+    static let screenshotReason = Reason(.media, "Screenshot (ranked lower)", "camera.viewfinder", detail: "A screenshot, so it’s ranked below your photos.")
 
     static func tripReason(_ trip: TripRow) -> Reason {
-        Reason(.event, "\(trip.label) trip", "airplane")
+        Reason(.event, "\(trip.label) trip", "airplane", detail: "Part of your \(trip.label) trip.")
     }
 
     /// "Includes 3 without location from this outing".
@@ -155,16 +257,25 @@ struct SearchCopy {
         return total >= 3600 ? String(format: "%d:%02d:%02d", total / 3600, total / 60 % 60, total % 60) : String(format: "%d:%02d", total / 60, total % 60)
     }
 
+    /// "No matches in the last 12 months." — a free search whose matches are all older than it covers.
+    func onlyEarlier(since: Date, now: Date) -> String {
+        "No matches in the \(lastPeriod(since: since, now: now))."
+    }
+
+    /// "last 12 months", "last month", "last 20 days": a free search's window, in whole months.
+    func lastPeriod(since: Date, now: Date) -> String {
+        let days = max(0, now.timeIntervalSince(since) / 86_400)
+        let months = Int((days / 30.436875).rounded())
+        return switch months {
+        case 0: "last \(Int(days.rounded())) days"
+        case 1: "last month"
+        default: "last \(months) months"
+        }
+    }
+
     /// "520 m", "2 km", "2.1 km".
     func distance(_ metres: Double) -> String {
-        if metres < 1_000 {
-            let rounded = (metres / 10).rounded() * 10
-            return Measurement(value: rounded, unit: UnitLength.meters)
-                .formatted(.measurement(width: .abbreviated, usage: .asProvided, numberFormatStyle: .number.precision(.fractionLength(0))).locale(locale))
-        }
-        let kilometres = metres / 1_000
-        return Measurement(value: kilometres, unit: UnitLength.kilometers)
-            .formatted(.measurement(width: .abbreviated, usage: .asProvided, numberFormatStyle: .number.precision(.fractionLength(0...1))).locale(locale))
+        SearchFormat.distance(metres, locale: locale)
     }
 
     // MARK: Sections
@@ -182,12 +293,19 @@ struct SearchCopy {
 
     // MARK: Coverage
 
-    func coverageCaption(searched: Int, index: SearchIndexContext) -> String {
+    /// "Searched all 563 photos"; a free search (`since`) "Searched your last 12 months" (E20), its unlock row counting
+    /// the rest. Limited access and the first build's progress keep their own words, free or not: they say which photos
+    /// Lahza has, which the window doesn't change. A first build that has stopped short (paused, starting again,
+    /// failed) of the dates searched reads "Searched 1,200 photos so far", never "all" or the whole window.
+    func coverageCaption(searched: Int, index: SearchIndexContext, since: Date?, now: Date) -> String {
         let count = searched.formatted(.number.locale(locale))
         if index.isLimited { return searched == 1 ? "Searching the 1 photo you’ve shared" : "Searching the \(count) photos you’ve shared" }
         if index.isPartial, let total = index.libraryTotal, total > searched {
             return "Searched \(count) of about \(total.formatted(.number.locale(locale))) so far"
         }
+        let covered = !index.isPartial || index.libraryTotal != nil || (since.flatMap { since in index.coveredSince.map { $0 <= since } } ?? false)
+        if !covered { return searched == 1 ? "Searched 1 photo so far" : "Searched \(count) photos so far" }
+        if let since { return "Searched your \(lastPeriod(since: since, now: now))" }
         return searched == 1 ? "Searched 1 photo" : "Searched all \(count) photos"
     }
 
@@ -265,5 +383,20 @@ struct PlaceDescription: Sendable, Hashable {
             isUnion = true
             fullName = candidate.name
         }
+    }
+}
+
+/// Formats search shares with the app (the place editor's radii).
+public enum SearchFormat {
+    /// "520 m", "2 km", "2.1 km".
+    public static func distance(_ metres: Double, locale: Locale = .autoupdatingCurrent) -> String {
+        if metres < 1_000 {
+            let rounded = (metres / 10).rounded() * 10
+            return Measurement(value: rounded, unit: UnitLength.meters)
+                .formatted(.measurement(width: .abbreviated, usage: .asProvided, numberFormatStyle: .number.precision(.fractionLength(0))).locale(locale))
+        }
+        let kilometres = metres / 1_000
+        return Measurement(value: kilometres, unit: UnitLength.kilometers)
+            .formatted(.measurement(width: .abbreviated, usage: .asProvided, numberFormatStyle: .number.precision(.fractionLength(0...1))).locale(locale))
     }
 }

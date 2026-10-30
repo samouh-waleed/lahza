@@ -4,10 +4,10 @@ import LZGeo
 /// The v0 parser: English rules, no model, a few milliseconds per query (search spec §6.3).
 ///
 /// Recognisers run left to right, longest match first, in priority order: media, Hijri events and holidays, time
-/// ranges, times, saved places and home, places after a preposition, "the beach", known place names, trips,
-/// people, filler, and finally leftovers. Each claims its words, so a later one never takes them. Leftover words
-/// become a maybe-place (it resolves only to an exact name) or, for words about what's in photos ("soccer"), an
-/// unsupported chip; nothing is dropped silently.
+/// ranges, times, saved places and home (and "at my pitch" when no place is saved by that name), places after a
+/// preposition, "the beach", known place names, trips, people, filler, and finally leftovers. Each claims its words,
+/// so a later one never takes them. Leftover words become a maybe-place (it resolves only to an exact name) or, for
+/// words about what's in photos ("soccer"), an unsupported chip; nothing is dropped silently.
 public struct RulesQueryParser: QueryParser {
     public let lexicon: Lexicon
 
@@ -177,13 +177,109 @@ struct RuleScan {
                 index = nameStart + 1
                 continue
             }
-            if let (id, first, last) = savedAlias(from: start) {
+            if let (id, first, last) = savedAlias(from: start), startsAName(first, last) {
                 add(.place(.alias(.saved(id), relation: relation)), first: first, last: last, claimed: index..<last + 1)
                 index = last + 1
                 continue
             }
+            if start > index, let name = ownName(after: first, from: start) {
+                switch name {
+                case .unsaved(let last):
+                    add(.place(.alias(.unsaved(original(start, last)), relation: relation)), first: start, last: last, claimed: index..<last + 1)
+                    index = last + 1
+                case .content(let last):
+                    add(.visual(original(start + 1, last)), first: start + 1, last: last, claimed: index..<last + 1)
+                    index = last + 1
+                }
+                continue
+            }
             index += 1
         }
+    }
+
+    /// "my …" or "our …" after a place preposition when no saved place goes by the name (E22).
+    private enum OwnName {
+        /// A place of the person's own that search says isn't saved and never looks up ("at my pitch"): its last word.
+        case unsaved(last: Int)
+        /// Words about what's in photos, never a place and never looked up ("from my uncle", "in my twenties"): its
+        /// last word.
+        case content(last: Int)
+    }
+
+    /// The prepositions after which "my …" is a place even with no word saying so ("at my mazraa"). After "in", "from"
+    /// and "by" it rarely is ("in my twenties", "from my uncle", "by my side") without a place word or "'s".
+    static let ownPlacePrepositions: Set<String> = ["at", "near", "around", "inside"]
+
+    /// What "my pitch", "our cabin" is after `preposition` (`start` is at "my" or "our"). The name runs to a word that
+    /// ends a place name or names a trip, at most 4 words, and ends at its last place word ("my pitch" in "at my pitch
+    /// playing soccer") or a last word with "'s" ("my mom's"); words before a trip describe it ("from my road trip").
+    /// Without a place word, words about what's in photos make it no place ("near my dog"), and so does any preposition
+    /// but at, near, around and inside: those words stay words about photos, as typed. People ("my family"), the photo
+    /// library ("in my camera roll") and known places stay as they were.
+    private func ownName(after preposition: String, from start: Int) -> OwnName? {
+        guard let determiner = word(start), ["my", "our"].contains(determiner) else { return nil }
+        var end = start + 1
+        while let word = word(end), end < start + 5, !tokens[end].followsPunctuation {
+            if lexicon.stopWords.contains(word) || lexicon.placePrepositions[word] != nil || word == "to" || lexicon.filler.contains(word)
+                || lexicon.events[word] != nil { break }
+            end += 1
+        }
+        if let next = word(end), lexicon.events[next] != nil, !tokens[end].followsPunctuation { return nil }
+        guard end > start + 1 else { return nil }
+        let placeEnd = (start + 1..<end).last { Self.ownPlaceWords.contains(tokens[$0].text) } ?? (isPossessive(end - 1) ? end - 1 : nil)
+        let last = placeEnd ?? end - 1
+        let words = tokens[start + 1...last].map(\.text)
+        if placeEnd == nil, words.contains(where: lexicon.contentWords.contains) { return nil }
+        guard lexicon.people[[determiner] + words] == nil, lexicon.people[words] == nil, !words.contains(where: Self.libraryWords.contains) else { return nil }
+        let name = words.joined(separator: " ")
+        guard !PlaceNames.variants(name).contains(where: { context.vocabulary.knows($0, bare: false, lexicon: lexicon) }) else { return nil }
+        if placeEnd != nil || Self.ownPlacePrepositions.contains(preposition) { return .unsaved(last: last) }
+        // Words about photos: unless a part is a known place or people, which the later recognisers keep.
+        for first in start + 1...last {
+            if lexicon.people[[tokens[first].text]] != nil { return nil }
+            for stop in first...last where context.vocabulary.knows(folded(first, stop), bare: true, lexicon: lexicon) { return nil }
+        }
+        return .content(last: last)
+    }
+
+    /// "mom's", "parents'": a word standing for a place of theirs ("at my mom's").
+    private func isPossessive(_ index: Int) -> Bool {
+        let typed = Array(original(index, index).unicodeScalars)
+        if typed.count > 2, ["s", "S"].contains(typed[typed.count - 1]), QueryTokenizer.apostrophes.contains(typed[typed.count - 2]) { return true }
+        // An apostrophe after the word isn't part of it.
+        let after = TextSpan(location: tokens[index].range.upperBound, length: 1).substring(of: text)
+        return after?.unicodeScalars.first.map(QueryTokenizer.apostrophes.contains) ?? false
+    }
+
+    /// Place words, and kinds of places of one's own that are also words about what's in photos ("my office"): what a
+    /// name after "my" ends with.
+    static let ownPlaceWords = placeWords.union([
+        "office", "room", "bedroom", "kitchen", "classroom", "shop", "store", "gym", "building", "tent", "campsite", "playground", "pool",
+        "cabin", "chalet", "villa", "flat", "apartment", "studio", "cottage", "lodge", "camp", "ranch", "yard", "backyard", "balcony", "roof",
+        "rooftop", "garage", "majlis", "istiraha", "compound", "spot", "work", "workplace", "uni", "college", "dorm", "hometown", "neighborhood",
+        "neighbourhood", "barn", "shed", "porch", "patio", "terrace", "orchard", "estiraha", "esteraha", "istraha", "mazraa", "mazraah",
+        "shalay", "shaleh", "diwaniya", "diwaniyah",
+    ])
+
+    /// Words for the photo library itself: "photos in my library" means no place.
+    static let libraryWords: Set<String> = ["library", "album", "albums", "gallery", "camera", "roll", "phone", "iphone", "ipad", "recents", "collection"]
+
+    /// A saved name inside a longer name isn't the saved place: "park" (from "My park") in "Al-Nakheel Park" or "at Foo
+    /// Park". Its first word must start a name (nothing before it but a preposition, an article, words never in a
+    /// name, punctuation or words another recogniser took), and no longer known name may start there.
+    private func startsAName(_ first: Int, _ last: Int) -> Bool {
+        if first > 0, isFree(first - 1), !tokens[first].followsPunctuation {
+            let before = tokens[first - 1].text
+            let outsideNames = lexicon.placePrepositions[before] != nil || before == "to" || ["the", "a", "an"].contains(before)
+                || lexicon.filler.contains(before) || lexicon.stopWords.contains(before)
+            guard outsideNames else { return false }
+        }
+        var end = last + 1
+        while end < min(tokens.count, first + 5), isFree(end), !tokens[end].followsPunctuation {
+            if context.vocabulary.knows(folded(first, end), bare: false, lexicon: lexicon) { return false }
+            end += 1
+        }
+        return true
     }
 
     /// The longest saved-place name starting at `start` (with its "my" or "the", or without).
@@ -295,6 +391,7 @@ struct RuleScan {
                 let phrase = folded(index, index + count - 1)
                 if count == 1, lexicon.filler.contains(phrase) || lexicon.stopWords.contains(phrase) { continue }
                 guard context.vocabulary.knows(phrase, bare: true, lexicon: lexicon) else { continue }
+                if context.vocabulary.savedAliases[phrase] != nil, !startsAName(index, index + count - 1) { continue }
                 let own = context.vocabulary.ownNames.contains(phrase) || context.vocabulary.savedAliases[phrase] != nil
                 if !own, let next = word(index + count), Self.placeWords.contains(next), !tokens[index + count].followsPunctuation { continue }
                 matched = count

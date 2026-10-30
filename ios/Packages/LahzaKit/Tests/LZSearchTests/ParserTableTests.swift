@@ -31,6 +31,22 @@ import Testing
         #expect(query.parser == .rules && !query.isEdited)
     }
 
+    /// A saved name that is also a common word ("My park", so "park") is the saved place only where it starts a name:
+    /// never a word inside another place's name.
+    @Test func aSavedWordInsideAnotherNameIsNotTheSavedPlace() {
+        var vocabulary = Self.knownVocabulary
+        vocabulary.savedAliases = ["my park": 9, "park": 9]
+        let saved = SlotValue.place(.alias(.saved(9), relation: .at))
+        #expect(SearchFixture.parse("Al-Nakheel Park", vocabulary).values == [Self.place("Al-Nakheel Park")])
+        #expect(SearchFixture.parse("at Salam Park", vocabulary).values == [Self.place("Salam Park", .at)])
+        #expect(SearchFixture.parse("Foo Park", vocabulary).values == [Self.maybe("Foo Park")])
+        #expect(SearchFixture.parse("at Foo Park last summer", vocabulary).values == [Self.maybe("Foo Park", .at), Self.time(.season(.summer, .last))])
+        #expect(SearchFixture.parse("park", vocabulary).values == [saved])
+        #expect(SearchFixture.parse("videos at my park", vocabulary).values == [Self.videos, saved])
+        #expect(SearchFixture.parse("the park last summer", vocabulary).values == [saved, Self.time(.season(.summer, .last))])
+        #expect(SearchFixture.parse("videos park", vocabulary).values == [Self.videos, saved], "after words another recogniser took")
+    }
+
     @Test func theTableIsLargeEnough() {
         #expect(Self.cases.count >= 150)
     }
@@ -39,6 +55,7 @@ import Testing
 
     static func place(_ name: String, _ relation: PlaceRelation = .in) -> SlotValue { .place(.named(name, relation: relation, confidence: .certain)) }
     static func maybe(_ name: String, _ relation: PlaceRelation = .in) -> SlotValue { .place(.named(name, relation: relation, confidence: .maybe)) }
+    static func unsaved(_ words: String, _ relation: PlaceRelation = .at) -> SlotValue { .place(.alias(.unsaved(words), relation: relation)) }
     static func time(_ expression: TimeExpression) -> SlotValue { .time(expression) }
     static func media(_ kinds: Set<MediaKind> = [], _ flags: Set<MediaFlag> = []) -> SlotValue { .media(MediaFilter(kinds: kinds, flags: flags)) }
     static func hijri(_ event: HijriEvent, _ qualifier: Qualifier = .every, year: Int? = nil) -> SlotValue {
@@ -272,6 +289,44 @@ import Testing
         c("my pitch", [.place(.alias(.saved(7), relation: .at))], .known),
         c("at my pitch", [.place(.alias(.saved(7), relation: .at))], .known),
         c("pitch", [.place(.alias(.saved(7), relation: .at))], .known),
+        // E22: "my …" after a place preposition with no saved place of that name is a place that isn't saved.
+        c("at my pitch", [unsaved("my pitch")]),
+        c("near our cabin", [unsaved("our cabin", .near)]),
+        c("from my office", [unsaved("my office", .from)]),
+        c("At My Pitch last summer", [unsaved("My Pitch"), time(.season(.summer, .last))]),
+        c("at my soccer pitch", [unsaved("my soccer pitch")]),
+        c("at my pitch playing soccer", [unsaved("my pitch"), .visual("playing soccer")]),
+        c("videos at my mom's", [videos, unsaved("my mom's")]),
+        c("near our pitch", [.place(.alias(.saved(7), relation: .near))], .known),
+        c("in our Diriyah", [place("Diriyah")], .known),
+        c("at my home", [.place(.alias(.home, relation: .at))]),
+        c("photos of my dog", [.visual("dog")]),
+        c("my dog", [.visual("dog")]),
+        c("near my dog", [.visual("dog")]),
+        c("from my sister", [.visual("sister")]),
+        c("near my family", [.people("my family")]),
+        // A place word or "'s" names a place after any preposition; without one, only after at, near, around or inside.
+        c("at my uncle's", [unsaved("my uncle's")]),
+        c("from my mom's", [unsaved("my mom's", .from)]),
+        c("at my mazraa", [unsaved("my mazraa")]),
+        c("from my hometown", [unsaved("my hometown", .from)]),
+        c("by my pool", [unsaved("my pool", .near)]),
+        c("photos from my uncle", [.visual("uncle")]),
+        c("photos by my boyfriend", [.visual("boyfriend")]),
+        c("photos taken by my boss", [.visual("boss")]),
+        c("near my uncle", [.visual("uncle")]),
+        c("photos from my WhatsApp", [.visual("WhatsApp")]),
+        c("photos from my childhood", [.visual("childhood")]),
+        c("in my twenties", [.visual("twenties")]),
+        c("by my side", [.visual("side")]),
+        c("photos from my Riyadh friends", [place("Riyadh"), .people("friends")]),
+        // Trips stay trips: words naming one end the name, and words before one describe it.
+        c("photos from my travels", [trip]),
+        c("from my travel photos", [trip]),
+        c("photos from my overseas trip", [.event(.abroad), trip]),
+        c("from my travels in Greece", [trip, place("Greece")]),
+        c("from our Dubai trip", [place("Dubai"), trip]),
+        c("from my visit to Paris", [.visual("visit"), place("Paris", .to)]),
         c("photos of us", [.people("us")]),
     ]
 
@@ -285,6 +340,7 @@ import Testing
         c("holidays in Dubai", [trip, place("Dubai")]),
         c("with Ahmed", [.people("Ahmed")]),
         c("with my family", [.people("my family")]),
+        c("with my kids", [.people("my kids")]),
         c("photos of me", [.people("me")]),
         c("show me videos", [videos]),
         c("with mom and dad", [.people("mom and dad")]),

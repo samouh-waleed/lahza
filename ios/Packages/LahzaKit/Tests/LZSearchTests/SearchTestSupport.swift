@@ -61,7 +61,9 @@ enum SearchFixture {
             await queue.run()
             await indexer.settled()
         }
-        return HeroIndex(database: database, reader: IndexReader(database: database), writer: UserDataWriter(database: database, clock: clock))
+        // Saved-place writes ask for a restructure, as the session's writer does.
+        let writer = UserDataWriter(database: database, clock: clock, changed: { await indexer.enqueue(.restructure) })
+        return HeroIndex(database: database, indexer: indexer, reader: IndexReader(database: database), writer: writer)
     }
 
     /// The vocabulary the app would build for `reader`.
@@ -73,6 +75,7 @@ enum SearchFixture {
 
 struct HeroIndex: Sendable {
     let database: IndexDatabase
+    let indexer: LibraryIndexer
     let reader: IndexReader
     let writer: UserDataWriter
 }
@@ -93,6 +96,9 @@ struct HeroSearch: Sendable {
         engine = SearchEngine(gazetteer: SearchFixture.gazetteer, maps: maps, budget: budget ?? MapsBudget(clock: clock), clock: clock,
                               network: FakeNetworkStatus(reachable: reachable), locale: SearchFixture.uk, deviceTimeZone: { SearchFixture.riyadh })
     }
+
+    /// One hero search for tests that only read (built once, so fewer indexes are built side by side).
+    static let shared = Task { try await HeroSearch() }
 
     func search(_ text: String, index context: SearchIndexContext = SearchIndexContext()) async throws -> SearchResult {
         try await engine.search(SearchRequest(text: text), reader: index.reader, writer: index.writer, index: context)

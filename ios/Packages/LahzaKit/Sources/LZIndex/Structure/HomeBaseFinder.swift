@@ -7,7 +7,8 @@ internal import GRDB
 /// 2. The tile with the most night days wins if it has at least 10; a tie goes to the most recent.
 /// 3. Otherwise the same over all hours. Otherwise the nearest year with a home lends its own (inherited).
 /// 4. The point is the median of those photos in the tile and its 8 neighbours.
-/// 5. A saved place marked as home overrides every year.
+/// 5. A saved place marked as home overrides every year; the person's "No home" (`meta.homeOverride`) leaves every
+///    year without one.
 ///
 /// The `home` place row mirrors the latest year. A changed home moves the zones its year's GPS-less assets
 /// fall back to and the labels of moments near it, so those days are marked dirty.
@@ -105,6 +106,7 @@ enum HomeBaseFinder {
             for year in years { homes[year] = try home(year, center, tile: tile, nights: 0, source: .user) }
             return homes
         }
+        if try Meta.string(db, .homeOverride) == HomeOverride.none.rawValue { return [:] }
 
         /// Per year and tile: the distinct days, the latest day and the photos, at night and at any hour.
         struct Tile {

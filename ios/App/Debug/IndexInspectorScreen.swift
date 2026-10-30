@@ -1,11 +1,12 @@
 #if DEBUG
 import LZGeo
 import LZIndex
+import LZSearch
 import SwiftUI
 import UIKit
 
-/// DEBUG: Settings › Developer › Index inspector (spec §8.3). Aggregates only: never the change token's bytes,
-/// coordinates or local identifiers.
+/// DEBUG: Settings › Developer › Index inspector (spec §8.3), with the query lab at the top. Aggregates only: never the
+/// change token's bytes, coordinates or local identifiers (the lab names hits by asset row id).
 struct IndexInspectorScreen: View {
     @Environment(AppModel.self) private var model
     @State private var data: IndexInspectorData?
@@ -14,6 +15,7 @@ struct IndexInspectorScreen: View {
     var body: some View {
         let status = model.index.status
         Form {
+            QueryLabSection()
             Section("Status") {
                 LabeledContent("Phase", value: IndexInspectorCopy.phase(status.phase))
                     .accessibilityIdentifier("inspector-phase")
@@ -91,6 +93,107 @@ struct IndexInspectorScreen: View {
             data = try? await model.index.reader?.inspector()
             working = false
         }
+    }
+}
+
+/// The query lab (spec §8.3): a query through the engine, step by step: the parsed slots as JSON with their spans, the
+/// resolved dates as ISO local times, the place candidates with counts and sources, each slot's count alone, the timings
+/// and the top 20 hits with their slot scores, S and tier.
+private struct QueryLabSection: View {
+    @Environment(AppModel.self) private var model
+    @State private var text = ""
+    @State private var report: QueryLabReport?
+    @State private var running = false
+    @State private var failure: String?
+
+    var body: some View {
+        Section {
+            TextField("Al-Nakheel Park last summer", text: $text)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .submitLabel(.search)
+                .onSubmit(run)
+                .accessibilityIdentifier("query-lab-field")
+            Button(running ? "Running…" : "Run") { run() }
+                .disabled(running || text.trimmingCharacters(in: .whitespaces).isEmpty || model.index.reader == nil)
+                .accessibilityIdentifier("query-lab-run")
+            if let failure { Text(failure).foregroundStyle(.lz(.dangerText)) }
+        } header: {
+            Text("Query lab")
+        } footer: {
+            Text("Runs the search engine without writing to the index. Hits are named by asset row id.")
+        }
+        if let report {
+            Section("Understood") {
+                ForEach(Array(report.chips.enumerated()), id: \.offset) { _, chip in Text(chip) }
+                LabeledContent("Apple Maps asked", value: report.searchedAppleMaps ? "yes" : "no")
+            }
+            if !report.time.isEmpty {
+                Section("Dates (local)") {
+                    ForEach(Array(report.time.enumerated()), id: \.offset) { _, line in Text(line).font(.footnote.monospaced()) }
+                }
+            }
+            if !report.candidates.isEmpty {
+                Section("Place candidates") {
+                    ForEach(Array(report.candidates.enumerated()), id: \.offset) { _, candidate in
+                        LabeledContent {
+                            Text("\(candidate.photos) · \(candidate.source) · \(String(format: "%.1f", candidate.match))")
+                        } label: {
+                            Text((candidate.isChosen ? "✓ " : "") + candidate.name)
+                            if !candidate.subtitle.isEmpty { Text(candidate.subtitle) }
+                        }
+                    }
+                }
+            }
+            Section("Counts") {
+                ForEach(report.slotCounts, id: \.label) { count in LabeledContent(count.label, value: "\(count.best) best") }
+                ForEach(Tier.allCases, id: \.self) { tier in LabeledContent("tier \(String(describing: tier))", value: "\(report.tiers[tier] ?? 0)") }
+            }
+            Section("Timings") {
+                LabeledContent("Parse", value: QueryLabCopy.ms(report.timings.parse))
+                LabeledContent("Snapshot", value: QueryLabCopy.ms(report.timings.snapshot))
+                LabeledContent("Resolve", value: QueryLabCopy.ms(report.timings.resolve))
+                LabeledContent("Score", value: QueryLabCopy.ms(report.timings.score))
+                LabeledContent("Total", value: QueryLabCopy.ms(report.timings.total))
+            }
+            Section("Top \(report.top.count) hits") {
+                ForEach(Array(report.top.enumerated()), id: \.offset) { rank, hit in
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("\(rank + 1). \(String(describing: hit.tier)) · S \(String(format: "%.2f", hit.score)) = \(hit.slots)")
+                        Text("#\(hit.assetID) · \(hit.isVideo ? "video" : "photo") · \(hit.when)").foregroundStyle(.secondary)
+                    }
+                    .font(.footnote.monospaced())
+                    .accessibilityElement(children: .combine)
+                }
+            }
+            Section("ParsedQuery") {
+                Text(report.parsedJSON)
+                    .font(.caption2.monospaced())
+                    .textSelection(.enabled)
+                    .accessibilityIdentifier("query-lab-json")
+            }
+        }
+    }
+
+    private func run() {
+        let query = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty, !running else { return }
+        running = true
+        failure = nil
+        Task {
+            defer { running = false }
+            do {
+                report = try await model.search.lab(query)
+            } catch {
+                failure = "Failed: \(type(of: error))"
+            }
+        }
+    }
+}
+
+nonisolated enum QueryLabCopy {
+    static func ms(_ duration: Duration) -> String {
+        String(format: "%.1f ms", Double(duration.components.seconds) * 1_000 + Double(duration.components.attoseconds) / 1e15)
     }
 }
 

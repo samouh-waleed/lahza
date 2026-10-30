@@ -106,8 +106,8 @@ import Testing
         calendar.timeZone = try #require(TimeZone(identifier: "Asia/Riyadh"))
         let now = try #require(calendar.date(from: DateComponents(year: 2026, month: 10, day: 28, hour: 12)))
         let store = EntitlementStore(kv: InMemoryKeyValueStore([:]))
-        // Unknown counts as free.
-        #expect(store.searchStart(now: now, calendar: calendar) == calendar.date(from: DateComponents(year: 2025, month: 10, day: 28, hour: 12)))
+        // Unknown counts as free; the window starts at the start of that day.
+        #expect(store.searchStart(now: now, calendar: calendar) == calendar.date(from: DateComponents(year: 2025, month: 10, day: 28)))
         store.apply(CustomerSnapshot(appUserID: "a", activeEntitlements: [Brand.fullLibraryEntitlement]))
         #expect(store.searchStart(now: now, calendar: calendar) == nil)
     }
@@ -128,6 +128,17 @@ import Testing
         for _ in 0..<1_000 where entitlement.isUnlocked { await Task.yield() }
         #expect(!entitlement.isUnlocked)
         entitlement.stop()
+    }
+
+    /// The DEBUG `-LZUnlocked 1` store: already bought, so launch reads it unlocked and restore finds it.
+    @Test func aFakeStoreCanStartUnlocked() async throws {
+        let client = FakePurchasesClient(unlocked: true)
+        let entitlement = EntitlementStore(kv: InMemoryKeyValueStore([:]))
+        await entitlement.start(with: PurchasesService(client: client, sdkKey: { "test_fake" }))
+        #expect(entitlement.isUnlocked)
+        #expect(try await client.restorePurchases().unlocks())
+        entitlement.stop()
+        #expect(try await FakePurchasesClient().customerInfo().unlocks() == false)
     }
 
     @Test func purchaseUnlocksAndRestoreFindsIt() async {

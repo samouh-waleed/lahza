@@ -78,6 +78,8 @@ public struct PlaceCandidate: Sendable, Hashable, Identifiable {
     public var match: MatchQuality
     public var source: CandidateSource
     public var resolved: ResolvedPlace
+    /// An area's own radius in metres, before the person's radius and "near" (the place editor's Normal).
+    public var naturalRadius: Double?
 
     public init(id: String, name: String, subtitle: String, context: String? = nil, photoCount: Int, match: MatchQuality, source: CandidateSource,
                 resolved: ResolvedPlace) {
@@ -96,6 +98,10 @@ public struct PlaceCandidate: Sendable, Hashable, Identifiable {
 public enum PlaceNotFound: String, Sendable, Hashable {
     /// "home" before Lahza has worked out a home or one is saved.
     case noHome
+    /// "home" after the person chose No home (Settings › Saved places).
+    case choseNoHome
+    /// "at my pitch" when no saved place goes by that name (E22).
+    case notSaved
     /// Not in the index or the gazetteer, and Apple Maps couldn't be reached (no internet).
     case offline
     /// Not in the index or the gazetteer, and Apple Maps is busy (throttled, out of requests for now, or failed).

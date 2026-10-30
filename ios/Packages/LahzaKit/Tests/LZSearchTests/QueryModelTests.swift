@@ -134,13 +134,13 @@ import Testing
         let time = try #require(query.slots.first { $0.kind == .time })
 
         let removed = query.applying([.remove(slot: time.id)])
-        #expect(removed.text == "soccer Al-Nakheel Park")
+        #expect(removed.text == "soccer at Al-Nakheel Park", "the typed preposition stays")
         #expect(removed.isEdited)
         #expect(removed.slots.map(\.id) == [0, place.id])
         #expect(removed.spanTexts == ["soccer", "Al-Nakheel Park"])
 
         let summer = query.applying([.replaceTime(slot: time.id, .season(.summer, .year(2025)))])
-        #expect(summer.text == "soccer Al-Nakheel Park summer 2025")
+        #expect(summer.text == "soccer at Al-Nakheel Park summer 2025")
         #expect(summer.slot(place.id)?.value == place.value, "the other slots stay as they were")
         #expect(summer.slot(time.id)?.value == .time(.season(.summer, .year(2025))))
         #expect(summer.spanTexts == ["soccer", "Al-Nakheel Park", "summer 2025"])
@@ -151,7 +151,7 @@ import Testing
         #expect(near.slots.last?.id == 3)
 
         let picked = query.applying([.replacePlace(slot: place.id, placeKey: "mk:seed.salam-park-dubai", name: "Salam Park")])
-        #expect(picked.text == "soccer Salam Park last summer")
+        #expect(picked.text == "soccer at Salam Park last summer")
         #expect(picked.slot(place.id)?.value == .place(.picked(placeKey: "mk:seed.salam-park-dubai", name: "Salam Park", relation: .at)))
 
         var overrides = ResolutionOverrides()

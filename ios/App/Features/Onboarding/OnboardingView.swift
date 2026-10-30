@@ -184,7 +184,7 @@ nonisolated enum OnboardingCopy {
     static let welcome = "Find any moment by describing it."
     static let welcomeBody = "Tell Lahza what you remember and it finds the photos, grouped as the moments they belong to."
     static let promises: [(symbol: String, title: String, detail: String)] = [
-        ("text.magnifyingglass", "Describe, don't scroll", "“Soccer at the park last summer” is enough."),
+        ("text.magnifyingglass", "Describe, don't scroll", "“Dubai last December” is enough."),
         ("mappin.and.ellipse", "The right place", "Places come from where your photos were taken, not how they look."),
         ("checkmark.seal", "Every result explained", "See why each photo matched, and fix mistakes in a tap."),
     ]

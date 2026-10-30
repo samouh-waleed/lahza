@@ -41,7 +41,10 @@ nonisolated enum RootScreen: Hashable, Sendable {
     let moments: MomentsStore
     /// Ask's search (off when the gazetteer failed to load).
     let search: SearchStore
+    /// Saved places and the home choice (Settings › Saved places, moment detail's Save place).
+    let savedPlaces: SavedPlacesStore
     @ObservationIgnored let images: any AssetImageProvider
+    @ObservationIgnored let videos: any VideoLoader
     /// The Apple Maps budget, shared by place naming and search.
     @ObservationIgnored let mapsBudget: MapsBudget
     #if DEBUG
@@ -60,6 +63,7 @@ nonisolated enum RootScreen: Hashable, Sendable {
     /// The scene went to the background since it was last active (a trip to iPhone Settings does).
     @ObservationIgnored private var leftForBackground = false
     @ObservationIgnored private var indexVersions: Task<Void, Never>?
+    @ObservationIgnored private var unlocks: Task<Void, Never>?
     @ObservationIgnored private var memoryWarnings: Task<Void, Never>?
     @ObservationIgnored private let log = Log("shell")
 
@@ -78,8 +82,16 @@ nonisolated enum RootScreen: Hashable, Sendable {
             SearchEngine(gazetteer: $0, maps: dependencies.maps, budget: budget, clock: dependencies.clock, network: dependencies.network,
                          deviceTimeZone: dependencies.deviceTimeZone)
         }
-        search = SearchStore(engine: engine, index: index, kv: dependencies.kv, clock: dependencies.clock)
+        // A free search covers the last 12 months, read at every search (decision 34); Moments stays whole.
+        let entitlement = entitlement, clock = dependencies.clock
+        search = SearchStore(engine: engine, index: index, kv: dependencies.kv, clock: clock,
+                             scope: { entitlement.searchStart(now: clock.now).map(SearchScope.since) ?? .wholeLibrary },
+                             initialLayout: dependencies.resultsLayout)
+        // A saved name is searchable at once: the parse vocabulary is dropped after every saved-place write.
+        let search = search
+        savedPlaces = SavedPlacesStore(index: index, changed: { search.savedPlacesChanged() })
         images = dependencies.images
+        videos = dependencies.videos
         #if DEBUG
         censusRunner = CensusRunner(source: dependencies.censusSource)
         #endif
@@ -108,6 +120,7 @@ nonisolated enum RootScreen: Hashable, Sendable {
         log.info("Launch (\(dependencies.label))", privacy: .public)
         isReady = true
         Task { await entitlement.start(with: purchases) }
+        followUnlock()
         photoAccess.start()
         refreshPhotoAccess()
         startIndex()
@@ -131,20 +144,34 @@ nonisolated enum RootScreen: Hashable, Sendable {
         }
     }
 
-    /// Starts the index (it opens or purges by photo access), refreshes Moments and the shown search when the index
-    /// changes and releases caches on a memory warning.
+    /// Starts the index (it opens or purges by photo access), refreshes Moments, saved places and the shown search when
+    /// the index changes and releases caches on a memory warning.
     private func startIndex() {
         index.start(observing: photoAccess)
-        let index = index, moments = moments, search = search
+        let index = index, moments = moments, search = search, savedPlaces = savedPlaces
         indexVersions = Task {
             for await _ in Observations({ index.version }) {
                 search.indexChanged()
                 await moments.indexChanged()
+                await savedPlaces.indexChanged()
             }
         }
         memoryWarnings = Task { [weak self] in
             for await _ in NotificationCenter.default.notifications(named: UIApplication.didReceiveMemoryWarningNotification) {
                 self?.didReceiveMemoryWarning()
+            }
+        }
+    }
+
+    /// An unlock (or a refund) changes what search covers: the shown search runs again at once, so a purchase shows the
+    /// earlier years without searching again.
+    private func followUnlock() {
+        let entitlement = entitlement, search = search
+        unlocks = Task {
+            var last = entitlement.isUnlocked
+            for await isUnlocked in Observations({ entitlement.isUnlocked }) where isUnlocked != last {
+                last = isUnlocked
+                search.scopeChanged()
             }
         }
     }
@@ -244,6 +271,9 @@ nonisolated enum RootScreen: Hashable, Sendable {
             // has already counted, so neither recounts.
             leftForBackground = false
             refreshPhotoAccess()
+            // A day may have passed: the examples' dates ("1 year ago") and a free search's 12 months move with it
+            // (counted again only when they did).
+            if isReady { search.refreshExamples() }
         default:
             break
         }

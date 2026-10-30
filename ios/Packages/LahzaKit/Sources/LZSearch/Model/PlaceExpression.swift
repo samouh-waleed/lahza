@@ -8,7 +8,7 @@ public indirect enum PlaceExpression: Sendable, Hashable, Codable {
     /// is searched, left out: leftover words as words about what's in the photos, a name after a preposition ("at the
     /// Louvre") as a second place.
     case named(String, relation: PlaceRelation, confidence: Confidence)
-    /// "home", or a saved place's name.
+    /// "home", a saved place's name, or "my …" naming a place that isn't saved.
     case alias(PlaceAlias, relation: PlaceRelation)
     /// "at the beach": every place of that category with photos.
     case category(PlaceCategory, relation: PlaceRelation)
@@ -21,6 +21,15 @@ public indirect enum PlaceExpression: Sendable, Hashable, Codable {
         switch self {
         case .named(_, let relation, _), .alias(_, let relation), .category(_, let relation), .picked(_, _, let relation): relation
         case .anyOf(let parts): parts.first?.relation ?? .in
+        }
+    }
+
+    /// The words a named or picked place goes by (what the place editor looks up), nil for aliases, categories and
+    /// unions.
+    public var words: String? {
+        switch self {
+        case .named(let words, _, _), .picked(_, let words, _): words
+        case .alias, .category, .anyOf: nil
         }
     }
 
@@ -57,4 +66,7 @@ public enum PlaceAlias: Sendable, Hashable, Codable {
     case home
     /// A saved place's row id.
     case saved(Int64)
+    /// "my pitch" after a place preposition when no saved place goes by that name (the words as typed, "my" included):
+    /// a place of the person's own that search says isn't saved (E22). Never looked up, on Apple Maps or anywhere.
+    case unsaved(String)
 }

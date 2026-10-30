@@ -4,6 +4,7 @@ import LZGeo
 import LZIndex
 import LZLibrary
 import LZSearch
+import Photos
 import Testing
 
 /// The search index built from real PhotoKit on the seeded Simulator (search spec §9.2): the counts, trips and
@@ -68,5 +69,32 @@ struct SeededLibraryTests {
         let ran = outcomes.filter { $0.skipped == nil }
         print("SEEDED HeroSuite \(ran.count(where: \.passed))/\(ran.count) pass, \(outcomes.count - ran.count) skipped")
         for outcome in ran where !outcome.passed { Issue.record("\(outcome)") }
+    }
+
+    /// The viewer reads every seed file from the iPhone, network off: a screen-size image for each photo and video
+    /// (never "Full quality is in iCloud"), and a player for each video.
+    @Test func theViewerReadsEverySeedFileFromTheIPhone() async throws {
+        try #require(LiveLibraryReader().access() == .full, "Lahza needs full photo access: make grant-photos")
+        var ids: [String] = [], videos: Set<String> = []
+        PHAsset.fetchAssets(with: LibraryFetchRules.options()).enumerateObjects { asset, _, _ in
+            guard LibraryFetchRules.admits(asset) else { return }
+            ids.append(asset.localIdentifier)
+            if asset.mediaType == .video { videos.insert(asset.localIdentifier) }
+        }
+        try #require(ids.count >= scenario.expectedPhotoKitCount, "seed the simulator first: make seed-photos (\(ids.count) items)")
+        let images = LiveAssetImageProvider(), loader = LiveVideoLoader()
+        var local = 0, reduced = 0, inCloud = 0, missing = 0, playable = 0
+        for id in ids {
+            switch await images.displayImage(for: id, maxPixel: 1_320) {
+            case .image: local += 1
+            case .reduced: reduced += 1
+            case .inCloud: inCloud += 1
+            case .missing: missing += 1
+            }
+            if videos.contains(id), case .item = await loader.playerItem(for: id) { playable += 1 }
+        }
+        print("SEEDED viewer \(local)/\(ids.count) images local, \(reduced) reduced, \(inCloud) in iCloud, \(missing) missing; \(playable)/\(videos.count) videos play")
+        #expect(local == ids.count)
+        #expect(playable == videos.count)
     }
 }
