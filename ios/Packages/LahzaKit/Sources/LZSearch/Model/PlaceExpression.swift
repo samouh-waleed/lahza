@@ -8,7 +8,7 @@ public indirect enum PlaceExpression: Sendable, Hashable, Codable {
     /// is searched, left out: leftover words as words about what's in the photos, a name after a preposition ("at the
     /// Louvre") as a second place.
     case named(String, relation: PlaceRelation, confidence: Confidence)
-    /// "home", or a saved place's name.
+    /// "home", a saved place's name, or "my …" naming a place that isn't saved.
     case alias(PlaceAlias, relation: PlaceRelation)
     /// "at the beach": every place of that category with photos.
     case category(PlaceCategory, relation: PlaceRelation)
@@ -66,4 +66,7 @@ public enum PlaceAlias: Sendable, Hashable, Codable {
     case home
     /// A saved place's row id.
     case saved(Int64)
+    /// "my pitch" after a place preposition when no saved place goes by that name (the words as typed, "my" included):
+    /// a place of the person's own that search says isn't saved (E22). Never looked up, on Apple Maps or anywhere.
+    case unsaved(String)
 }

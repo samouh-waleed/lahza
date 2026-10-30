@@ -182,6 +182,7 @@ extension PlaceExpression {
         case .named(let name, _, _): return prefix + name
         case .alias(.home, _): return prefix + "home"
         case .alias(.saved, _): return prefix + "my place"
+        case .alias(.unsaved(let words), _): return prefix + words
         case .category(let category, _): return prefix + "the " + (Self.categoryWords[category] ?? category.rawValue)
         case .picked(_, let name, _): return prefix + name
         case .anyOf(let parts): return parts.map(\.phrase).joined(separator: " or ")

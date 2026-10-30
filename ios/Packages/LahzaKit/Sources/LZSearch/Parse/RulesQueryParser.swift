@@ -4,10 +4,10 @@ import LZGeo
 /// The v0 parser: English rules, no model, a few milliseconds per query (search spec §6.3).
 ///
 /// Recognisers run left to right, longest match first, in priority order: media, Hijri events and holidays, time
-/// ranges, times, saved places and home, places after a preposition, "the beach", known place names, trips,
-/// people, filler, and finally leftovers. Each claims its words, so a later one never takes them. Leftover words
-/// become a maybe-place (it resolves only to an exact name) or, for words about what's in photos ("soccer"), an
-/// unsupported chip; nothing is dropped silently.
+/// ranges, times, saved places and home (and "at my pitch" when no place is saved by that name), places after a
+/// preposition, "the beach", known place names, trips, people, filler, and finally leftovers. Each claims its words,
+/// so a later one never takes them. Leftover words become a maybe-place (it resolves only to an exact name) or, for
+/// words about what's in photos ("soccer"), an unsupported chip; nothing is dropped silently.
 public struct RulesQueryParser: QueryParser {
     public let lexicon: Lexicon
 
@@ -182,9 +182,50 @@ struct RuleScan {
                 index = last + 1
                 continue
             }
+            if start > index, let last = unsavedName(from: start) {
+                add(.place(.alias(.unsaved(original(start, last)), relation: relation)), first: start, last: last, claimed: index..<last + 1)
+                index = last + 1
+                continue
+            }
             index += 1
         }
     }
+
+    /// The end of "my pitch", "our cabin" after a place preposition (`start` is at "my" or "our") when no saved place
+    /// goes by the name: a place of the person's own, which search says isn't saved and never looks up (E22). The name
+    /// runs to a word that ends a place name, at most 4 words, and ends at its last place word ("my pitch" in "at my
+    /// pitch playing soccer"); without one, words about what's in photos make it no place ("near my dog", "from my
+    /// sister"). People ("my family"), the photo library ("in my camera roll") and known places stay as they were.
+    private func unsavedName(from start: Int) -> Int? {
+        guard let determiner = word(start), ["my", "our"].contains(determiner) else { return nil }
+        var end = start + 1
+        while let word = word(end), end < start + 5, !tokens[end].followsPunctuation {
+            if lexicon.stopWords.contains(word) || lexicon.placePrepositions[word] != nil || word == "to" || lexicon.filler.contains(word) { break }
+            end += 1
+        }
+        var words = tokens[start + 1..<end].map(\.text)
+        if let last = words.lastIndex(where: Self.ownPlaceWords.contains) {
+            words.removeSubrange((last + 1)...)
+        } else if words.contains(where: lexicon.contentWords.contains) {
+            return nil
+        }
+        guard !words.isEmpty, lexicon.people[[determiner] + words] == nil, lexicon.people[words] == nil,
+              !words.contains(where: Self.libraryWords.contains) else { return nil }
+        let name = words.joined(separator: " ")
+        guard !PlaceNames.variants(name).contains(where: { context.vocabulary.knows($0, bare: false, lexicon: lexicon) }) else { return nil }
+        return start + words.count
+    }
+
+    /// Place words, and kinds of places of one's own that are also words about what's in photos ("my office"): what a
+    /// name after "my" ends with.
+    static let ownPlaceWords = placeWords.union([
+        "office", "room", "bedroom", "kitchen", "classroom", "shop", "store", "gym", "building", "tent", "campsite", "playground", "pool",
+        "cabin", "chalet", "villa", "flat", "apartment", "studio", "cottage", "lodge", "camp", "ranch", "yard", "backyard", "balcony", "roof",
+        "rooftop", "garage", "majlis", "istiraha", "compound", "spot",
+    ])
+
+    /// Words for the photo library itself: "photos in my library" means no place.
+    static let libraryWords: Set<String> = ["library", "album", "albums", "gallery", "camera", "roll", "phone", "iphone", "ipad", "recents", "collection"]
 
     /// A saved name inside a longer name isn't the saved place: "park" (from "My park") in "Al-Nakheel Park" or "at Foo
     /// Park". Its first word must start a name (nothing before it but a preposition, an article, words never in a

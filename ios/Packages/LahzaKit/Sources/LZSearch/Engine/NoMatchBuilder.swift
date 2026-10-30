@@ -7,7 +7,9 @@ import LZIndex
 /// is inside the place or the dates. An offer is shown only with a count above 0; widening is never automatic.
 ///
 /// A free search (`since`): what it says about the library counts every year ("57 in Dubai"), so it never reads as if
-/// the photos didn't exist; an offer counts what its tap shows, the photos since `since`, and goes at 0.
+/// the photos didn't exist; an offer counts what its tap shows, the photos since `since`, and goes at 0. An offer whose
+/// matches are all older is kept (E19): its tap gives the all-older answer, so it counts what that answer's unlock row
+/// counts.
 struct NoMatchBuilder {
     let snapshot: SearchSnapshot
     let query: PreparedQuery
@@ -16,6 +18,8 @@ struct NoMatchBuilder {
     let index: SearchIndexContext
     /// A free search's start (Unix seconds): offers count the photos taken since (and undated ones).
     var since: Int64?
+    /// The search shows its Weaker section, so an all-older offer's tap counts those as locked too.
+    var showWeaker = false
 
     /// Areas count their photos this many radii out for the "widen" offer.
     static let widenFactor = 5.0
@@ -68,14 +72,27 @@ struct NoMatchBuilder {
         return scorer.run().hits.count(where: { $0.tier == .best })
     }
 
-    /// Best matches of a plan its tap shows: the whole library, or a free search's photos since its start.
+    /// What an offer of a plan counts, 0 to leave it out: the Best matches its tap shows (the whole library, or a free
+    /// search's photos since its start). While free, a plan with no match since the start but older ones is the
+    /// all-older answer, "No matches in the last 12 months." with "N more from earlier years": it counts that row's N,
+    /// as the search engine counts it (every older hit it would list).
     func shown(_ plan: ScoringPlan) -> Int {
         guard let since else { return count(plan) }
         var scorer = Scorer(snapshot: snapshot, plan: plan)
-        return scorer.run().hits.count { hit in
+        var best = 0, recent = 0, older = 0, locked = 0
+        for hit in scorer.run().hits {
             let i = Int(hit.index)
-            return hit.tier == .best && (!snapshot.isDated(i) || snapshot.utc[i] >= since)
+            let matches = hit.tier == .best || hit.tier == .more
+            if !snapshot.isDated(i) || snapshot.utc[i] >= since {
+                if hit.tier == .best { best += 1 }
+                if matches { recent += 1 }
+            } else {
+                if matches { older += 1 }
+                if hit.tier != .weaker || showWeaker { locked += 1 }
+            }
         }
+        if best > 0 { return best }
+        return recent == 0 && older > 0 ? locked : 0
     }
 
     private func without(place: Bool = false, time: Bool = false, event: Bool = false) -> ScoringPlan {
@@ -102,6 +119,8 @@ struct NoMatchBuilder {
         case .mapsBusy: ("Couldn’t look up \(words) right now.", "Apple Maps is busy. Try again in a few minutes.")
         case .appleMapsOff: ("Couldn’t find \(words) in your photos.", "Apple Maps place names are off in Settings › Search index.")
         case .noHome: ("Lahza hasn’t worked out your home yet.", "Save it from a photo.")
+        case .choseNoHome: ("You chose No home.", "Choose one in Settings › Saved places.")
+        case .notSaved: ("You have no saved place called \(words).", "Save one from a moment.")
         case .noPlacesOfCategory: ("Lahza hasn’t found \(words) among your places yet.", nil)
         case .notFound, .unconfirmed: ("Couldn’t find \(words) in your photos or on the map.", nil)
         }
@@ -202,8 +221,9 @@ struct NoMatchBuilder {
         let name = copy.sentenceName(time)
         let headline = "\(placeCount.formatted(.number.locale(copy.locale))) \(place.description.phrase), none \(copy.preposition(time)) \(name)."
         var offers: [WideningOffer] = []
-        let placeShown = since == nil ? placeCount : shown(ScoringPlan(place: query.plan.place, media: query.plan.media))
-        let timeShown = since == nil ? timeCount : shown(ScoringPlan(time: query.plan.time, media: query.plan.media))
+        // While free, each counts the search its tap runs (the event, if any, stays).
+        let placeShown = since == nil ? placeCount : shown(without(time: true))
+        let timeShown = since == nil ? timeCount : shown(without(place: true))
         if placeShown > 0 {
             offers.append(WideningOffer(label: "\(place.description.isHome ? "Home" : place.description.name), any time", count: placeShown,
                                         edits: query.timeSlots.map { .remove(slot: $0) }))

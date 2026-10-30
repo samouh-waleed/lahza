@@ -55,6 +55,7 @@ import Testing
 
     static func place(_ name: String, _ relation: PlaceRelation = .in) -> SlotValue { .place(.named(name, relation: relation, confidence: .certain)) }
     static func maybe(_ name: String, _ relation: PlaceRelation = .in) -> SlotValue { .place(.named(name, relation: relation, confidence: .maybe)) }
+    static func unsaved(_ words: String, _ relation: PlaceRelation = .at) -> SlotValue { .place(.alias(.unsaved(words), relation: relation)) }
     static func time(_ expression: TimeExpression) -> SlotValue { .time(expression) }
     static func media(_ kinds: Set<MediaKind> = [], _ flags: Set<MediaFlag> = []) -> SlotValue { .media(MediaFilter(kinds: kinds, flags: flags)) }
     static func hijri(_ event: HijriEvent, _ qualifier: Qualifier = .every, year: Int? = nil) -> SlotValue {
@@ -288,6 +289,22 @@ import Testing
         c("my pitch", [.place(.alias(.saved(7), relation: .at))], .known),
         c("at my pitch", [.place(.alias(.saved(7), relation: .at))], .known),
         c("pitch", [.place(.alias(.saved(7), relation: .at))], .known),
+        // E22: "my …" after a place preposition with no saved place of that name is a place that isn't saved.
+        c("at my pitch", [unsaved("my pitch")]),
+        c("near our cabin", [unsaved("our cabin", .near)]),
+        c("from my office", [unsaved("my office", .from)]),
+        c("At My Pitch last summer", [unsaved("My Pitch"), time(.season(.summer, .last))]),
+        c("at my soccer pitch", [unsaved("my soccer pitch")]),
+        c("at my pitch playing soccer", [unsaved("my pitch"), .visual("playing soccer")]),
+        c("videos at my mom's", [videos, unsaved("my mom's")]),
+        c("near our pitch", [.place(.alias(.saved(7), relation: .near))], .known),
+        c("in our Diriyah", [place("Diriyah")], .known),
+        c("at my home", [.place(.alias(.home, relation: .at))]),
+        c("photos of my dog", [.visual("dog")]),
+        c("my dog", [.visual("dog")]),
+        c("near my dog", [.visual("dog")]),
+        c("from my sister", [.visual("sister")]),
+        c("near my family", [.people("my family")]),
         c("photos of us", [.people("us")]),
     ]
 
@@ -301,6 +318,7 @@ import Testing
         c("holidays in Dubai", [trip, place("Dubai")]),
         c("with Ahmed", [.people("Ahmed")]),
         c("with my family", [.people("my family")]),
+        c("with my kids", [.people("my kids")]),
         c("photos of me", [.people("me")]),
         c("show me videos", [videos]),
         c("with mom and dad", [.people("mom and dad")]),

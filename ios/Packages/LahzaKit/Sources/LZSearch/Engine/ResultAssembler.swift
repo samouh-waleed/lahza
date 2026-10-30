@@ -245,7 +245,8 @@ struct ResultAssembler {
 
     // MARK: Coverage
 
-    func coverage(searched: Int, index: SearchIndexContext, unreliable: Int, borrowed: Int) -> Coverage {
+    /// `since`: a free search's start (its caption names the window).
+    func coverage(searched: Int, index: SearchIndexContext, unreliable: Int, borrowed: Int, since: Date? = nil) -> Coverage {
         var notes: [String] = []
         if borrowed > 0 { notes.append("+\(borrowed.formatted(.number.locale(copy.locale))) without location from the same outing") }
         if query.plan.time != nil, unreliable > 0 {
@@ -259,8 +260,9 @@ struct ResultAssembler {
         }
         var header: String?
         if index.isPartial, let since = index.coveredSince { header = copy.partialHeader(since: since, zone: context.zone) }
+        let caption = copy.coverageCaption(searched: searched, index: index, since: since, now: context.time.now)
         return Coverage(searched: searched, libraryTotal: index.libraryTotal, isPartial: index.isPartial, coveredSince: index.coveredSince,
                         isLimited: index.isLimited, unlocatedShare: share, undatedExcluded: query.plan.time == nil ? 0 : unreliable,
-                        borrowedShown: borrowed, caption: copy.coverageCaption(searched: searched, index: index), header: header, notes: notes)
+                        borrowedShown: borrowed, caption: caption, header: header, notes: notes)
     }
 }

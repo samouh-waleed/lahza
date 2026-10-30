@@ -1,4 +1,5 @@
 import Foundation
+import GRDB
 import LZCore
 import LZGeo
 import LZLibrary
@@ -48,6 +49,82 @@ import Testing
         #expect(await search.engine.parse("my pitch", reader: search.index.reader).values == [.visual("pitch")])
         await search.engine.savedPlacesChanged()
         #expect(await search.engine.parse("my pitch", reader: search.index.reader).values == [.place(.alias(.saved(id), relation: .at))])
+    }
+
+    /// E22: "at my pitch" with no saved place of that name says so, as a place, with the examples under it, and never
+    /// asks Apple Maps; once saved, the name finds the place.
+    @Test func anUnsavedNameSaysSoAndIsNeverLookedUp() async throws {
+        let search = try await HeroSearch()
+        let examples = try await search.engine.examples(reader: search.index.reader)
+        let pitch = try await search.search("at my pitch")
+        let noMatch = try #require(pitch.noMatch)
+        #expect(noMatch.kind == .placeNotFound(.notSaved))
+        #expect(noMatch.headline == "You have no saved place called “my pitch”.")
+        #expect(noMatch.detail == "Save one from a moment.")
+        #expect(noMatch.offers.isEmpty && noMatch.examples == examples, "the examples are the next tap")
+        #expect(pitch.query.slots.map(\.chip) == ["My pitch"] && pitch.query.slots.map(\.isSupported) == [true], "a place chip, not “not yet”")
+        #expect(pitch.query.slots.first?.resolution == .place(.notFound(.notSaved)))
+        #expect(pitch.unsupportedNotice == nil)
+
+        let cabin = try await search.search("near our cabin")
+        #expect(cabin.noMatch?.headline == "You have no saved place called “our cabin”.")
+        #expect(cabin.query.slots.map(\.chip) == ["Near our cabin"])
+
+        // With dates, the search without the place is the offer.
+        let summer = try await search.search("at my pitch last summer")
+        #expect(summer.noMatch?.kind == .placeNotFound(.notSaved))
+        #expect(summer.noMatch?.offers.map(\.label) == ["Search without the place"] && summer.noMatch?.examples.isEmpty == true)
+        let lastSummer = try await search.search("last summer")
+        #expect(summer.noMatch?.offers.first?.count == lastSummer.items(.best).count)
+
+        // Next to a place that is found, it is left out like a second place.
+        let park = try await search.search("Al-Nakheel Park near my house")
+        #expect(park.noMatch == nil && park.query.slots.map(\.chip) == ["Al-Nakheel Park", "near my house"])
+        #expect(park.unsupported.map(\.kind) == [.place])
+        #expect(search.maps.calls.isEmpty, "none of these words went to Apple Maps")
+
+        // Words about what's in photos, people and home are as they were.
+        #expect(try await search.search("photos of my dog").noMatch?.kind == .onlyUnsupported)
+        #expect(try await search.search("my dog").query.slots.map(\.slot.kind) == [.visual])
+        #expect(try await search.search("with my kids").query.slots.map(\.slot.kind) == [.people])
+        for text in ["at home", "at my home"] {
+            let home = try await search.search(text)
+            #expect(home.noMatch == nil && home.query.slots.map(\.chip) == ["Home (estimated)"], "\(text)")
+        }
+        let soccer = try await search.search("soccer at Al-Nakheel Park")
+        #expect(soccer.query.slots.map(\.chip) == ["soccer", "Al-Nakheel Park"] && soccer.noMatch == nil)
+
+        // Saved, the same words find it; another unsaved name still says so.
+        let (_, center) = try await nakheel(search)
+        try await search.index.writer.savePlace(name: "My pitch", center: center, radius: 250, isHome: false)
+        await search.engine.savedPlacesChanged()
+        await search.index.indexer.settled()
+        let saved = try await search.search("at my pitch")
+        #expect(saved.noMatch == nil && saved.query.slots.map(\.chip) == ["My pitch"])
+        #expect(Set(saved.items(.best).map(\.number)) == Set(SeedScenario.hero.items(.nakheel).map(\.number)))
+        #expect(try await search.search("near our cabin").noMatch?.kind == .placeNotFound(.notSaved))
+        #expect(search.maps.calls.isEmpty)
+    }
+
+    /// "home" after the person chose No home says so; before Lahza has worked one out, it says that.
+    @Test func homeAfterNoHomeSaysYouChoseIt() async throws {
+        let search = try await HeroSearch()
+        #expect(try await search.search("home").noMatch == nil)
+        try await search.index.writer.setHome(.noHome)
+        await search.engine.savedPlacesChanged()
+        await search.index.indexer.settled()
+        let home = try await search.search("home")
+        #expect(home.noMatch?.kind == .placeNotFound(.choseNoHome))
+        #expect(home.noMatch?.headline == "You chose No home.")
+        #expect(home.noMatch?.detail == "Choose one in Settings › Saved places.")
+        #expect(home.query.slots.map(\.chip) == ["Home"])
+
+        let empty = try await HeroSearch(placeNames: false)
+        try await empty.index.database.write { db in try db.execute(sql: "DELETE FROM home_base") }
+        await empty.engine.releaseCaches()
+        let unknown = try await empty.search("at home")
+        #expect(unknown.noMatch?.kind == .placeNotFound(.noHome))
+        #expect(unknown.noMatch?.headline == "Lahza hasn’t worked out your home yet." && unknown.noMatch?.detail == "Save it from a photo.")
     }
 
     #if DEBUG

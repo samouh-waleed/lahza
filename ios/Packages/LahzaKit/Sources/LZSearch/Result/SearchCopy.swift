@@ -259,12 +259,17 @@ struct SearchCopy {
 
     /// "No matches in the last 12 months." — a free search whose matches are all older than it covers.
     func onlyEarlier(since: Date, now: Date) -> String {
+        "No matches in the \(lastPeriod(since: since, now: now))."
+    }
+
+    /// "last 12 months", "last month", "last 20 days": a free search's window, in whole months.
+    func lastPeriod(since: Date, now: Date) -> String {
         let days = max(0, now.timeIntervalSince(since) / 86_400)
         let months = Int((days / 30.436875).rounded())
         return switch months {
-        case 0: "No matches in the last \(Int(days.rounded())) days."
-        case 1: "No matches in the last month."
-        default: "No matches in the last \(months) months."
+        case 0: "last \(Int(days.rounded())) days"
+        case 1: "last month"
+        default: "last \(months) months"
         }
     }
 
@@ -288,12 +293,16 @@ struct SearchCopy {
 
     // MARK: Coverage
 
-    func coverageCaption(searched: Int, index: SearchIndexContext) -> String {
+    /// "Searched all 563 photos"; a free search (`since`) "Searched your last 12 months" (E20), its unlock row counting
+    /// the rest. Limited access and the first build's progress keep their own words, free or not: they say which photos
+    /// Lahza has, which the window doesn't change.
+    func coverageCaption(searched: Int, index: SearchIndexContext, since: Date?, now: Date) -> String {
         let count = searched.formatted(.number.locale(locale))
         if index.isLimited { return searched == 1 ? "Searching the 1 photo you’ve shared" : "Searching the \(count) photos you’ve shared" }
         if index.isPartial, let total = index.libraryTotal, total > searched {
             return "Searched \(count) of about \(total.formatted(.number.locale(locale))) so far"
         }
+        if let since { return "Searched your \(lastPeriod(since: since, now: now))" }
         return searched == 1 ? "Searched 1 photo" : "Searched all \(count) photos"
     }
 

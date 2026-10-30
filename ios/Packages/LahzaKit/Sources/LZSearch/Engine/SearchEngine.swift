@@ -110,14 +110,16 @@ public actor SearchEngine {
             // Everything that matched is older than a free search covers: say so, never "nothing".
             noMatch = NoMatch(kind: .onlyEarlier, headline: copy.onlyEarlier(since: date, now: clock.now), detail: nil, offers: [], examples: [])
         } else if !matched {
-            let builder = NoMatchBuilder(snapshot: snapshot, query: query, copy: copy, context: context, index: index, since: since)
+            let builder = NoMatchBuilder(snapshot: snapshot, query: query, copy: copy, context: context, index: index, since: since,
+                                         showWeaker: request.showWeaker)
             noMatch = try await builder.build(reader: reader)
             // No offer left (a lone name no place confirms, words Lahza can't search yet): the examples are the next tap.
             if noMatch?.offers.isEmpty == true, let examples = try? await examples(reader: reader, index: index, scope: request.scope) {
                 noMatch?.examples = examples
             }
         }
-        let coverage = assembler.coverage(searched: snapshot.count, index: index, unreliable: unreliable, borrowed: built.borrowed)
+        let start: Date? = if case .since(let date) = request.scope { date } else { nil }
+        let coverage = assembler.coverage(searched: snapshot.count, index: index, unreliable: unreliable, borrowed: built.borrowed, since: start)
         timings.group = ContinuousClock.now - groupStarted
         timings.total = ContinuousClock.now - started
 
@@ -240,7 +242,8 @@ public actor SearchEngine {
     /// neither blocks the place nor spends the query's Apple Maps search. Once a place is searched, the other place
     /// slots are left out: a leftover word as words about what's in the photos, a name as a second place. Words that
     /// only might be a place and couldn't be looked up or confirmed ("Louvre" when Apple Maps names no place exactly
-    /// that) are the query's failing place only when no other place was found; otherwise they are left out the same way.
+    /// that), and "my …" naming no saved place, are the query's failing place only when no other place was found;
+    /// otherwise they are left out the same way.
     private func preparePlaces(_ parsed: ParsedQuery, overrides: ResolutionOverrides, environment: PlaceEnvironment, query: inout PreparedQuery,
                                reader: IndexReader, context: EngineContext, isRerun: Bool,
                                progress: (@Sendable (SearchProgress) -> Void)?) async throws -> [Int: ResolvedSlot] {
@@ -269,7 +272,7 @@ public actor SearchEngine {
             if let missed = environment.allowance.missed { query.appleMapsMissed = missed }
             switch resolution {
             case .notFound(let reason):
-                if reason == .unconfirmed || expression.isMaybe {
+                if reason == .unconfirmed || reason == .notSaved || expression.isMaybe {
                     unresolved.append((slot, expression, reason, phrase, rank))
                 } else {
                     query.placeFailure = (slot.id, reason, phrase)

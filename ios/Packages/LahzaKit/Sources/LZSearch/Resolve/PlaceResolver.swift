@@ -133,7 +133,10 @@ public actor PlaceResolver {
     private func resolveExpression(_ expression: PlaceExpression, in environment: PlaceEnvironment) async throws -> PlaceResolution {
         switch expression {
         case .alias(.home, _):
-            return try await home(in: environment).map { .resolved($0, alternatives: []) } ?? .notFound(.noHome)
+            if let home = try await home(in: environment) { return .resolved(home, alternatives: []) }
+            return .notFound(try await environment.reader.homeSetting() == .noHome ? .choseNoHome : .noHome)
+        case .alias(.unsaved, _):
+            return .notFound(.notSaved)
         case .alias(.saved(let id), _):
             guard let saved = try await environment.reader.savedPlaces().first(where: { $0.id == id }) else { return .notFound(.notFound) }
             return .resolved(try await savedCandidate(saved, in: environment), alternatives: [])

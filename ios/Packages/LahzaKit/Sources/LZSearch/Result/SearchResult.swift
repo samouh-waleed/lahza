@@ -285,7 +285,8 @@ public struct Coverage: Sendable, Hashable {
     public var undatedExcluded: Int
     /// Hits whose location comes from the same outing.
     public var borrowedShown: Int
-    /// "Searched all 563 photos", "Searched 12,400 of about 31,204 so far", "Searching the 40 photos you've shared".
+    /// "Searched all 563 photos", "Searched your last 12 months" (free), "Searched 12,400 of about 31,204 so far",
+    /// "Searching the 40 photos you've shared".
     public var caption: String
     /// While the first build runs: "Searched your photos since Mar 2021, still reading older ones".
     public var header: String?
