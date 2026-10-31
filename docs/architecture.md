@@ -53,7 +53,7 @@ P1 order:
 ### Local index
 - **SQLite (GRDB)** holds metadata, labels, moments, places, saved places, name albums, and a full-text (FTS5) index of text found in photos.
 - **A flat file of embedding vectors** (`Index/vectors.lzvf`, `VectorStore`) holds about 1.5 KB per photo at 16-bit. Its header names the model and carries the index's identity, so a new model or a rebuilt index (new asset ids) starts it again.
-- Search compares the query against every vector directly. On a Mac, 100k photos take about 8 ms (16-bit to 32-bit in blocks, then one matrix-vector product); we haven't measured an iPhone yet.
+- Search compares the query against every vector directly. On a Mac, 100k photos take about 7–8 ms (16-bit to 32-bit in blocks, then one matrix-vector product); we haven't measured an iPhone yet.
 - The index is protected with iOS data protection and excluded from backups.
 - It is a cache of the library (decision 33): one SQLite file under Application Support. A damaged file, or one from a newer build, is rebuilt from the library at launch, keeping saved places. Revoking photo access deletes it.
 - Sync (`LZIndex`): one writer applies PhotoKit's persistent-history changes since the saved token, and reads the whole library instead when the history can't answer (first run, an expired token, a very large change, limited access). A full read goes newest first and saves its progress with every batch, so recent photos are searchable early and a killed app resumes where it stopped.

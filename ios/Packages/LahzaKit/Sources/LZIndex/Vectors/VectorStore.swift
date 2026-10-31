@@ -1,4 +1,5 @@
 import Accelerate
+import Darwin
 import Foundation
 import LZCore
 internal import GRDB
@@ -11,6 +12,10 @@ internal import GRDB
 /// another model, size or identity, so a new model re-embeds the library and vectors never meet the ids of a rebuilt
 /// index. Search maps the file and scores every row in blocks: 16-bit to 32-bit with vImage, then one
 /// matrix-vector product with vDSP.
+///
+/// Hold one store per index. Opening the file again, or finding it no longer current, retires the earlier store.
+/// A retired store reads and writes only its own file descriptor: it never reads someone else's file, and its
+/// writes are lost.
 public actor VectorStore {
     public static let fileName = "vectors.lzvf"
     static let magic = Data("LZVF".utf8)
@@ -28,8 +33,15 @@ public actor VectorStore {
         case existing
         /// There was none.
         case created
-        /// It was for another model, dimension or index, or unreadable: removed and started again.
+        /// It was for another model, dimension or index, or not a vector file: removed and started again.
         case discarded(reason: String)
+    }
+
+    /// Where each asset's row is: what the file says, never ahead of it.
+    struct Table: Sendable {
+        var rows = 0
+        var slots: [Int64: Int] = [:]
+        var freeRows: [Int] = []
     }
 
     public nonisolated let modelID: String
@@ -41,17 +53,15 @@ public actor VectorStore {
     /// An in-memory index keeps its vectors in a temporary file, removed with the store.
     private let isTemporary: Bool
     private let handle: FileHandle
-    private var rows: Int
-    private var slots: [Int64: Int]
-    private var freeRows: [Int]
-    /// The file mapped for search; dropped by every write.
+    private var table: Table
+    /// The file mapped for search, through ``handle``; dropped by every write.
     private var mapped: Data?
     private static let log = Log("vectors")
 
     private nonisolated var stride: Int { 8 + dimension * 2 }
 
     private init(url: URL, isTemporary: Bool, identity: UUID, database: IndexDatabase, modelID: String, dimension: Int,
-                 opening: Opening, handle: FileHandle, rows: Int, slots: [Int64: Int], freeRows: [Int]) {
+                 opening: Opening, handle: FileHandle, table: Table) {
         self.url = url
         self.isTemporary = isTemporary
         self.identity = identity
@@ -60,9 +70,7 @@ public actor VectorStore {
         self.dimension = dimension
         self.opening = opening
         self.handle = handle
-        self.rows = rows
-        self.slots = slots
-        self.freeRows = freeRows
+        self.table = table
     }
 
     deinit {
@@ -72,7 +80,8 @@ public actor VectorStore {
 
     // MARK: Opening
 
-    /// Opens the index's vector file for `modelID`, creating it, or discarding one that doesn't match.
+    /// Opens the index's vector file for `modelID`, creating it, or discarding one that doesn't match. A file that
+    /// can't be read right now (out of descriptors, an I/O error) throws and is left for a later try.
     public static func open(_ database: IndexDatabase, modelID: String, dimension: Int) async throws -> VectorStore {
         precondition(!modelID.isEmpty && modelID.utf8.count <= modelIDLength, "model id must be 1–\(modelIDLength) bytes")
         precondition(dimension > 0)
@@ -89,7 +98,7 @@ public actor VectorStore {
         let expected = header(identity: identity, modelID: modelID, dimension: dimension)
         var opening = Opening.created
         if FileManager.default.fileExists(atPath: url.path) {
-            if let reason = mismatch(at: url, expected: expected) {
+            if let reason = try mismatch(at: url, expected: expected) {
                 try FileManager.default.removeItem(at: url)
                 opening = .discarded(reason: reason)
                 log.notice("Vector file discarded: \(reason)", privacy: .public)
@@ -101,23 +110,9 @@ public actor VectorStore {
             guard FileManager.default.createFile(atPath: url.path, contents: expected) else { throw CocoaError(.fileWriteUnknown) }
         }
         let handle = try FileHandle(forUpdating: url)
-        // Index the rows, dropping a partial last row (a write cut short).
-        let stride = 8 + dimension * 2
-        let size = Int(try handle.seekToEnd())
-        let rows = (size - headerSize) / stride
-        if headerSize + rows * stride != size { try handle.truncate(atOffset: UInt64(headerSize + rows * stride)) }
-        var slots: [Int64: Int] = [:], freeRows: [Int] = []
-        if rows > 0 {
-            let data = try Data(contentsOf: url, options: .alwaysMapped)
-            data.withUnsafeBytes { raw in
-                for row in 0..<rows {
-                    let id = raw.loadUnaligned(fromByteOffset: headerSize + row * stride, as: Int64.self)
-                    if id == 0 { freeRows.append(row) } else { slots[id] = row }
-                }
-            }
-        }
+        let table = try scan(handle, stride: 8 + dimension * 2)
         return VectorStore(url: url, isTemporary: isTemporary, identity: identity, database: database, modelID: modelID,
-                           dimension: dimension, opening: opening, handle: handle, rows: rows, slots: slots, freeRows: freeRows)
+                           dimension: dimension, opening: opening, handle: handle, table: table)
     }
 
     static func header(identity: UUID, modelID: String, dimension: Int) -> Data {
@@ -133,11 +128,13 @@ public actor VectorStore {
         return data
     }
 
-    /// Why the file at `url` can't be used with `expected`'s model, dimension and identity, or nil.
-    private static func mismatch(at url: URL, expected: Data) -> String? {
-        guard let handle = try? FileHandle(forReadingFrom: url) else { return "unreadable" }
+    /// Why the file at `url` can't be used with `expected`'s model, dimension and identity, or nil. Throws when the
+    /// file can't be read, which says nothing about its contents.
+    private static func mismatch(at url: URL, expected: Data) throws -> String? {
+        let handle = try FileHandle(forReadingFrom: url)
         defer { try? handle.close() }
-        guard let found = try? handle.read(upToCount: headerSize), found.count == headerSize else { return "no header" }
+        let found = try handle.read(upToCount: headerSize) ?? Data()
+        guard found.count == headerSize else { return "no header" }
         if found.prefix(8) != expected.prefix(8) { return found.prefix(4) == magic ? "format" : "not a vector file" }
         if found[8..<12] != expected[8..<12] { return "dimension" }
         if found[32..<64] != expected[32..<64] { return "model" }
@@ -145,22 +142,54 @@ public actor VectorStore {
         return nil
     }
 
+    /// The rows the file holds, after dropping a partial last row (a write cut short).
+    private static func scan(_ handle: FileHandle, stride: Int) throws -> Table {
+        let size = Int(try handle.seekToEnd())
+        let rows = max(0, (size - headerSize) / stride)
+        if headerSize + rows * stride != size { try handle.truncate(atOffset: UInt64(headerSize + rows * stride)) }
+        var table = Table(rows: rows)
+        guard rows > 0 else { return table }
+        try map(handle).withUnsafeBytes { raw in
+            for row in 0..<min(rows, (raw.count - headerSize) / stride) {
+                let id = raw.loadUnaligned(fromByteOffset: headerSize + row * stride, as: Int64.self)
+                if id == 0 { table.freeRows.append(row) } else { table.slots[id] = row }
+            }
+        }
+        return table
+    }
+
+    /// The whole file behind `handle`, mapped read-only through that descriptor (so it is always this store's file).
+    private static func map(_ handle: FileHandle) throws -> Data {
+        let descriptor = handle.fileDescriptor
+        var info = stat()
+        guard fstat(descriptor, &info) == 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+        let size = Int(info.st_size)
+        guard size > 0 else { return Data() }
+        let address = mmap(nil, size, PROT_READ, MAP_SHARED, descriptor, 0)
+        guard let address, address != UnsafeMutableRawPointer(bitPattern: -1) else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+        return Data(bytesNoCopy: address, count: size, deallocator: .custom { pointer, count in munmap(pointer, count) })
+    }
+
     // MARK: Reading
 
     /// Assets with a vector.
-    public var count: Int { slots.count }
+    public var count: Int { table.slots.count }
 
-    public func contains(_ assetID: Int64) -> Bool { slots[assetID] != nil }
+    public func contains(_ assetID: Int64) -> Bool { table.slots[assetID] != nil }
 
-    /// Whether the index still has this file's asset ids (false after Settings › Rebuild): if not, open it again.
+    /// Whether the index still has this file's asset ids (false after Settings › Rebuild). If not, retire this store
+    /// and open the file again.
     public func isCurrent() async throws -> Bool {
         try await database.isVectorIdentity(identity)
     }
 
     /// The stored vector (16-bit, so within about 0.001 of what was written), or nil.
     public func vector(for assetID: Int64) throws -> [Float]? {
-        guard let row = slots[assetID] else { return nil }
+        guard let row = table.slots[assetID] else { return nil }
         let data = try mapping()
+        guard Self.headerSize + (row + 1) * stride <= data.count else { return nil }
         var vector = [Float](repeating: 0, count: dimension)
         data.withUnsafeBytes { raw in
             vector.withUnsafeMutableBufferPointer { floats in
@@ -175,12 +204,14 @@ public actor VectorStore {
     public func scores(for query: [Float]) throws -> VectorScores {
         precondition(query.count == dimension, "query has \(query.count) dimensions, not \(dimension)")
         var result = VectorScores(assetIDs: [], scores: [])
-        guard rows > 0 else { return result }
-        result.assetIDs.reserveCapacity(slots.count)
-        result.scores.reserveCapacity(slots.count)
+        guard table.rows > 0 else { return result }
+        result.assetIDs.reserveCapacity(table.slots.count)
+        result.scores.reserveCapacity(table.slots.count)
         let unit = Self.normalized(query)
         let data = try mapping()
-        let dimension = dimension, stride = stride, rows = rows
+        let dimension = dimension, stride = stride
+        // Never past what is mapped, whatever the table says.
+        let rows = min(table.rows, max(0, (data.count - Self.headerSize) / stride))
         var floats = [Float](repeating: 0, count: Self.block * dimension)
         var products = [Float](repeating: 0, count: Self.block)
         data.withUnsafeBytes { raw in
@@ -207,25 +238,28 @@ public actor VectorStore {
 
     // MARK: Writing
 
-    /// Stores each asset's vector (normalised first), replacing any it had; freed rows are reused first.
+    /// Stores each asset's vector (normalised first), replacing any it had; freed rows are reused first. The rows are
+    /// planned on a copy of the table, which is kept only once every write has landed. After a failed write the table
+    /// is read again from the file.
     public func upsert(_ entries: [VectorEntry]) throws {
         guard !entries.isEmpty else { return }
         mapped = nil
+        var planned = table
         var writes: [(row: Int, bytes: Data)] = []
         writes.reserveCapacity(entries.count)
         for entry in entries {
             precondition(entry.assetID > 0, "asset ids start at 1")
             precondition(entry.vector.count == dimension, "vector has \(entry.vector.count) dimensions, not \(dimension)")
             let row: Int
-            if let existing = slots[entry.assetID] {
+            if let existing = planned.slots[entry.assetID] {
                 row = existing
-            } else if let free = freeRows.popLast() {
+            } else if let free = planned.freeRows.popLast() {
                 row = free
             } else {
-                row = rows
-                rows += 1
+                row = planned.rows
+                planned.rows += 1
             }
-            slots[entry.assetID] = row
+            planned.slots[entry.assetID] = row
             var bytes = Data(capacity: stride)
             withUnsafeBytes(of: entry.assetID.littleEndian) { bytes.append(contentsOf: $0) }
             bytes.append(Self.narrow(Self.normalized(entry.vector)))
@@ -233,29 +267,37 @@ public actor VectorStore {
         }
         // Consecutive rows (a batch of new assets) go out in one write.
         writes.sort { $0.row < $1.row }
-        var index = 0
-        while index < writes.count {
-            var run = writes[index].bytes
-            var next = index + 1
-            while next < writes.count, writes[next].row == writes[next - 1].row + 1 {
-                run.append(writes[next].bytes)
-                next += 1
+        do {
+            var index = 0
+            while index < writes.count {
+                var run = writes[index].bytes
+                var next = index + 1
+                while next < writes.count, writes[next].row == writes[next - 1].row + 1 {
+                    run.append(writes[next].bytes)
+                    next += 1
+                }
+                try handle.seek(toOffset: UInt64(Self.headerSize + writes[index].row * stride))
+                try handle.write(contentsOf: run)
+                index = next
             }
-            try handle.seek(toOffset: UInt64(Self.headerSize + writes[index].row * stride))
-            try handle.write(contentsOf: run)
-            index = next
+        } catch {
+            if let reread = try? Self.scan(handle, stride: stride) { table = reread }
+            throw error
         }
+        table = planned
     }
 
-    /// Forgets the assets' vectors; their rows are reused by later upserts.
+    /// Forgets the assets' vectors; their rows are reused by later upserts. Each is forgotten once its row is freed
+    /// in the file.
     public func remove(_ assetIDs: some Sequence<Int64>) throws {
         mapped = nil
         let empty = Data(count: 8)
         for id in assetIDs {
-            guard let row = slots.removeValue(forKey: id) else { continue }
+            guard let row = table.slots[id] else { continue }
             try handle.seek(toOffset: UInt64(Self.headerSize + row * stride))
             try handle.write(contentsOf: empty)
-            freeRows.append(row)
+            table.slots.removeValue(forKey: id)
+            table.freeRows.append(row)
         }
     }
 
@@ -263,7 +305,7 @@ public actor VectorStore {
 
     private func mapping() throws -> Data {
         if let mapped { return mapped }
-        let data = try Data(contentsOf: url, options: .alwaysMapped)
+        let data = try Self.map(handle)
         mapped = data
         return data
     }

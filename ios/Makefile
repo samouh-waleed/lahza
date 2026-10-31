@@ -71,6 +71,8 @@ perf-kit:           ## Opt-in performance tests on the Mac, optimised
 	LZ_PERF=1 LZ_MODEL_DIR=$(abspath $(MODELS)) swift test --package-path $(KIT) -c release -Xswiftc -DDEBUG --jobs $(JOBS) --filter Performance
 
 model:              ## Convert SigLIP 2 to Core ML (Tools/model) into .build/models, then check it from Swift
+	@$(PYTHON) -c 'import sys; sys.exit(not (3, 10) <= sys.version_info[:2] <= (3, 13))' \
+		|| { echo 'make model needs Python 3.10–3.13 (torch 2.7, numpy 2.2): make model PYTHON=python3.13'; exit 1; }
 	$(PYTHON) -m venv $(MODEL_WORK)/venv
 	$(MODEL_WORK)/venv/bin/python -m pip install --quiet --disable-pip-version-check -r Tools/model/requirements.txt
 	HF_HOME=$(abspath $(MODEL_WORK))/hf $(MODEL_WORK)/venv/bin/python Tools/model/convert_siglip2.py --out $(MODELS)
@@ -80,8 +82,10 @@ model-clean:        ## Delete the conversion's virtualenv and the downloaded wei
 	rm -rf $(MODEL_WORK)
 
 model-speed-sim: project grant-photos  ## The image tower over the seeded simulator's thumbnails (CPU only there), after `make model`
+	@mkdir -p .build
 	set -o pipefail && TEST_RUNNER_LZ_MODEL_DIR=$(abspath $(MODELS)) $(XCB) test -only-testing:LahzaTests/ModelSpeedTests -collect-test-diagnostics never \
-		| xcbeautify --quiet --is-ci --preserve-unbeautified | grep -e 'MODEL simulator' -e error -e failed
+		| tee .build/model-speed-sim.log | xcbeautify --quiet --is-ci --preserve-unbeautified | grep -v -e IDESchemeActionSDKRecord -e IDETestOperationsObserverDebug; \
+		status=$$?; grep -o 'MODEL simulator.*' .build/model-speed-sim.log; exit $$status
 
 run: build          ## Install and launch on the simulator
 	xcrun simctl boot "$(SIM)" 2>/dev/null || true

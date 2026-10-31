@@ -120,6 +120,35 @@ struct VectorStoreTests {
         }
     }
 
+    @Test func aRetiredStoreKeepsReadingItsOwnFile() async throws {
+        try await Fixture.withTemporaryDirectory { url in
+            let database = try IndexDatabase.open(.directory(url))
+            let old = try await open(database)
+            try await old.upsert((1...3).map { VectorEntry(assetID: Int64($0), vector: vector($0)) })
+            // A model switch replaces the file while the old store is still held.
+            let new = try await open(database, model: "other-model")
+            #expect(new.opening == .discarded(reason: "model"))
+            #expect(try await old.scores(for: vector(2)).top(1).first?.assetID == 2, "its own file, not the new empty one")
+            #expect(await new.count == 0)
+            await database.close()
+        }
+    }
+
+    @Test func aFileThatCantBeReadNowIsKeptForLater() async throws {
+        try await Fixture.withTemporaryDirectory { url in
+            let database = try IndexDatabase.open(.directory(url))
+            try await open(database).upsert([VectorEntry(assetID: 1, vector: vector(0))])
+            let file = url.appendingPathComponent("Index/\(VectorStore.fileName)").path
+            try FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: file)
+            await #expect(throws: (any Error).self) { try await open(database) }
+            try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: file)
+            let later = try await open(database)
+            #expect(later.opening == .existing, "never discarded for a read error")
+            #expect(await later.count == 1)
+            await database.close()
+        }
+    }
+
     @Test func settingsRebuildRetiresTheVectors() async throws {
         let database = try IndexDatabase.open(.inMemory)
         let indexer = Fixture.indexer(database, FakeLibraryReader(.explicit(Fixture.library(5))))
