@@ -274,6 +274,14 @@ import Observation
         guard let engine, let reader = index.reader else { return nil }
         return try await engine.lab(text, reader: reader, appleMaps: index.appleMapsNames)
     }
+
+    /// The scoreboard's search: `request` over the index as Ask would run it, without showing it (nil while search
+    /// or the index is off).
+    public func scoreboardSearch(_ request: SearchRequest) async throws -> SearchResult? {
+        guard let engine, let reader = index.reader else { return nil }
+        let context = SearchIndexContext(index.status, appleMapsEnabled: index.appleMapsNames)
+        return try await engine.search(request, reader: reader, writer: index.writer, index: context)
+    }
     #endif
 
     /// Returns once the search, preview and examples in flight are done (tests).

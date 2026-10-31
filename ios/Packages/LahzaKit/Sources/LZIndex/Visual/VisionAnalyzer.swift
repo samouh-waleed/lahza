@@ -1,11 +1,13 @@
 import CoreGraphics
 import Foundation
+import LZEmbedding
 import LZLibrary
 import Vision
 
 /// Tags photos with Apple's built-in image tagger, on the iPhone, no download (content search L2): one local image per
 /// photo (network off; a smaller local one of at least `minimumSide` pixels when the original is only in iCloud), and
 /// one Vision perform of `ClassifyImageRequest` (revision 2), face and person rectangles and the aesthetics scores.
+/// The same image goes through the embedding model when one is given (L3; Core ML stretches it to the model's square).
 ///
 /// A tag is kept when it passes Apple's high-recall filter, `hasMinimumPrecision(0.1, forRecall: 0.8)`, with its
 /// confidence and whether it passes the 0.7- and 0.9-precision filters (``VisualLabelFlags``).
@@ -25,11 +27,17 @@ public struct VisionAnalyzer: VisualAnalyzer {
         ClassifyImageRequest().supportedIdentifiers
     }
 
-    public func analyze(_ asset: VisualAsset) async -> VisualOutcome {
+    public func analyze(_ asset: VisualAsset, tags: Bool, embedder: (any ImageEmbedder)?) async -> VisualOutcome {
         switch await images.analysisImage(for: asset.localID, side: side, minimumSide: minimumSide) {
         case .image(let image), .reduced(let image):
-            guard let analysis = try? await Self.analyze(image) else { return .failed }
-            return .analysed(analysis)
+            var analysis: VisualAnalysis?
+            if tags {
+                guard let found = try? await Self.analyze(image) else { return .failed }
+                analysis = found
+            }
+            let vector = if let embedder { try? await embedder.embed(image) } else { [Float]?.none }
+            if !tags, vector == nil { return .failed }
+            return .analysed(analysis, vector: vector)
         case .inCloud:
             return .inCloud
         case .missing:

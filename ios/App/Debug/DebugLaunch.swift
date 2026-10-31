@@ -1,4 +1,5 @@
 import LZBilling
+import LZEmbedding
 import LZCore
 import Foundation
 import LZGeo
@@ -24,6 +25,9 @@ import LZSearch
 /// | `-LZIndexPace <ms>`       | sleeps per scan batch of 50, to watch (and kill) a scan          |
 /// | `-LZNow <ISO 8601>`       | pins "now" (`2026-10-28T12:00:00+03:00`); time then runs on      |
 /// | `-LZQuery "<text>"`       | selects Ask and searches once the index is ready (or after 20 s)  |
+/// | `-LZModelDir <path>`      | the image and text model's folder (`make model`'s output); see ``ModelLocator`` |
+/// | `-LZModel 0`              | no model, even when one is on the iPhone (tags only)             |
+/// | `-LZLabAuto 1`            | Label lab runs its checks once the pass is done and prints the report (with `-LZRoute label-lab`) |
 /// | `-LZResultsLayout moments\|grid` | Ask's results start as moment cards or the grid (not remembered) |
 /// | `-LZRoute <name>`         | opens a route once launch settles (see ``Route/debugName``)      |
 /// | `-LZTheme light\|dark`    | forces an appearance                                             |
@@ -67,6 +71,12 @@ struct DebugLaunch {
     var query: String?
     /// `-LZResultsLayout`: the layout Ask's results start in.
     var resultsLayout: SearchStore.ResultsLayout?
+    /// `-LZModelDir`: the model folder to use.
+    var modelDirectory: String?
+    /// `-LZModel 0`: never use a model.
+    var model: Bool?
+    /// `-LZLabAuto 1`: the label lab runs its checks by itself.
+    var labAuto = false
     var route: Route?
     var theme: AppearanceMode?
     var reduceMotion = false
@@ -116,6 +126,9 @@ struct DebugLaunch {
             now: value("LZNow").flatMap(Self.date),
             query: value("LZQuery").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.flatMap { $0.isEmpty ? nil : $0 },
             resultsLayout: value("LZResultsLayout").flatMap { SearchStore.ResultsLayout(rawValue: $0.lowercased()) },
+            modelDirectory: value("LZModelDir").flatMap { $0.isEmpty ? nil : $0 },
+            model: choice("LZModel"),
+            labAuto: flag("LZLabAuto"),
             route: value("LZRoute").flatMap(Route.init(debugName:)),
             theme: value("LZTheme").flatMap(AppearanceMode.init(rawValue:)),
             reduceMotion: flag("LZReduceMotion"),
@@ -210,6 +223,16 @@ struct DebugLaunch {
         if let query {
             dependencies.queryAtLaunch = query
             labels.append("query")
+        }
+        // The image model goes with Vision only (the seed's and the fakes' pictures are drawn).
+        if dependencies.visual == .vision, model != false, let folder = ModelLocator.folder(override: modelDirectory) {
+            dependencies.embedders = ModelFolderEmbedderSource(folder: folder)
+            labels.append("model")
+        }
+        if dependencies.visual != .vision { dependencies.albums = FakeAlbumSource() }
+        if labAuto {
+            dependencies.labelLabAuto = true
+            labels.append("lab-auto")
         }
         #endif
         if let resultsLayout {

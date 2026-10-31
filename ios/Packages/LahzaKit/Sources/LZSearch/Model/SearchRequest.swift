@@ -11,15 +11,31 @@ public struct SearchRequest: Sendable, Hashable {
     /// locked after tiering, never shown).
     public var scope: SearchScope
     public var showWeaker: Bool
+    /// What finds content words: everything the index has, unless the scoreboard measures a layer without the others.
+    public var content: ContentSignals
 
     public init(text: String, parsed: ParsedQuery? = nil, overrides: ResolutionOverrides = .init(), scope: SearchScope = .wholeLibrary,
-                showWeaker: Bool = false) {
+                showWeaker: Bool = false, content: ContentSignals = .all) {
         self.text = text
         self.parsed = parsed
         self.overrides = overrides
         self.scope = scope
         self.showWeaker = showWeaker
+        self.content = content
     }
+}
+
+/// The signals that find words about what's in photos (the scoreboard's layers, content search 5a and 8).
+public struct ContentSignals: OptionSet, Sendable, Hashable {
+    public let rawValue: Int
+    public init(rawValue: Int) { self.rawValue = rawValue }
+
+    /// The Vision pass's photo tags (Milestone A).
+    public static let tags = ContentSignals(rawValue: 1)
+
+    public static let all: ContentSignals = [.tags]
+    /// Search v0: places, dates and order only.
+    public static let none: ContentSignals = []
 }
 
 public enum SearchScope: Sendable, Hashable {

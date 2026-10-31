@@ -44,8 +44,8 @@ let package = Package(
         .target(name: "LZLibrary", dependencies: ["LZCore", "LZGeo"]),
         // The search index: GRDB storage (one SQLite file, a rebuildable cache), library sync, the structure pass
         // (zones, places, moments, home bases, trips), Apple Maps place names, the vector file of embeddings, read
-        // models and the stores the app observes. GRDB stays inside this module (`internal import`), so the app and later modules never see it.
-        .target(name: "LZIndex", dependencies: ["LZCore", "LZGeo", "LZLibrary", .product(name: "GRDB", package: "GRDB.swift")]),
+        // models and the stores the app observes; the Vision and embedding passes run the image tower through LZEmbedding. GRDB stays inside this module (`internal import`), so the app and later modules never see it.
+        .target(name: "LZIndex", dependencies: ["LZCore", "LZGeo", "LZLibrary", "LZEmbedding", .product(name: "GRDB", package: "GRDB.swift")]),
         // Search: the query model (slots tied to spans, ready for a Foundation Models parser later), the English rules
         // parser, the time and place resolvers and the words mapped to photo tags; then scoring, tiers, grouping and
         // reasons over the index.
@@ -64,7 +64,7 @@ let package = Package(
         .testTarget(name: "LZDesignTests", dependencies: ["LZDesign"]),
         .testTarget(name: "LZLibraryTests", dependencies: ["LZLibrary", "LZGeo"]),
         .testTarget(name: "LZGeoTests", dependencies: ["LZGeo"]),
-        .testTarget(name: "LZIndexTests", dependencies: ["LZIndex", "LZLibrary", "LZGeo", "LZCore", .product(name: "GRDB", package: "GRDB.swift")]),
+        .testTarget(name: "LZIndexTests", dependencies: ["LZIndex", "LZLibrary", "LZGeo", "LZCore", "LZEmbedding", .product(name: "GRDB", package: "GRDB.swift")]),
         .testTarget(name: "LZEmbeddingTests", dependencies: ["LZEmbedding"]),
         .testTarget(name: "LZSearchTests", dependencies: ["LZSearch", "LZIndex", "LZLibrary", "LZGeo", "LZCore", .product(name: "GRDB", package: "GRDB.swift")]),
     ]

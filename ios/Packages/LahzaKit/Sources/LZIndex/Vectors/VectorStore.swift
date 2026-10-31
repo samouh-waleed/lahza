@@ -179,6 +179,9 @@ public actor VectorStore {
 
     public func contains(_ assetID: Int64) -> Bool { table.slots[assetID] != nil }
 
+    /// The assets with a vector, in no order.
+    public var assetIDs: [Int64] { Array(table.slots.keys) }
+
     /// Whether the index still has this file's asset ids (false after Settings › Rebuild). If not, retire this store
     /// and open the file again.
     public func isCurrent() async throws -> Bool {

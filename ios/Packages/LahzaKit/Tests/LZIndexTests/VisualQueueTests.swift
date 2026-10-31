@@ -2,6 +2,7 @@ import CoreGraphics
 import Foundation
 import GRDB
 import LZCore
+import LZEmbedding
 import LZGeo
 import LZLibrary
 import Synchronization
@@ -29,7 +30,7 @@ import Testing
 
         func supportedLabels() async -> [String] { state.withLock { $0.labels } }
 
-        func analyze(_ asset: VisualAsset) async -> VisualOutcome {
+        func analyze(_ asset: VisualAsset, tags _: Bool, embedder _: (any ImageEmbedder)?) async -> VisualOutcome {
             state.withLock { $0.asked.append(asset.localID) }
             if inCloud.contains(asset.localID) { return .inCloud }
             return .analysed(VisualAnalysis(labels: tags[asset.localID] ?? [], faces: 1, humans: 2, largestFace: 0.1, isUtility: false, aesthetic: 0.3))
@@ -228,12 +229,13 @@ import Testing
     @Test func theSeedStandInTagsTheSeed() async throws {
         let analyzer = SeedVisualAnalyzer(labels: ["soccer"])
         let pitch = try #require(SeedScenario.hero.items.first { $0.tag == .nakheel && $0.number % 4 == 1 })
-        guard case .analysed(let analysis) = await analyzer.analyze(VisualAsset(id: 1, localID: "elsewhere", createdUTC: pitch.utc)) else {
+        guard case .analysed(let analysis?, _) = await analyzer.analyze(VisualAsset(id: 1, localID: "elsewhere", createdUTC: pitch.utc), tags: true,
+                                                                        embedder: nil) else {
             Issue.record("not analysed")
             return
         }
         #expect(analysis.labels.contains(VisualLabel(name: "soccer", confidence: 0.9, flags: [.likely, .precise])))
         let orphan = try #require(SeedScenario.hero.items.first { $0.tag == .orphans })
-        #expect(await analyzer.analyze(VisualAsset(id: 2, localID: orphan.id, createdUTC: nil)) == .inCloud)
+        #expect(await analyzer.analyze(VisualAsset(id: 2, localID: orphan.id, createdUTC: nil), tags: true, embedder: nil) == .inCloud)
     }
 }

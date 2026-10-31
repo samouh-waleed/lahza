@@ -1,4 +1,5 @@
 import CoreGraphics
+import CoreML
 import Foundation
 import ImageIO
 import Testing
@@ -32,6 +33,30 @@ struct EmbeddingModelTests {
         try Data(Self.manifest.utf8).write(to: folder.appendingPathComponent(EmbeddingModel.manifestName))
         await #expect(throws: EmbeddingError.missingModel("SigLIP2Image.mlmodelc")) { try await CoreMLImageEmbedder.load(from: folder) }
         await #expect(throws: EmbeddingError.missingModel("SigLIP2Text.mlmodelc")) { try await CoreMLTextEmbedder.load(from: folder) }
+    }
+
+    @Test func aModelFolderSourceReadsTheManifestAndLoadsLater() async throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("lz-model-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        #expect(ModelFolderEmbedderSource(folder: folder).model == nil, "no manifest, no model")
+
+        try Data(Self.manifest.utf8).write(to: folder.appendingPathComponent(EmbeddingModel.manifestName))
+        let source = ModelFolderEmbedderSource(folder: folder)
+        #expect(source.model?.id == "siglip2-b16-256")
+        await #expect(throws: EmbeddingError.missingModel("SigLIP2Image.mlmodelc")) { try await source.embedder(.foreground) }
+        #expect(await source.lastLoad() == nil)
+        #expect(ComputeMode.foreground.computeUnits == .all && ComputeMode.background.computeUnits == .cpuOnly)
+    }
+
+    @Test func anEmptyOrBrokenOutputIsNoVector() throws {
+        func output(_ values: [Float]) throws -> any MLFeatureProvider {
+            try MLDictionaryFeatureProvider(dictionary: [CoreMLNetwork.output: MLMultiArray(MLShapedArray<Float>(scalars: values, shape: [1, values.count]))])
+        }
+        #expect(throws: EmbeddingError.unexpectedOutput) { try CoreMLNetwork.embedding(try output([0, 0, 0]), dimension: 3) }
+        #expect(throws: EmbeddingError.unexpectedOutput) { try CoreMLNetwork.embedding(try output([1, .nan, 0]), dimension: 3) }
+        #expect(throws: EmbeddingError.unexpectedOutput) { try CoreMLNetwork.embedding(try output([1, 0]), dimension: 3) }
+        #expect(try CoreMLNetwork.embedding(try output([3, 4, 0]), dimension: 3) == [0.6, 0.8, 0])
     }
 
     @Test func cosinesOfUnitVectors() {

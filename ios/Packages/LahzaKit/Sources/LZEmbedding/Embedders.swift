@@ -89,12 +89,16 @@ enum CoreMLNetwork {
         return try await MLModel.load(contentsOf: url, configuration: configuration)
     }
 
-    /// The output as floats, normalised again (the model normalises in 16-bit).
+    /// The output as floats, normalised again (the model normalises in 16-bit). An empty or non-finite output (a
+    /// compute unit that can't run the model, such as the Simulator's GPU) is an error, never a vector.
     static func embedding(_ output: any MLFeatureProvider, dimension: Int) throws -> [Float] {
         guard let array = output.featureValue(for: Self.output)?.multiArrayValue, array.count == dimension else {
             throw EmbeddingError.unexpectedOutput
         }
-        return VectorMath.normalized(MLShapedArray<Float>(converting: array).scalars)
+        let scalars = MLShapedArray<Float>(converting: array).scalars
+        let length = vDSP.sumOfSquares(scalars)
+        guard length.isFinite, length > 0 else { throw EmbeddingError.unexpectedOutput }
+        return VectorMath.normalized(scalars)
     }
 }
 
