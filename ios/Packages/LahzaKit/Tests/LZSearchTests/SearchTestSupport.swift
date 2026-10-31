@@ -48,7 +48,8 @@ enum SearchFixture {
 
     /// The hero seed's index (fake reader, structure pass, fake Apple Maps place names), as the app has it once
     /// place naming has run. Each call builds a fresh in-memory index, so tests may write to it.
-    static func heroIndex(placeNames: Bool = true) async throws -> HeroIndex {
+    /// `visual`: with the seed's photo tags (its Vision pass, ``SeedVisualAnalyzer``).
+    static func heroIndex(placeNames: Bool = true, visual: Bool = false) async throws -> HeroIndex {
         let database = try IndexDatabase.open(.inMemory)
         let clock = FixedClock(now)
         let indexer = LibraryIndexer(database: database, reader: FakeLibraryReader(.seed(.hero)), gazetteer: gazetteer, clock: clock,
@@ -58,6 +59,12 @@ enum SearchFixture {
         if placeNames {
             let queue = PlaceNameQueue(database: database, maps: SeedMaps.client(), budget: MapsBudget(perMinute: 60_000, capacity: 10_000, clock: clock),
                                        clock: clock, network: FakeNetworkStatus(reachable: true), notify: { await indexer.enqueue(.restructure) })
+            await queue.run()
+            await indexer.settled()
+        }
+        if visual {
+            let queue = VisualQueue(database: database, analyzer: SeedVisualAnalyzer(labels: VisualVocabulary.english.labels), clock: clock,
+                                    notify: { await indexer.enqueue(.restructure) })
             await queue.run()
             await indexer.settled()
         }
@@ -88,14 +95,17 @@ struct HeroSearch: Sendable {
     /// The engine's clock (searches read "now" from it).
     let clock: FixedClock
 
-    init(reachable: Bool = true, placeNames: Bool = true, budget: MapsBudget? = nil, table: FakeMapsClient.Table = SeedMaps.hero) async throws {
-        index = try await SearchFixture.heroIndex(placeNames: placeNames)
+    init(reachable: Bool = true, placeNames: Bool = true, visual: Bool = false, budget: MapsBudget? = nil, table: FakeMapsClient.Table = SeedMaps.hero) async throws {
+        index = try await SearchFixture.heroIndex(placeNames: placeNames, visual: visual)
         maps = FakeMapsClient(table)
         let clock = FixedClock(SearchFixture.now)
         self.clock = clock
         engine = SearchEngine(gazetteer: SearchFixture.gazetteer, maps: maps, budget: budget ?? MapsBudget(clock: clock), clock: clock,
                               network: FakeNetworkStatus(reachable: reachable), locale: SearchFixture.uk, deviceTimeZone: { SearchFixture.riyadh })
     }
+
+    /// One hero search with the seed's photo tags, for tests that only read.
+    static let tagged = Task { try await HeroSearch(visual: true) }
 
     /// One hero search for tests that only read (built once, so fewer indexes are built side by side).
     static let shared = Task { try await HeroSearch() }

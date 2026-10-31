@@ -71,18 +71,21 @@ public struct IndexStatus: Sendable, Hashable {
     public var isLimited: Bool
     public var summary: LibrarySummary?
     public var placeNames: PlaceNameProgress
+    /// How far tagging photos with Vision has got; nil when the index has no Vision pass.
+    public var visual: VisualProgress?
     /// The index version readers have seen committed (``IndexReader`` results change only when it does).
     public var version: Int64
     public var lastSync: Date?
 
     public init(phase: Phase, isPartial: Bool = false, coveredSince: Date? = nil, isLimited: Bool = false, summary: LibrarySummary? = nil,
-                placeNames: PlaceNameProgress = .init(), version: Int64 = 0, lastSync: Date? = nil) {
+                placeNames: PlaceNameProgress = .init(), visual: VisualProgress? = nil, version: Int64 = 0, lastSync: Date? = nil) {
         self.phase = phase
         self.isPartial = isPartial
         self.coveredSince = coveredSince
         self.isLimited = isLimited
         self.summary = summary
         self.placeNames = placeNames
+        self.visual = visual
         self.version = version
         self.lastSync = lastSync
     }

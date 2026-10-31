@@ -8,7 +8,7 @@ import LZLibrary
 /// fake library and `make verify-search` over the seeded Simulator's real PhotoKit (search spec S24).
 ///
 /// Every expectation is computed from the scenario's predicates (tags, local dates, positions, trips, Umm al-Qura
-/// windows), never from engine output. Best is asserted exactly; More as must-include ⊆ More ⊆ allowed (items whose
+/// windows, and the photo tags ``SeedLabels`` gives the seed, which both harnesses tag it with), never from engine output. Best is asserted exactly; More as must-include ⊆ More ⊆ allowed (items whose
 /// fuzzed score can reach 0.5). Photos map back to seed items by their capture second, so items that aren't in the
 /// seed (the Simulator's own samples) are ignored. Dates in expected copy are written with the UK region, as the spec
 /// writes them. Cases (or parts) that depend on a fact the library under test didn't keep are skipped: see ``Facts``.
@@ -197,6 +197,12 @@ extension HeroSuite.Golden {
         let firstVisit = nakheel.filter { $0.momentDay == nakheelDays.min() }
         let lastVisit = nakheel.filter { $0.momentDay == nakheelDays.max() }
         let freeStart = Int64(HeroSuite.freeSince.timeIntervalSince1970)
+        // Photo tags (content search Milestone A).
+        let soccer = p.tagTiers("soccer"), hike = p.tagTiers("hike"), sunset = p.tagTiers("sunset"), beach = p.tagTiers("beach")
+        let receipts = p.tagTiers("receipts"), passport = p.tagTiers("passport"), camping = p.tagTiers("camping"), fireworks = p.tagTiers("fireworks")
+        let soccerAtNakheel = nakheel.filter(soccer.best.contains)
+        let soccerReceived = receivedOnNakheelDays.filter { soccer.best.contains($0) || soccer.more.contains($0) }
+        let london = p.tagged(.london).filter(\.isLocated)
 
         return [
             Self(1, "Al-Nakheel Park", Expectation(
@@ -206,8 +212,9 @@ extension HeroSuite.Golden {
                          p.reason("Saved the day of your Al-Nakheel Park visit", on: receivedOnNakheelDays)])),
             Self(2, "videos at Al-Nakheel Park", Expectation(best: nakheel.filter(\.isVideo))),
             Self(3, "soccer at Al-Nakheel Park", Expectation(
-                best: nakheel, moreMust: receivedOnNakheelDays, moreAllowed: p.received,
-                checks: [p.unsupported(["soccer"]), p.notice(containing: "“soccer” was left out")])),
+                best: soccerAtNakheel, moreMust: nakheel.filter(soccer.more.contains) + soccerReceived,
+                checks: [p.chips(["soccer · photo tag", "Al-Nakheel Park"]), p.noNotice, p.reason("Tagged soccer", on: soccerAtNakheel),
+                         p.reason("Related tag: football", on: nakheel.filter(soccer.more.contains))])),
             Self(4, "Al-Nakheel Park last summer", Expectation(
                 best: nakheel.filter(summer2026), moreMust: receivedOnNakheelDays.filter(summer2026),
                 moreAllowed: p.near(nakheel, [summer2026Dates], place: 1) + p.near(receivedOnNakheelDays, [summer2026Dates], place: 0.6))),
@@ -274,7 +281,9 @@ extension HeroSuite.Golden {
             Self(28, "Al-Nakheel Park during Ramadan 2024", Expectation(best: [], checks: [p.noMatch(
                 .combination, headline: "\(nakheel.count) at Al-Nakheel Park, none during Ramadan 2024.", detail: p.closestBefore(nakheel, ramadan1445),
                 offers: [("Al-Nakheel Park, any time", nakheel.count), ("Ramadan 2024, anywhere", p.bestEligible.filter(p.inside([ramadan1445])).count)])])),
-            Self(29, "sunset", Expectation(best: [], maxSearches: 0, checks: [p.noMatch(.onlyUnsupported, headline: nil), p.unsupported(["sunset"]), p.hasExamples])),
+            Self(29, "sunset", Expectation(
+                best: sunset.best, moreMust: sunset.more, maxSearches: 0,
+                checks: [p.chips(["sunset · photo tag"]), p.reason("Tagged sunset", on: sunset.best), p.visualLine])),
             Self(30, "Diriyah", Expectation(best: p.tagged(.diriyah))),
             Self(31, "selfies", skip: facts.selfiesAlbum ? nil : "Selfies album membership didn't import", Expectation(best: p.dated.filter(\.isSelfie))),
             Self(32, "nakhel prk", Expectation(best: nakheel, moreMust: receivedOnNakheelDays, moreAllowed: p.received, checks: [p.chips(["Al-Nakheel Park"])])),
@@ -302,6 +311,40 @@ extension HeroSuite.Golden {
             Self(37, "the first time at Al-Nakheel Park", scope: .since(HeroSuite.freeSince), Expectation(best: [], checks: [
                 p.noMatch(.onlyEarlier, headline: "Your first time at Al-Nakheel Park was before the last 12 months."),
                 p.lockedAtLeast(nakheel.count { ($0.utc ?? .max) < freeStart }), p.absent(firstVisit)])),
+            // Photo tags (content search Milestone A): strict tags in Best, related and less sure ones in More (E24), photos
+            // not checked yet left out and counted (E25), honest declines, and no Apple Maps search for content words.
+            Self(38, "soccer", Expectation(
+                best: soccer.best, moreMust: soccer.more, maxSearches: 0,
+                checks: [p.chips(["soccer · photo tag"]), p.visualLine, p.noNotice, p.reason("Related tag: football", on: soccer.more)])),
+            Self(39, "hike", Expectation(
+                best: hike.best, moreMust: hike.more, maxSearches: 0,
+                checks: [p.chips(["hiking · photo tag"]), p.reason("Tagged hiking", on: hike.best), p.reason("Related tag: cliff", on: hike.more),
+                         p.sectionTitle(.more, "Less sure")]),
+                 followUp: HeroSuite.FollowUp(request: { result in
+                     // The editor removes the related tags: Best stays, More goes.
+                     guard let slot = result.query.slots.first(where: { $0.slot.kind == .visual }) else { return nil }
+                     var overrides = ResolutionOverrides()
+                     overrides.apply(.setRelatedTags(slot: slot.id, false))
+                     return SearchRequest(text: result.query.parsed.text, parsed: result.query.parsed, overrides: overrides)
+                 }, expectation: Expectation(best: hike.best))),
+            Self(40, "trekking", Expectation(best: hike.best, moreMust: hike.more, maxSearches: 0, checks: [p.chips(["hiking · photo tag"])])),
+            Self(41, "scuba diving", Expectation(best: [], maxSearches: 0, checks: [
+                p.noMatch(.notTagged, headline: facts.onlySeed ? "No photos tagged scuba diving among \(p.checked.count) checked." : nil,
+                          detail: facts.onlySeed ? p.expectedVisualLine + "." : nil)])),
+            Self(42, "receipts", Expectation(best: receipts.best, moreMust: receipts.more, checks: [p.chips(["receipt · photo tag"])])),
+            Self(43, "passport", Expectation(best: passport.best, moreMust: passport.more, checks: [p.chips(["passport · photo tag"])])),
+            Self(44, "beach", Expectation(best: beach.best, moreMust: beach.more, maxSearches: 0, checks: [p.chips(["beach · photo tag"])])),
+            Self(45, "camping", Expectation(best: camping.best, moreMust: camping.more, maxSearches: 0)),
+            Self(46, "fireworks in London", Expectation(
+                best: london.filter(fireworks.best.contains), moreMust: london.filter(fireworks.more.contains),
+                checks: [p.chips(["fireworks · photo tag", "London"])])),
+            Self(47, "beach sunset", Expectation(best: [], maxSearches: 0, checks: [p.noMatch(
+                .nothing, headline: "Nothing matches all of that.",
+                offers: [("Without “beach”", sunset.best.count), ("Without “sunset”", beach.best.count)])])),
+            Self(48, "party", Expectation(best: [], maxSearches: 0, checks: [
+                p.noMatch(.onlyUnsupported, headline: "Lahza has no photo tag for “party” yet."), p.unsupported(["party"]), p.hasExamples])),
+            // The first night out: its moment (whole outings come with step 4).
+            Self(49, "the first time I went camping", Expectation(best: camping.best, checks: [p.sectionTitle(.best, "First time camping")])),
         ]
     }
 }
@@ -441,6 +484,50 @@ private struct Predicates {
         let gap = eventDay - day
         return "Closest: \(LocalDateFormat.dayTitle(day, locale: HeroSuite.locale)), \(gap == 1 ? "1 day" : "\(gap) days") before."
     }
+
+    // MARK: Photo tags
+
+    /// The items checked for photo tags (not only in iCloud).
+    var checked: [SeedItem] { items.filter { !SeedLabels.analysis(for: $0).inCloud } }
+
+    /// What words about what's in photos alone find (content search plan §Fusion): a checked item's strongest own tag
+    /// scores 1 (precise), 0.8 (likely) or 0.55 (high-recall only), a related tag 0.6; Best needs 0.7 and no junk, More
+    /// S ≥ 0.5 with S = J × score (J: screenshots and utility photos 0.5, or 1.2 for a document).
+    func tagTiers(_ words: String) -> (best: [SeedItem], more: [SeedItem]) {
+        guard let concept = VisualVocabulary.english.concept(for: words) else { return ([], []) }
+        var best: [SeedItem] = [], more: [SeedItem] = []
+        for item in checked {
+            let analysis = SeedLabels.analysis(for: item)
+            var score = concept.labels.compactMap { analysis.labels[$0] }.max().map { strength in
+                switch strength {
+                case .precise: 1.0
+                case .likely: 0.8
+                case .candidate: 0.55
+                }
+            } ?? 0
+            if concept.related.contains(where: { analysis.labels[$0] != nil }) { score = max(score, 0.6) }
+            guard score > 0.1 else { continue }
+            let utility = item.media == .screenshot || analysis.isUtility
+            let junk = concept.kind == .document ? (utility ? 1.2 : 1) : (utility ? 0.5 : 1)
+            if score >= 0.7, junk >= 1 { best.append(item) } else if junk * score >= 0.5 { more.append(item) }
+        }
+        return (best, more)
+    }
+
+    /// "Checked 552 of 557 photos · 5 only in iCloud" (the fake library); with the Simulator's own samples, some such
+    /// line.
+    var expectedVisualLine: String { "Checked \(checked.count) of \(items.count) photos · \(items.count - checked.count) only in iCloud" }
+
+    var visualLine: Check {
+        let expected = expectedVisualLine
+        let exact = facts.onlySeed
+        return { result in
+            let line = result.coverage.visualLine ?? ""
+            return (exact ? line == expected : line.hasPrefix("Checked ")) ? nil : "visual line “\(line)”, expected “\(expected)”"
+        }
+    }
+
+    var noNotice: Check { { $0.unsupportedNotice == nil ? nil : "unexpected notice “\($0.unsupportedNotice ?? "")”" } }
 
     // MARK: Checks
 

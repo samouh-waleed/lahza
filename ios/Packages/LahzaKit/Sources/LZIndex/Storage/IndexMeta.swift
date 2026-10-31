@@ -37,6 +37,11 @@ enum MetaKey: String, CaseIterable {
     /// The UUID the vector file (``VectorStore``) must carry to belong to these asset ids. Created when absent;
     /// Rebuild clears it and a rebuild at open starts without it, so vectors are never matched to reused ids.
     case vectorIdentity
+    /// The Vision pass the index was set up with (``VisualPass/version``): present once the pass has started, which
+    /// is when content search is on.
+    case visualVersion
+    /// A hash of the iPhone's Vision tag list: when an iOS update changes it, every photo is tagged again.
+    case visualLabelsHash
 }
 
 /// ``MetaKey/homeOverride``'s values.

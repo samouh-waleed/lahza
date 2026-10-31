@@ -20,17 +20,25 @@ nonisolated enum ChipEditorKind: Equatable {
     case event(EventKind)
     /// First time, last time or all times; oldest or newest first.
     case order(SearchOrder)
+    /// The photo tags the words searched, and their related tags on or off.
+    case visual(VisualMatch)
     /// Words Lahza can't search yet, a second place or dates it couldn't use: why, and Remove.
     case unsupported(String)
 
     init(_ slot: ResolvedSlot) {
+        self.init(slot, tags: false)
+    }
+
+    /// `tags`: the index has a Vision pass (words with no tag say so).
+    init(_ slot: ResolvedSlot, tags: Bool) {
         switch (slot.resolution, slot.slot.value) {
         case (.place(let resolution), _): self = .place(resolution)
         case (.time(.constraint(let constraint)), .time(let expression)): self = .time(expression, constraint)
         case (.media(let filter), _): self = .media(filter)
         case (.event(let event), _): self = .event(event)
         case (.order(let order), _): self = .order(order)
-        default: self = .unsupported(AskCopy.unsupportedExplanation(slot.slot.kind))
+        case (.visual(let match), _): self = .visual(match)
+        default: self = .unsupported(AskCopy.unsupportedExplanation(slot.slot.kind, tags: tags))
         }
     }
 }
@@ -64,7 +72,7 @@ struct ChipEditorSheet: View {
 
     @ViewBuilder
     private func editor(_ slot: ResolvedSlot, query: ResolvedQuery) -> some View {
-        switch ChipEditorKind(slot) {
+        switch ChipEditorKind(slot, tags: model.index.status.visual != nil) {
         case .place(let resolution):
             PlaceEditor(slot: slot, query: query, resolution: resolution, remove: remove)
         case .time(let expression, let constraint):
@@ -78,6 +86,8 @@ struct ChipEditorSheet: View {
             RemoveButton(title: ChipEditorCopy.remove(event), action: remove)
         case .order(let order):
             OrderEditor(slot: slot, order: order, remove: remove)
+        case .visual(let match):
+            VisualEditor(slot: slot, match: match, remove: remove)
         case .unsupported(let explanation):
             EditorExplanation(text: explanation)
             RemoveButton(title: ChipEditorCopy.removeWords, action: remove)
@@ -348,6 +358,47 @@ private struct OrderEditor: View {
     }
 }
 
+// MARK: Photo tags
+
+/// What a photo-tag chip searches: the tags your iPhone gives photos for these words (they can be Best), and the
+/// related tags, which only reach Less sure and can be turned off (E24); while photos are still being checked, how far
+/// it has got (E25).
+private struct VisualEditor: View {
+    let slot: ResolvedSlot
+    let match: VisualMatch
+    let remove: () -> Void
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        EditorExplanation(text: ChipEditorCopy.explanation(match))
+        EditorSection(ChipEditorCopy.photoTags) {
+            LZRowGroup {
+                ForEach(match.tags, id: \.self) { tag in
+                    ListRow(tag, systemImage: "tag")
+                }
+            }
+        }
+        .accessibilityIdentifier("chip-editor-tags")
+        if !match.related.isEmpty {
+            EditorSection(ChipEditorCopy.relatedTags) {
+                LZRowGroup {
+                    LZToggleRow(ChipEditorCopy.includeRelated, subtitle: match.related.joined(separator: ", "),
+                                isOn: Binding(get: { !match.relatedRemoved }, set: { on in
+                                    if on == match.relatedRemoved { model.search.apply([.setRelatedTags(slot: slot.id, on)]) }
+                                }))
+                    .accessibilityIdentifier("chip-editor-related")
+                }
+            }
+        }
+        if let line = model.search.result?.coverage.visualLine {
+            Label(line, systemImage: "hourglass")
+                .lzText(.caption)
+                .foregroundStyle(.lz(.muted))
+        }
+        RemoveButton(title: ChipEditorCopy.removeWords, action: remove)
+    }
+}
+
 // MARK: Parts
 
 /// A labelled group of an editor ("PLACES", "PART OF DAY").
@@ -416,6 +467,15 @@ nonisolated enum ChipEditorCopy {
     static let removeWords = "Remove these words"
     static let occasionLabel = "Which time"
     static let orderLabel = "Order"
+    static let photoTags = "PHOTO TAGS"
+    static let relatedTags = "RELATED TAGS"
+    static let includeRelated = "Include related tags"
+
+    /// What a photo-tag chip keeps.
+    static func explanation(_ match: VisualMatch) -> String {
+        let related = match.related.isEmpty ? "" : " Photos with only a related tag show under Less sure."
+        return "Photos your iPhone tagged \(match.tags.first ?? match.concept), on the iPhone. Nothing leaves it.\(related)"
+    }
 
     /// The sheet's title: the chip, its dates kept on one line ("Last summer · Jun – Aug 2026" never breaks at the
     /// dash): spaces become no-break ones (the thin spaces around the dash narrow no-break ones).

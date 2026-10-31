@@ -85,7 +85,7 @@ struct AskScreen: View {
             if submitted != nil, !access.canRead {
                 Notice(.info, message: AskCopy.needsAccess)
             } else if !query.isEmpty, let parsed = model.search.parsed, !parsed.slots.isEmpty {
-                UnderstoodAsRow(chips: QueryChipModel.chips(parsed))
+                UnderstoodAsRow(chips: QueryChipModel.chips(parsed, capabilities: SearchCapabilities(status)))
             }
             if case .ready = state, !model.search.examples.isEmpty {
                 ExampleSearchesRow(examples: model.search.examples) { search($0, proxy: proxy) }
@@ -206,12 +206,14 @@ nonisolated enum AskCopy {
         kind == .time ? chip : chip + notYetSuffix
     }
 
-    /// What an unsupported chip's tap explains.
-    static func unsupportedExplanation(_ kind: SlotKind) -> String {
+    /// What an unsupported chip's tap explains. `tags`: the index has a Vision pass, so words about photos with no
+    /// photo tag say that, not that none can be searched.
+    static func unsupportedExplanation(_ kind: SlotKind, tags: Bool = false) -> String {
         switch kind {
         case .people: "Searching for people arrives in a later version."
         case .place: "Lahza searches one place at a time for now."
         case .time: "Lahza couldn’t use these dates. Try one like “last summer” or “Ramadan 2024”."
+        case .visual where tags: "Your iPhone has no photo tag for these words. Words like “soccer”, “beach” or “sunset” work now; others arrive in a later version."
         default: "Searching what’s in photos, like “soccer” or “sunset”, arrives in a later version."
         }
     }
@@ -295,6 +297,7 @@ nonisolated enum AskCopy {
     static func noMatchSymbol(_ kind: NoMatch.Kind) -> String {
         switch kind {
         case .onlyUnsupported: "eye.slash"
+        case .notTagged: "tag.slash"
         case .future: "calendar.badge.exclamationmark"
         case .stillReading: "hourglass"
         case .onlyEarlier: "clock.arrow.circlepath"

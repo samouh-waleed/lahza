@@ -160,6 +160,8 @@ struct DebugLaunch {
             let library = FakePhotoLibraryClient(access: photos, answer: .full)
             use(library, in: &dependencies)
             dependencies.libraryReader = FakeLibraryReader(.synthetic(library))
+            // Placeholder pictures: nothing for Vision to see.
+            dependencies.visual = .off
             labels.append("photos-\(photos.rawValue)")
         }
         #if DEBUG
@@ -169,6 +171,7 @@ struct DebugLaunch {
                                                  counts: [.full: scenario.items.count, .limited: Self.seedLimitedCount])
             use(library, in: &dependencies)
             dependencies.libraryReader = FakeLibraryReader(.seed(name), following: library)
+            dependencies.visual = .seed
             dependencies.maps = SeedMaps.client(latency: .milliseconds(150))
             dependencies.mapsPerMinute = 600
             dependencies.network = FakeNetworkStatus(reachable: true)

@@ -18,6 +18,8 @@ public enum SlotEdit: Sendable, Hashable {
     /// The place editor's "Search Apple Maps for “X”": the slot's words are looked up even when a place in the
     /// library matches, spending the query's one Apple Maps search (kept in ``ResolutionOverrides``).
     case searchAppleMaps(slot: Int)
+    /// A visual chip's related tags on or off (kept in ``ResolutionOverrides``).
+    case setRelatedTags(slot: Int, Bool)
 }
 
 extension ParsedQuery {
@@ -37,7 +39,7 @@ extension ParsedQuery {
                 guard let position = index(id), case .place(let place) = slots[position].slot.value else { continue }
                 slots[position] = (QuerySlot(id: id, value: .place(.picked(placeKey: key, name: name, relation: place.relation)), span: nil), nil,
                                    slots[position].lead)
-            case .setRadius, .searchAppleMaps:
+            case .setRadius, .searchAppleMaps, .setRelatedTags:
                 continue
             case .setNear(let id, let near):
                 guard let position = index(id), case .place(let place) = slots[position].slot.value else { continue }
@@ -122,14 +124,18 @@ struct PlaceLead: Sendable, Hashable {
 }
 
 extension ResolutionOverrides {
-    /// Keeps what an edit says about resolving a slot: the picked place and the radius.
+    /// Keeps what an edit says about resolving a slot: the picked place, the radius, a visual chip's related tags.
     public mutating func apply(_ edit: SlotEdit) {
         switch edit {
         case .replacePlace(let slot, let key, _): places[slot, default: PlaceOverride()].placeKey = key
         case .setRadius(let slot, let metres): places[slot, default: PlaceOverride()].radius = metres
         case .setNear(let slot, let near): places[slot, default: PlaceOverride()].near = near
         case .searchAppleMaps(let slot): places[slot, default: PlaceOverride()].searchesAppleMaps = true
-        case .remove(let slot): places[slot] = nil
+        case .setRelatedTags(let slot, let on):
+            if on { withoutRelatedTags.remove(slot) } else { withoutRelatedTags.insert(slot) }
+        case .remove(let slot):
+            places[slot] = nil
+            withoutRelatedTags.remove(slot)
         case .replaceTime, .replaceMedia, .replaceOrder, .add: break
         }
     }

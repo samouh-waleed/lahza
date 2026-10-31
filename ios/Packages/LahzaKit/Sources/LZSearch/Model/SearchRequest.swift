@@ -28,13 +28,16 @@ public enum SearchScope: Sendable, Hashable {
     case since(Date)
 }
 
-/// What the person chose for slots while editing: a place from the picker, a radius, "near".
+/// What the person chose for slots while editing: a place from the picker, a radius, "near", no related tags.
 public struct ResolutionOverrides: Sendable, Hashable, Codable {
     /// By slot id.
     public var places: [Int: PlaceOverride]
+    /// Visual slots searched by their own tags only: the related tags were removed (E24).
+    public var withoutRelatedTags: Set<Int>
 
-    public init(places: [Int: PlaceOverride] = [:]) {
+    public init(places: [Int: PlaceOverride] = [:], withoutRelatedTags: Set<Int> = []) {
         self.places = places
+        self.withoutRelatedTags = withoutRelatedTags
     }
 }
 

@@ -18,6 +18,8 @@ struct NoMatchBuilder {
     let index: SearchIndexContext
     /// A free search's start (Unix seconds): offers count the photos taken since (and undated ones).
     var since: Int64?
+    /// The photos of the related tags of visual slots searched without them (the "Include related tags" offer).
+    var relatedPostings: [String: [LabelPosting]] = [:]
     /// The search shows its Weaker section, so an all-older offer's tap counts those as locked too.
     var showWeaker = false
 
@@ -36,6 +38,13 @@ struct NoMatchBuilder {
             if let order = query.orderSlot, query.unsupported.isEmpty {
                 let example = order.order.isOccasion ? "the first time at the beach" : "the beach, oldest first"
                 return NoMatch(kind: .nothing, headline: "Add a place, a date or a photo type, like “\(example)”.", detail: nil, offers: [], examples: [])
+            }
+            if snapshot.hasVisualPass {
+                let words = copy.list(query.unsupported.filter { $0.slot.kind == .visual }.map { "“\($0.chip)”" })
+                if !words.isEmpty {
+                    return NoMatch(kind: .onlyUnsupported, headline: "Lahza has no photo tag for \(words) yet.",
+                                   detail: "Try a place, a date, or what’s in a photo, like “beach” or “sunset”.", offers: [], examples: [])
+                }
             }
             return NoMatch(kind: .onlyUnsupported, headline: "Lahza can’t search what’s in photos yet. Try a place, a date or a photo type.", detail: nil,
                            offers: [], examples: [])
@@ -59,6 +68,9 @@ struct NoMatchBuilder {
                            detail: "Days away from home, two or more in a row, become trips.",
                            offers: offer("Not only trips", removing: query.eventSlot.map { [$0] } ?? [], plan: without(event: true)), examples: [])
         }
+        for target in plan.visual where count(ScoringPlan(media: plan.media, visual: [target])) == 0 {
+            return notTagged(target)
+        }
         if let place = query.placeSlot, let placeCount, let time = query.timeExpression, timeCount != nil {
             return combination(place: place, placeCount: placeCount, time: time)
         }
@@ -66,6 +78,9 @@ struct NoMatchBuilder {
         if let place = query.placeSlot { offers += offer("Anywhere", removing: [place.id] + otherPlaceSlots, plan: without(place: true)) }
         if !query.timeSlots.isEmpty { offers += offer("Any time", removing: query.timeSlots, plan: without(time: true)) }
         if let event = query.eventSlot { offers += offer("Not only trips", removing: [event], plan: without(event: true)) }
+        for target in plan.visual {
+            offers += offer("Without “\(target.concept.name)”", removing: [target.slot], plan: without(visual: target.slot))
+        }
         return NoMatch(kind: .nothing, headline: "Nothing matches all of that.", detail: nil, offers: offers, examples: [])
     }
 
@@ -104,11 +119,12 @@ struct NoMatchBuilder {
         return recent == 0 && older > 0 ? (locked, true) : (0, false)
     }
 
-    private func without(place: Bool = false, time: Bool = false, event: Bool = false) -> ScoringPlan {
+    private func without(place: Bool = false, time: Bool = false, event: Bool = false, visual slot: Int? = nil) -> ScoringPlan {
         var plan = query.plan
         if place { plan.place = nil }
         if time { plan.time = nil }
         if event { plan.event = nil }
+        if let slot { plan.visual.removeAll { $0.slot == slot } }
         return plan
     }
 
@@ -146,6 +162,41 @@ struct NoMatchBuilder {
         return NoMatch(kind: .placeNotFound(failure.reason), headline: headline, detail: detail,
                        offers: offer("Search without the place", removing: [failure.id] + otherPlaceSlots, plan: query.plan), examples: [])
     }
+
+    /// No checked photo has the concept's own tags: "No photos tagged scuba diving among 1,204 checked." While photos
+    /// are still being checked the detail says how far it has got (E25); with the related tags removed, a tap brings
+    /// them back when they find something. Before any photo is checked it says Lahza is still looking.
+    private func notTagged(_ target: VisualTarget) -> NoMatch {
+        let counts = snapshot.visualCounts, checked = counts.checked
+        let progress = copy.visualLine(counts, total: snapshot.count).map { $0 + "." }
+        guard checked > 0 else {
+            return NoMatch(kind: .notTagged, headline: "Lahza is still checking what’s in your photos.",
+                           detail: (progress.map { $0 + " " } ?? "") + "It looks while Lahza is open.", offers: [], examples: [])
+        }
+        var offers: [WideningOffer] = []
+        if target.related.isEmpty, !target.concept.related.isEmpty {
+            var plan = query.plan
+            let index = plan.visual.firstIndex { $0.slot == target.slot }
+            if let index {
+                plan.visual[index] = VisualTarget(slot: target.slot, concept: target.concept, related: target.concept.related, postings: relatedPostings,
+                                                  snapshot: snapshot)
+                // Related tags only ever reach More: the tap's count is its More (photos a free search covers).
+                var scorer = Scorer(snapshot: snapshot, plan: plan)
+                let found = scorer.run().hits.count { hit in
+                    let i = Int(hit.index)
+                    return hit.tier <= .more && (since.map { !snapshot.isDated(i) || snapshot.utc[i] >= $0 } ?? true)
+                }
+                if found > 0 { offers.append(WideningOffer(label: "Include related tags", count: found, edits: [.setRelatedTags(slot: target.slot, true)])) }
+            }
+        }
+        if plan(withoutSlot: target.slot).scoredSlots > 0 {
+            offers += offer("Without “\(target.concept.name)”", removing: [target.slot], plan: plan(withoutSlot: target.slot))
+        }
+        return NoMatch(kind: .notTagged, headline: "No photos tagged \(target.concept.name) among \(checked.formatted(.number.locale(copy.locale))) checked.",
+                       detail: progress, offers: offers, examples: [])
+    }
+
+    private func plan(withoutSlot slot: Int) -> ScoringPlan { without(visual: slot) }
 
     /// The first build hasn't reached the dates asked for.
     private func stillReading() -> NoMatch? {

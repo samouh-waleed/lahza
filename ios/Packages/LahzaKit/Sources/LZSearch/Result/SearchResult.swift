@@ -64,7 +64,9 @@ public struct ResolvedSlot: Sendable, Hashable, Identifiable {
         case media(MediaFilter)
         case event(EventKind)
         case order(SearchOrder)
-        /// Not searchable in this version (people, what's in photos), or a place or date Lahza couldn't use.
+        /// Words about what's in photos, searched by the photo tags they map to.
+        case visual(VisualMatch)
+        /// Not searchable in this version (people, words with no photo tag), or a place or date Lahza couldn't use.
         case unsupported
     }
 
@@ -82,6 +84,25 @@ public struct ResolvedSlot: Sendable, Hashable, Identifiable {
     public var id: Int { slot.id }
 
     public var isSupported: Bool { if case .unsupported = resolution { false } else { true } }
+}
+
+/// What a visual chip searched: the concept, its own tags (Best) and its related tags (More, E24), as people read them.
+public struct VisualMatch: Sendable, Hashable {
+    /// "hiking".
+    public var concept: String
+    /// "hiking".
+    public var tags: [String]
+    /// "trail", "mountain": searched loosely, unless removed.
+    public var related: [String]
+    /// The related tags were removed in the editor (they are listed, not searched).
+    public var relatedRemoved: Bool
+
+    public init(concept: String, tags: [String], related: [String], relatedRemoved: Bool = false) {
+        self.concept = concept
+        self.tags = tags
+        self.related = related
+        self.relatedRemoved = relatedRemoved
+    }
 }
 
 /// An area's radius as searched, and the place editor's choices: Tight is half its own radius, Normal its own, Wide
@@ -263,7 +284,7 @@ public struct AssetHit: Sendable, Hashable, Identifiable {
 /// matched" says ("No GPS in this photo. Location comes from a photo taken 3 min earlier in the same outing.").
 public struct Reason: Sendable, Hashable {
     public enum Kind: String, Sendable, Hashable {
-        case place, time, media, event, borrowed, caution, neutral
+        case place, time, media, event, visual, borrowed, caution, neutral
     }
 
     public var kind: Kind
@@ -313,6 +334,8 @@ public struct Coverage: Sendable, Hashable {
     public var header: String?
     /// "+2 without location from the same outing", "12 photos have no reliable date", "28% of your photos have no location".
     public var notes: [String]
+    /// Words about what's in photos, while Lahza is still tagging them: "Checked 12,400 of 31,204 photos so far" (E25).
+    public var visualLine: String? = nil
 }
 
 /// Why nothing matched, and taps that widen the search (never automatic).
@@ -334,6 +357,9 @@ public struct NoMatch: Sendable, Hashable {
         case stillReading
         /// A free search: everything that matched is older than the search's scope (``SearchResult/lockedCount``).
         case onlyEarlier
+        /// No checked photo has the tags of words about what's in photos ("No photos tagged scuba diving among 1,204
+        /// checked").
+        case notTagged
         case nothing
     }
 
@@ -396,5 +422,12 @@ public struct SearchIndexContext: Sendable, Hashable {
         if case .reading(_, let all) = status.phase { total = all }
         self.init(isPartial: status.isPartial, coveredSince: status.coveredSince, isLimited: status.isLimited, libraryTotal: total,
                   appleMapsEnabled: appleMapsEnabled)
+    }
+}
+
+extension SearchCapabilities {
+    /// What an index can search: words about what's in photos once it has a Vision pass.
+    public init(_ status: IndexStatus) {
+        self.init(visual: status.visual != nil)
     }
 }

@@ -9,7 +9,8 @@ import Observation
 /// included) whenever access is unreadable and an index exists, at launch too: iOS relaunches an app whose
 /// access was revoked. Library changes become one sync after a 2 s debounce; returning to the foreground syncs,
 /// going to the background pauses at the next batch. Apple Maps place naming runs only while Lahza is open,
-/// access is readable, the toggle is on and some of the index is built.
+/// access is readable, the toggle is on and some of the index is built; so does tagging photos with Vision (content
+/// search's foreground pass, E26), without the toggle.
 ///
 /// Every transition (open, purge, delete, build again) runs in order, one at a time.
 @MainActor @Observable public final class IndexStore {
@@ -42,6 +43,12 @@ import Observation
     /// The index version the latest place-naming run started at.
     @ObservationIgnored private var placeNamesVersion: Int64 = -1
     @ObservationIgnored private var queueProgress = PlaceNameProgress()
+    @ObservationIgnored private var visualTask: Task<Void, Never>?
+    @ObservationIgnored private var visualRun = 0
+    /// The index version the latest Vision run started at.
+    @ObservationIgnored private var visualVersion: Int64 = -1
+    @ObservationIgnored private var visualProgress = VisualProgress()
+    @ObservationIgnored private var visualProgressTask: Task<Void, Never>?
     /// A damaged index was repaired since launch.
     @ObservationIgnored private var repaired = false
     @ObservationIgnored private let log = Log("index")
@@ -91,7 +98,10 @@ import Observation
     public func setSceneActive(_ active: Bool) {
         guard active != sceneActive else { return }
         sceneActive = active
-        if !active { stopPlaceNames() }
+        if !active {
+            stopPlaceNames()
+            stopVisual()
+        }
         transition { [weak self] in
             guard let self else { return }
             if active {
@@ -106,6 +116,7 @@ import Observation
                 try? await session.database.optimize(truncatingWAL: false)
             }
             self.refreshPlaceNames()
+            self.refreshVisual()
         }
     }
 
@@ -165,6 +176,16 @@ import Observation
         await settled()
     }
 
+    /// Returns once the running Vision pass and the version it published are done (tests).
+    public func visualSettled() async {
+        await settled()
+        while let task = visualTask {
+            await task.value
+            await settled()
+            if visualTask == task { break }
+        }
+    }
+
     // MARK: DEBUG tools
 
     /// The index inspector's actions.
@@ -197,6 +218,7 @@ import Observation
         }
         await settled()
         refreshPlaceNames()
+        refreshVisual()
     }
 
     // MARK: Transitions
@@ -257,6 +279,8 @@ import Observation
             writer = session.writer
             placeNamesVersion = -1
             queueProgress = PlaceNameProgress()
+            visualVersion = -1
+            visualProgress = VisualProgress()
             observe(session)
             return true
         } catch {
@@ -273,6 +297,8 @@ import Observation
     /// Stops everything over the index, closes it and removes its folder (search spec §2.5's order).
     private func purge(_ reason: IndexStatus.OffReason) async {
         stopPlaceNames()
+        stopVisual()
+        visualProgressTask?.cancel()
         statusTask?.cancel()
         progressTask?.cancel()
         if let session {
@@ -303,14 +329,26 @@ import Observation
                 self.status.placeNames = self.placeNameProgress
             }
         }
+        visualProgressTask?.cancel()
+        if let visual = session.visual?.progress {
+            visualProgressTask = Task { [weak self] in
+                for await value in visual {
+                    guard let self, self.generation == generation else { return }
+                    self.visualProgress = value
+                    self.status.visual = self.shownVisualProgress
+                }
+            }
+        }
     }
 
     private func apply(_ indexer: IndexStatus, generation: Int) {
         guard generation == self.generation, let session else { return }
         var status = indexer
         status.placeNames = placeNameProgress
+        status.visual = shownVisualProgress
         self.status = status
         refreshPlaceNames()
+        refreshVisual()
         if case .failed = status.phase, session.database.needsRebuild, !repaired {
             repaired = true
             transition { [weak self] in await self?.repair() }
@@ -323,6 +361,8 @@ import Observation
         guard let session else { return }
         log.fault("Index damaged: reopening to rebuild", privacy: .public)
         stopPlaceNames()
+        stopVisual()
+        visualProgressTask?.cancel()
         statusTask?.cancel()
         progressTask?.cancel()
         self.session = nil
@@ -393,5 +433,52 @@ import Observation
         placeNamesTask = nil
         placeNamesRun += 1
         status.placeNames = placeNameProgress
+    }
+
+    // MARK: Vision pass
+
+    /// What tagging photos is doing, as Settings and search show it; nil without a Vision pass.
+    private var shownVisualProgress: VisualProgress? {
+        guard session?.visual != nil else { return nil }
+        var progress = visualProgress
+        if !sceneActive, progress.state != .done { progress.state = .backgrounded }
+        return progress
+    }
+
+    /// Starts a Vision run when it may run and the index changed since the last one; stops it when it may not. It runs
+    /// while Lahza is open, access is readable and some of the index is built (the first build included).
+    private func refreshVisual() {
+        let indexOn: Bool = switch status.phase {
+        case .off, .failed, .paused: false
+        default: true
+        }
+        let mayRun = session?.visual != nil && sceneActive && indexOn && status.version > 0 && dependencies.reader.access().canRead
+        if mayRun, visualTask == nil, status.version != visualVersion, let queue = session?.visual {
+            visualVersion = status.version
+            visualRun += 1
+            let run = visualRun
+            visualTask = Task { [weak self] in
+                await queue.run()
+                self?.visualFinished(run)
+            }
+        } else if !mayRun {
+            stopVisual()
+        }
+        status.visual = shownVisualProgress
+    }
+
+    private func visualFinished(_ run: Int) {
+        guard run == visualRun else { return }
+        visualTask = nil
+        refreshVisual()
+    }
+
+    /// Cancels the running pass; the next time it may run, it starts again whatever the version.
+    private func stopVisual() {
+        if visualTask != nil { visualVersion = -1 }
+        visualTask?.cancel()
+        visualTask = nil
+        visualRun += 1
+        status.visual = shownVisualProgress
     }
 }

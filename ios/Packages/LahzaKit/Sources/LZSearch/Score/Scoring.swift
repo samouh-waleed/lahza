@@ -41,6 +41,99 @@ enum TimeEvidence: Sendable, Hashable {
     case unreliable
 }
 
+/// Why a visual slot scored what it did.
+enum VisualEvidence: Sendable, Hashable {
+    /// One of the concept's own tags ("soccer"), and how sure Vision was.
+    case tagged(label: String, VisualStrength)
+    /// Only a related tag ("trail" for hiking).
+    case related(label: String)
+    /// Checked, and none of the tags.
+    case untagged
+    /// Not checked yet: unknown, never "no" (E25).
+    case notChecked
+}
+
+/// Which of Vision's filters a tag passed, weakest first.
+enum VisualStrength: UInt8, Sendable, Hashable, Comparable {
+    /// Only the high-recall filter.
+    case candidate = 1
+    case likely = 2
+    case precise = 3
+
+    init?(_ flags: VisualLabelFlags) {
+        self = flags.contains(.precise) ? .precise : flags.contains(.likely) ? .likely : .candidate
+    }
+
+    /// s_label: precise 1, likely 0.8, the high-recall filter only 0.55 (content search plan, placeholders).
+    var score: Double {
+        switch self {
+        case .precise: 1
+        case .likely: 0.8
+        case .candidate: 0.55
+        }
+    }
+
+    static func < (lhs: VisualStrength, rhs: VisualStrength) -> Bool { lhs.rawValue < rhs.rawValue }
+}
+
+/// One concept to score, read from the index once per search: each photo's strongest own tag and its related tag.
+struct VisualTarget: Sendable {
+    var slot: Int
+    var concept: VisualConcept
+    /// The related tags searched (none once removed in the editor).
+    var related: [String]
+    /// Per asset: ``VisualStrength`` raw value of its strongest own tag, 0 for none.
+    var strength: [UInt8]
+    /// Per asset: 1 + the index of that tag in ``VisualConcept/labels``, 0 for none.
+    var label: [UInt16]
+    /// Per asset: 1 + the index of its related tag in ``related``, 0 for none.
+    var relatedLabel: [UInt16]
+
+    /// A related tag only: More at best (E24).
+    static let relatedScore = 0.6
+    /// Checked, without any of the tags.
+    static let untaggedScore = 0.05
+    /// A photo's own tag must be this sure for Best.
+    static let bestScore = 0.7
+
+    init(slot: Int, concept: VisualConcept, related: [String], postings: [String: [LabelPosting]], snapshot: SearchSnapshot) {
+        self.slot = slot
+        self.concept = concept
+        self.related = related
+        strength = [UInt8](repeating: 0, count: snapshot.count)
+        label = [UInt16](repeating: 0, count: snapshot.count)
+        relatedLabel = [UInt16](repeating: 0, count: snapshot.count)
+        for (position, name) in concept.labels.enumerated() {
+            for posting in postings[name] ?? [] {
+                guard let index = snapshot.indexByID[posting.assetID].map(Int.init), let level = VisualStrength(posting.flags) else { continue }
+                if level.rawValue > strength[index] {
+                    strength[index] = level.rawValue
+                    label[index] = UInt16(position + 1)
+                }
+            }
+        }
+        for (position, name) in related.enumerated() {
+            for posting in postings[name] ?? [] {
+                guard let index = snapshot.indexByID[posting.assetID].map(Int.init), relatedLabel[index] == 0 else { continue }
+                relatedLabel[index] = UInt16(position + 1)
+            }
+        }
+    }
+
+    /// How well asset `i` shows the concept. A photo with any of the tags was checked, whatever the snapshot says.
+    func score(_ i: Int, snapshot: SearchSnapshot) -> (SlotScore, VisualEvidence) {
+        var best: (SlotScore, VisualEvidence)?
+        if let level = VisualStrength(rawValue: strength[i]) {
+            best = (SlotScore(value: level.score), .tagged(label: concept.labels[Int(label[i]) - 1], level))
+        }
+        if relatedLabel[i] > 0, (best?.0.value ?? 0) < Self.relatedScore {
+            best = (SlotScore(value: Self.relatedScore), .related(label: related[Int(relatedLabel[i]) - 1]))
+        }
+        if let best { return best }
+        return snapshot.isChecked(i) ? (SlotScore(value: Self.untaggedScore), .untagged) : (.unknown, .notChecked)
+    }
+}
+
 /// The result tiers (search spec §6.5), best first.
 public enum Tier: Int, Sendable, Hashable, Comparable, CaseIterable, Codable {
     /// Inside every slot.
@@ -66,6 +159,9 @@ struct ScoredAsset: Sendable {
     var time: SlotScore?
     var timeEvidence: TimeEvidence?
     var event: SlotScore?
+    /// One per visual slot, in the plan's order.
+    var visual: [SlotScore] = []
+    var visualEvidence: [VisualEvidence] = []
 }
 
 /// A resolved place flattened for scoring: areas and membership places (a photo scores by its best one).
@@ -103,15 +199,20 @@ struct PlaceTarget: Sendable {
     func reach(_ area: Area) -> Double { 2.6 * area.radius + 100 }
 }
 
-/// What a query scores: its resolved slots (search spec §6.5). Media is a hard filter; place, time and event are
-/// fused with equal weights, unknown slots included at 0.5.
+/// What a query scores: its resolved slots (search spec §6.5). Media is a hard filter; place, time, event and each
+/// visual concept are fused with equal weights, unknown slots included at 0.5.
 struct ScoringPlan: Sendable {
     var place: PlaceTarget?
     var time: TimeConstraint?
     var event: EventKind?
     var media: MediaFilter?
+    /// Words about what's in photos, one concept per slot: two make a soft AND ("beach sunset").
+    var visual: [VisualTarget] = []
 
-    var scoredSlots: Int { (place == nil ? 0 : 1) + (time == nil ? 0 : 1) + (event == nil ? 0 : 1) }
+    var scoredSlots: Int { (place == nil ? 0 : 1) + (time == nil ? 0 : 1) + (event == nil ? 0 : 1) + visual.count }
+
+    /// A concept is a document (receipt, passport): utility photos and screenshots are what's wanted.
+    var wantsDocuments: Bool { visual.contains { $0.concept.kind == .document } }
 
     /// No slot to score or filter by: nothing to list.
     var isEmpty: Bool { scoredSlots == 0 && media == nil }
@@ -125,6 +226,8 @@ struct Scorer {
     private var sameDayVisits: [Int32: Int32?] = [:]
 
     static let junkFactor = 0.5
+    /// Utility photos and screenshots when a concept is a document.
+    static let documentFactor = 1.2
     static let floor = 0.02
 
     init(snapshot: SearchSnapshot, plan: ScoringPlan) {
@@ -200,7 +303,7 @@ struct Scorer {
 
     /// The asset's slot scores and tier; nil when it makes no tier.
     mutating func score(_ i: Int) -> ScoredAsset? {
-        let junk = snapshot.isScreenCapture(i) && plan.media?.asksForScreenCaptures != true ? Self.junkFactor : 1
+        let junk = junkFactor(i)
         var asset = ScoredAsset(index: Int32(i), tier: .weaker, score: 0, junk: junk)
         var scores: [SlotScore] = []
         if let place = plan.place {
@@ -220,6 +323,12 @@ struct Scorer {
             asset.event = score
             scores.append(score)
         }
+        for target in plan.visual {
+            let (score, evidence) = target.score(i, snapshot: snapshot)
+            asset.visual.append(score)
+            asset.visualEvidence.append(evidence)
+            scores.append(score)
+        }
         asset.score = scores.isEmpty ? junk : junk * exp(scores.reduce(0) { $0 + log(max($1.value, Self.floor)) } / Double(scores.count))
         guard let tier = Self.tier(asset, scores: scores) else { return nil }
         asset.tier = tier
@@ -234,7 +343,8 @@ struct Scorer {
             let placeOK = asset.place.map { $0.value >= 0.85 } ?? true
             let timeOK = asset.time.map { $0.value >= 1 } ?? true
             let eventOK = asset.event.map { $0.value >= 1 } ?? true
-            if placeOK, timeOK, eventOK, asset.junk >= 1 { return .best }
+            let visualOK = asset.visual.allSatisfy { $0.value >= VisualTarget.bestScore }
+            if placeOK, timeOK, eventOK, visualOK, asset.junk >= 1 { return .best }
             if asset.score >= 0.5, !anyLow { return .more }
             if asset.score >= 0.35, !anyLow { return .weaker }
             return nil
@@ -242,7 +352,16 @@ struct Scorer {
         // Location unknown: only the place is unknown, another slot is scored, and every other slot matches exactly.
         guard asset.place?.isUnknown == true, asset.junk >= 1, scores.count >= 2 else { return nil }
         let others = [asset.time, asset.event].compactMap { $0 }
-        return others.allSatisfy({ !$0.isUnknown && $0.value >= 1 }) ? .locationUnknown : nil
+        let visualOK = asset.visual.allSatisfy { !$0.isUnknown && $0.value >= VisualTarget.bestScore }
+        return others.allSatisfy({ !$0.isUnknown && $0.value >= 1 }) && visualOK ? .locationUnknown : nil
+    }
+
+    /// J: screenshots and Vision's utility photos count half unless asked for; when a concept is a document (a receipt,
+    /// a passport) they are what's wanted, and count 1.2.
+    func junkFactor(_ i: Int) -> Double {
+        let utility = snapshot.isScreenCapture(i) || snapshot.isUtility(i)
+        if plan.wantsDocuments { return utility ? Self.documentFactor : 1 }
+        return utility && plan.media?.asksForScreenCaptures != true ? Self.junkFactor : 1
     }
 
     // MARK: Place
