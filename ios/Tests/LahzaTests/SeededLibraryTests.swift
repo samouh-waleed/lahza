@@ -26,7 +26,8 @@ struct SeededLibraryTests {
         let store = IndexStore(IndexDependencies(
             location: .directory(base), reader: reader, gazetteer: try Gazetteer.bundled(), maps: SeedMaps.client(),
             budget: MapsBudget(perMinute: 60_000, capacity: 10_000, clock: clock), clock: clock, network: FakeNetworkStatus(reachable: true),
-            kv: InMemoryKeyValueStore(), deviceTimeZone: { TimeZone(identifier: "Asia/Riyadh")! }, changes: { AsyncStream { $0.finish() } }))
+            kv: InMemoryKeyValueStore(), deviceTimeZone: { TimeZone(identifier: "Asia/Riyadh")! }, changes: { AsyncStream { $0.finish() } },
+            visualAnalyzer: SeedVisualAnalyzer(labels: VisualVocabulary.english.labels)))
         let started = Date()
         store.start()
         for _ in 0..<600 where store.status.phase != .ready {
@@ -36,6 +37,8 @@ struct SeededLibraryTests {
         let seconds = Date().timeIntervalSince(started)
         print("SEEDED ready after \(String(format: "%.1f", seconds)) s")
         await store.placeNamesSettled()
+        // The seed's stand-in photo tags (its pictures are drawn), matched to PhotoKit's assets by capture second.
+        await store.visualSettled()
         #expect(store.status.phase == .ready)
         #expect(seconds < 30, "Ready in under 30 s (acceptance 3)")
 

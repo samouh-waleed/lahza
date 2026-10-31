@@ -281,7 +281,7 @@ struct ResultAssembler {
         if index.isPartial, let since = index.coveredSince { header = copy.partialHeader(since: since, zone: context.zone) }
         let caption = copy.coverageCaption(searched: searched, index: index, since: since, now: context.time.now)
         // Photos not tagged yet are left out of a search for what's in them, never counted as "no" (E25).
-        let visualLine = query.plan.visual.isEmpty ? nil : copy.visualLine(checked: snapshot.visualCounts.checked, total: snapshot.count)
+        let visualLine = query.plan.visual.isEmpty ? nil : copy.visualLine(snapshot.visualCounts, total: snapshot.count)
         return Coverage(searched: searched, libraryTotal: index.libraryTotal, isPartial: index.isPartial, coveredSince: index.coveredSince,
                         isLimited: index.isLimited, unlocatedShare: share, undatedExcluded: query.plan.time == nil ? 0 : unreliable,
                         borrowedShown: borrowed, caption: caption, header: header, notes: notes, visualLine: visualLine)

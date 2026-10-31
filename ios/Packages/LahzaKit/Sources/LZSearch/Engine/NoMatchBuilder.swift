@@ -167,8 +167,8 @@ struct NoMatchBuilder {
     /// are still being checked the detail says how far it has got (E25); with the related tags removed, a tap brings
     /// them back when they find something. Before any photo is checked it says Lahza is still looking.
     private func notTagged(_ target: VisualTarget) -> NoMatch {
-        let (checked, _) = snapshot.visualCounts
-        let progress = copy.visualLine(checked: checked, total: snapshot.count).map { $0 + "." }
+        let counts = snapshot.visualCounts, checked = counts.checked
+        let progress = copy.visualLine(counts, total: snapshot.count).map { $0 + "." }
         guard checked > 0 else {
             return NoMatch(kind: .notTagged, headline: "Lahza is still checking what’s in your photos.",
                            detail: (progress.map { $0 + " " } ?? "") + "It looks while Lahza is open.", offers: [], examples: [])

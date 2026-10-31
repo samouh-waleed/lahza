@@ -24,6 +24,7 @@ struct RouteScreen: View {
         case .libraryCensus: LibraryCensusScreen()
         case .indexInspector: IndexInspectorScreen()
         case .lockedResults: LockedResultsPreviewScreen()
+        case .labelLab: LabelLabScreen()
         #endif
         case .paywall: PaywallScreen()
         case .onboarding: OnboardingView(revisit: true)

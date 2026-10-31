@@ -162,12 +162,12 @@ import Testing
 
         // Next to a place search finds, a leftover word previews as a place, then is left out ("not yet", last).
         app.search.clear()
-        app.search.preview("kebab at Al-Nakheel Park")
-        #expect(await SearchTestApp.eventually(app) { app.search.parsed?.text == "kebab at Al-Nakheel Park" })
-        #expect(QueryChipModel.chips(try #require(app.search.parsed)).map(\.title) == ["Kebab", "Al-Nakheel Park"])
-        let kebab = try #require(await SearchTestApp.search(app, "kebab at Al-Nakheel Park"))
-        #expect(QueryChipModel.chips(kebab.query).map(\.title) == ["Al-Nakheel Park", "kebab · not yet"])
-        #expect(kebab.noMatch == nil)
+        app.search.preview("narnia at Al-Nakheel Park")
+        #expect(await SearchTestApp.eventually(app) { app.search.parsed?.text == "narnia at Al-Nakheel Park" })
+        #expect(QueryChipModel.chips(try #require(app.search.parsed)).map(\.title) == ["Narnia", "Al-Nakheel Park"])
+        let narnia = try #require(await SearchTestApp.search(app, "narnia at Al-Nakheel Park"))
+        #expect(QueryChipModel.chips(narnia.query).map(\.title) == ["Al-Nakheel Park", "narnia · not yet"])
+        #expect(narnia.noMatch == nil)
     }
 
     @Test func thePickerSearchesTheOtherPlace() async throws {

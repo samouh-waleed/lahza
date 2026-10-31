@@ -123,14 +123,19 @@ public struct SearchSnapshot: Sendable {
 
     public func isUtility(_ index: Int) -> Bool { hasVisualPass && utility[index] }
 
-    /// Photos tagged, and photos waiting for an image only in iCloud.
-    public var visualCounts: (checked: Int, pendingCloud: Int) {
-        guard hasVisualPass else { return (0, 0) }
-        var checked = 0, cloud = 0
+    /// Photos tagged, photos waiting for an image only in iCloud, and photos the pass hasn't reached yet.
+    public var visualCounts: (checked: Int, pendingCloud: Int, unchecked: Int) {
+        guard hasVisualPass else { return (0, 0, 0) }
+        var checked = 0, cloud = 0, unchecked = 0
         for status in visualStatus {
-            if status == UInt8(VisualStatus.done.rawValue) { checked += 1 } else if status == UInt8(VisualStatus.pendingCloud.rawValue) { cloud += 1 }
+            switch status {
+            case UInt8(VisualStatus.done.rawValue): checked += 1
+            case UInt8(VisualStatus.pendingCloud.rawValue): cloud += 1
+            case UInt8(VisualStatus.pending.rawValue): unchecked += 1
+            default: break
+            }
         }
-        return (checked, cloud)
+        return (checked, cloud, unchecked)
     }
 
     /// A screenshot or screen recording.

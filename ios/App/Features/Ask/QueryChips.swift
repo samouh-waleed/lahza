@@ -12,31 +12,37 @@ nonisolated struct QueryChipModel: Identifiable, Hashable {
     var isSupported: Bool
     /// The place is being looked up (the chip spins).
     var isLoading = false
+    /// The index has photo tags: an unsupported word about photos has no tag (rather than no way to search it).
+    var tags = false
 
-    /// The chips of a searched query.
-    static func chips(_ query: ResolvedQuery) -> [QueryChipModel] {
+    /// The chips of a searched query; `tags`: the index has photo tags.
+    static func chips(_ query: ResolvedQuery, tags: Bool = false) -> [QueryChipModel] {
         ordered(query.slots.map { slot in
             QueryChipModel(id: slot.id, kind: slot.slot.kind, title: slot.isSupported ? slot.chip : AskCopy.notYet(slot.chip, kind: slot.slot.kind),
-                           systemImage: slot.systemImage, isSupported: slot.isSupported)
+                           systemImage: slot.systemImage, isSupported: slot.isSupported, tags: tags)
         })
     }
 
     /// The chips of a query not searched yet (typing, or still searching), from its words; the place spins while it is
-    /// looked up. Words that only might be a place show as a place until search says otherwise.
-    static func chips(_ parsed: ParsedQuery, lookingUpPlace: Bool = false) -> [QueryChipModel] {
+    /// looked up. Words that only might be a place show as a place until search says otherwise. What can be searched
+    /// comes from the index (`capabilities`): words with a photo tag once it has a Vision pass ("soccer · photo tag").
+    static func chips(_ parsed: ParsedQuery, capabilities: SearchCapabilities = .v0, lookingUpPlace: Bool = false) -> [QueryChipModel] {
         ordered(parsed.slots.map { slot in
-            let supported = SearchCapabilities.v0.supports(slot.value)
+            let supported = capabilities.supports(slot.value)
             let words = slot.value.phrase()
+            var title = supported ? AskCopy.capitalized(words) : AskCopy.notYet(words, kind: slot.kind)
+            if supported, case .visual(let typed) = slot.value, let concept = VisualVocabulary.english.concept(for: typed) { title = concept.chip }
             let symbol: String = switch slot.value {
             case .place: "mappin"
             case .time: "calendar"
             case .media(let media): media.kinds == [.video] ? "film" : "photo"
             case .event: "airplane"
             case .order(let order): AskCopy.orderSymbol(order)
+            case .visual where supported: "tag"
             case .people, .visual, .text: "info.circle"
             }
-            return QueryChipModel(id: slot.id, kind: slot.kind, title: supported ? AskCopy.capitalized(words) : AskCopy.notYet(words, kind: slot.kind),
-                                  systemImage: symbol, isSupported: supported, isLoading: lookingUpPlace && slot.kind == .place)
+            return QueryChipModel(id: slot.id, kind: slot.kind, title: title, systemImage: symbol, isSupported: supported,
+                                  isLoading: lookingUpPlace && slot.kind == .place, tags: capabilities.visual)
         })
     }
 
@@ -108,7 +114,7 @@ struct QueryChip: View {
             .accessibilityHint(edit == nil ? AskCopy.unsupportedHint : AskCopy.unsupportedEditHint)
             .accessibilityIdentifier("ask-chip-\(chip.kind.rawValue)")
             .popover(isPresented: $explains) {
-                Text(AskCopy.unsupportedExplanation(chip.kind))
+                Text(AskCopy.unsupportedExplanation(chip.kind, tags: chip.tags))
                     .lzText(.subheadline)
                     .foregroundStyle(.lz(.ink))
                     .fixedSize(horizontal: false, vertical: true)

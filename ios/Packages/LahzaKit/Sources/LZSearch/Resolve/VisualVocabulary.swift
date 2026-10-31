@@ -24,6 +24,9 @@ public struct VisualConcept: Sendable, Hashable, Codable {
     /// The tag means people doing it.
     public var needsPerson: Bool
 
+    /// The chip: "soccer · photo tag".
+    public var chip: String { "\(name) · photo tag" }
+
     public init(name: String, labels: [String], related: [String] = [], kind: Kind = .thing, needsPerson: Bool = false) {
         self.name = name
         self.labels = labels

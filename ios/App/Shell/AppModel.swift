@@ -195,6 +195,15 @@ nonisolated enum RootScreen: Hashable, Sendable {
                 try? await clock.sleep(for: .milliseconds(100))
             }
             search.submit(query)
+            // What it found, in counts, for the console (`devicectl … --console`): no dates, places or identifiers.
+            for _ in 0..<300 where search.result == nil {
+                try? await clock.sleep(for: .milliseconds(100))
+            }
+            if let result = search.result {
+                let best = result.hits.count { $0.tier == .best }, more = result.hits.count { $0.tier == .more }
+                print("QUERY “\(query)”: \(result.totals.moments) moments, \(best) best, \(more) more, chips \(result.query.slots.map(\.chip)), "
+                      + "no match \(result.noMatch.map { "\($0.kind)" } ?? "-"), \(result.coverage.visualLine ?? "all checked"), \(result.timings.total)")
+            }
         }
     }
     #endif

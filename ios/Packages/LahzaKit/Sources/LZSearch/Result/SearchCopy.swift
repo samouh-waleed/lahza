@@ -387,10 +387,14 @@ struct SearchCopy {
         }
     }
 
-    /// "Checked 12,400 of 31,204 photos so far" while some photos aren't tagged yet (E25); nil once all are.
-    func visualLine(checked: Int, total: Int) -> String? {
-        guard checked < total else { return nil }
-        return "Checked \(checked.formatted(.number.locale(locale))) of \(total.formatted(.number.locale(locale))) photos so far"
+    /// "Checked 12,400 of 31,204 photos so far" while the pass is still going (E25); once only photos kept in iCloud
+    /// are left, "Checked 31,000 of 31,204 photos · 204 only in iCloud"; nil once all are checked.
+    func visualLine(_ counts: (checked: Int, pendingCloud: Int, unchecked: Int), total: Int) -> String? {
+        guard counts.checked < total else { return nil }
+        let checked = "Checked \(counts.checked.formatted(.number.locale(locale))) of \(total.formatted(.number.locale(locale))) photos"
+        if counts.unchecked > 0 { return checked + " so far" }
+        if counts.pendingCloud > 0 { return checked + " · \(counts.pendingCloud.formatted(.number.locale(locale))) only in iCloud" }
+        return checked
     }
 
     // MARK: Unsupported

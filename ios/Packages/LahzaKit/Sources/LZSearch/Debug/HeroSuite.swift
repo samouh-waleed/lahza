@@ -330,7 +330,7 @@ extension HeroSuite.Golden {
             Self(40, "trekking", Expectation(best: hike.best, moreMust: hike.more, maxSearches: 0, checks: [p.chips(["hiking · photo tag"])])),
             Self(41, "scuba diving", Expectation(best: [], maxSearches: 0, checks: [
                 p.noMatch(.notTagged, headline: facts.onlySeed ? "No photos tagged scuba diving among \(p.checked.count) checked." : nil,
-                          detail: facts.onlySeed ? "Checked \(p.checked.count) of \(p.items.count) photos so far." : nil)])),
+                          detail: facts.onlySeed ? p.expectedVisualLine + "." : nil)])),
             Self(42, "receipts", Expectation(best: receipts.best, moreMust: receipts.more, checks: [p.chips(["receipt · photo tag"])])),
             Self(43, "passport", Expectation(best: passport.best, moreMust: passport.more, checks: [p.chips(["passport · photo tag"])])),
             Self(44, "beach", Expectation(best: beach.best, moreMust: beach.more, maxSearches: 0, checks: [p.chips(["beach · photo tag"])])),
@@ -514,9 +514,12 @@ private struct Predicates {
         return (best, more)
     }
 
-    /// "Checked 552 of 557 photos so far" (the fake library); with the Simulator's own samples, some such line.
+    /// "Checked 552 of 557 photos · 5 only in iCloud" (the fake library); with the Simulator's own samples, some such
+    /// line.
+    var expectedVisualLine: String { "Checked \(checked.count) of \(items.count) photos · \(items.count - checked.count) only in iCloud" }
+
     var visualLine: Check {
-        let expected = "Checked \(checked.count) of \(items.count) photos so far"
+        let expected = expectedVisualLine
         let exact = facts.onlySeed
         return { result in
             let line = result.coverage.visualLine ?? ""

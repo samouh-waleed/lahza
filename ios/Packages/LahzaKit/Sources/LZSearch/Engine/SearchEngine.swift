@@ -277,7 +277,7 @@ public actor SearchEngine {
                     query.visualSlots.append(slot.id)
                     let match = VisualMatch(concept: concept.name, tags: Self.readable(concept.labels), related: Self.readable(concept.related),
                                             relatedRemoved: withoutRelated)
-                    slots.append(ResolvedSlot(slot: slot, resolution: .visual(match), chip: Self.visualChip(concept), systemImage: "tag"))
+                    slots.append(ResolvedSlot(slot: slot, resolution: .visual(match), chip: concept.chip, systemImage: "tag"))
                 } else {
                     slots.append(ResolvedSlot(slot: slot, resolution: .unsupported, chip: words, systemImage: "info.circle"))
                 }
@@ -422,11 +422,6 @@ public actor SearchEngine {
         case .last: "clock.arrow.circlepath"
         case .oldestFirst, .newestFirst: "arrow.up.arrow.down"
         }
-    }
-
-    /// "soccer · photo tag".
-    static func visualChip(_ concept: VisualConcept) -> String {
-        "\(concept.name) · photo tag"
     }
 
     /// Tags as people read them, each once ("cake" for both `cake` and `cake_regular`).

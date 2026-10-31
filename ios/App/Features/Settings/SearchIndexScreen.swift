@@ -23,6 +23,9 @@ struct SearchIndexScreen: View {
                         ListRow(IndexCopy.momentsRow, value: summary.moments.formatted())
                         ListRow(IndexCopy.tripsRow, value: summary.trips.formatted())
                         ListRow(IndexCopy.placesRow, value: IndexCopy.namedValue(status.placeNames))
+                        if let visual = status.visual {
+                            ListRow(IndexCopy.photoTagsRow, value: IndexCopy.checkedValue(visual))
+                        }
                         if let sizeBytes {
                             ListRow(IndexCopy.sizeRow, value: ByteCountFormatter.string(fromByteCount: sizeBytes, countStyle: .file))
                         }
@@ -115,6 +118,12 @@ private struct SearchIndexStatusCard: View {
                         .lzText(.subheadline)
                         .foregroundStyle(.lz(.muted))
                         .accessibilityIdentifier("search-index-place-names")
+                }
+                if let visual = status.visual, let detail = IndexCopy.photoTags(visual) {
+                    Label(detail, systemImage: "tag")
+                        .lzText(.subheadline)
+                        .foregroundStyle(.lz(.muted))
+                        .accessibilityIdentifier("search-index-photo-tags")
                 }
             }
         }
@@ -210,6 +219,24 @@ nonisolated enum IndexCopy {
         case .backgrounded: "moon"
         case .off: "map"
         case .running, .idle, .done: "mappin.and.ellipse"
+        }
+    }
+
+    static let photoTagsRow = "Checked for what’s in them"
+
+    /// "1,200 of 31,204".
+    static func checkedValue(_ progress: VisualProgress) -> String {
+        "\(progress.checked.formatted()) of \(progress.total.formatted())"
+    }
+
+    /// The photo-tag line while photos are being checked (on the iPhone, with its built-in tagger), or nil.
+    static func photoTags(_ progress: VisualProgress) -> String? {
+        guard progress.checked + progress.pendingCloud < progress.total || progress.state == .tooHot || progress.state == .cooling else { return nil }
+        switch progress.state {
+        case .running, .idle, .done: return "Checking what’s in your photos · \(checkedValue(progress))"
+        case .backgrounded: return "Checking what’s in your photos continues when Lahza is open"
+        case .cooling: return "Waiting for your iPhone to cool down"
+        case .tooHot: return "Paused while your iPhone is hot"
         }
     }
 

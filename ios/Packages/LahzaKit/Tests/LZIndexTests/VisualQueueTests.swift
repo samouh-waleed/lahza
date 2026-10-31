@@ -122,7 +122,7 @@ import Testing
         #expect(try await rows(database)["cloud"]?.status == VisualStatus.pendingCloud.rawValue)
         let snapshot = try await IndexReader(database: database).snapshot()
         #expect(snapshot.hasVisualPass)
-        #expect(snapshot.visualCounts == (checked: 1, pendingCloud: 1))
+        #expect(snapshot.visualCounts == (checked: 1, pendingCloud: 1, unchecked: 0))
         let cloud = Int(try #require(snapshot.indexByID.first { $0.value == 1 }).value)
         #expect(!snapshot.isChecked(cloud))
 

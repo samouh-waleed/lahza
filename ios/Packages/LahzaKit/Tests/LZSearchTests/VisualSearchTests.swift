@@ -46,11 +46,16 @@ import Testing
         #expect(!items.contains(where: Self.nakheel2026), "unknown, never a match nor a no")
         let unchecked = SeedScenario.hero.items.count { Self.nakheel2026($0) || $0.tag == .orphans }
         let total = SeedScenario.hero.items.count
-        #expect(result.coverage.visualLine == "Checked \(total - unchecked) of \(total) photos so far")
+        #expect(result.coverage.visualLine == "Checked \(total - unchecked) of \(total) photos · \(unchecked) only in iCloud")
     }
 
     @Test func beforeAnyPhotoIsCheckedSearchSaysSo() async throws {
-        let search = try await search(tagging: PartialAnalyzer(skip: { _ in true }))
+        // The pass has started (search is on) but hasn't reached a photo.
+        let search = try await HeroSearch()
+        try await search.index.database.write { db in
+            try Meta.set(db, .visualVersion, VisualPass.version)
+            try Meta.bumpVersion(db)
+        }
         let result = try await search.search("soccer")
         #expect(result.noMatch?.kind == .notTagged)
         #expect(result.noMatch?.headline == "Lahza is still checking what’s in your photos.")
