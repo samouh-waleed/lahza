@@ -45,7 +45,7 @@ import Testing
             #expect(names.contains(table), "missing \(table)")
         }
         #expect(epoch == IndexSchema.rebuildEpoch)
-        #expect(migrations == ["v1"])
+        #expect(migrations == ["v1", "v2-visual"])
         #expect(try await database.sizeBytes() > 0)
     }
 
@@ -131,7 +131,7 @@ import Testing
 
             let rebuilt = try IndexDatabase.open(.directory(url))
             #expect(try await userRows(rebuilt).saved == ["My pitch"])
-            #expect(try await rebuilt.read { db in try String.fetchAll(db, sql: "SELECT identifier FROM grdb_migrations") } == ["v1"])
+            #expect(try await rebuilt.read { db in try String.fetchAll(db, sql: "SELECT identifier FROM grdb_migrations") } == ["v1", "v2-visual"])
             await rebuilt.close()
         }
     }

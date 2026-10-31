@@ -20,6 +20,10 @@ public struct IndexDependencies: Sendable {
     public var changes: @Sendable () -> AsyncStream<PhotoLibraryChange>
     public var settings: IndexerSettings
     public var placeNamePolicy: PlaceNamePolicy
+    /// Tags photos for content search (Vision on the iPhone); nil: no Vision pass, and words about what's in photos
+    /// aren't searchable.
+    public var visualAnalyzer: (any VisualAnalyzer)?
+    public var visualPolicy: VisualPolicy
     /// Destroy an on-disk index before opening it (DEBUG `-LZIndex reset`).
     public var resetOnLaunch: Bool
     /// The index file can be opened (iOS: `UIApplication.isProtectedDataAvailable`).
@@ -29,7 +33,8 @@ public struct IndexDependencies: Sendable {
     public init(location: IndexLocation, reader: any LibraryReader, gazetteer: Gazetteer?, maps: any MapsClient, budget: MapsBudget, clock: any AppClock,
                 network: any NetworkStatus, kv: any KeyValueStore, deviceTimeZone: @escaping @Sendable () -> TimeZone = { .current },
                 changes: @escaping @Sendable () -> AsyncStream<PhotoLibraryChange>, settings: IndexerSettings = .init(),
-                placeNamePolicy: PlaceNamePolicy = .default, resetOnLaunch: Bool = false,
+                placeNamePolicy: PlaceNamePolicy = .default, visualAnalyzer: (any VisualAnalyzer)? = nil, visualPolicy: VisualPolicy = .default,
+                resetOnLaunch: Bool = false,
                 isProtectedDataAvailable: @escaping @MainActor @Sendable () -> Bool = { true }, changeDebounce: Duration = .seconds(2)) {
         self.location = location
         self.reader = reader
@@ -43,6 +48,8 @@ public struct IndexDependencies: Sendable {
         self.changes = changes
         self.settings = settings
         self.placeNamePolicy = placeNamePolicy
+        self.visualAnalyzer = visualAnalyzer
+        self.visualPolicy = visualPolicy
         self.resetOnLaunch = resetOnLaunch
         self.isProtectedDataAvailable = isProtectedDataAvailable
         self.changeDebounce = changeDebounce
@@ -55,6 +62,8 @@ public final class IndexSession: Sendable {
     public let database: IndexDatabase
     public let indexer: LibraryIndexer
     public let placeNames: PlaceNameQueue
+    /// The Vision pass; nil without an analyzer.
+    public let visual: VisualQueue?
     public let reader: IndexReader
     /// Search's and Settings' writes (Apple Maps answers, picked places, saved places, the home choice).
     public let writer: UserDataWriter
@@ -69,6 +78,10 @@ public final class IndexSession: Sendable {
         placeNames = PlaceNameQueue(database: database, maps: dependencies.maps, budget: dependencies.budget, clock: dependencies.clock,
                                     network: dependencies.network, notify: { await indexer.enqueue(.restructure) },
                                     policy: dependencies.placeNamePolicy)
+        visual = dependencies.visualAnalyzer.map { analyzer in
+            VisualQueue(database: database, analyzer: analyzer, clock: dependencies.clock, notify: { await indexer.enqueue(.restructure) },
+                        policy: dependencies.visualPolicy)
+        }
         reader = IndexReader(database: database, generation: generation)
         writer = UserDataWriter(database: database, clock: dependencies.clock, changed: { await indexer.enqueue(.restructure) })
     }

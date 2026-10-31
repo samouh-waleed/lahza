@@ -146,7 +146,7 @@ import Testing
     /// E17: a lone name no place confirms leaves no offer, so the examples follow it.
     @Test func noOfferLeftShowsTheExamples() async throws {
         let app = await SearchTestApp.ready(.unlocked)
-        let result = try #require(await SearchTestApp.search(app, "kebab"))
+        let result = try #require(await SearchTestApp.search(app, "narnia"))
         #expect(result.noMatch?.kind == .placeNotFound(.unconfirmed))
         #expect(result.noMatch?.offers.isEmpty == true)
         #expect(result.noMatch?.examples.map(\.text).first == "Dubai trip")

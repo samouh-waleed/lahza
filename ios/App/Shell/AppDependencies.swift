@@ -28,6 +28,9 @@ struct AppDependencies {
     var images: any AssetImageProvider
     /// The viewer's videos, never from the network.
     var videos: any VideoLoader
+    /// What tags photos for content search: Vision on the iPhone, the seed's stand-in (`-LZSeed`), or nothing (no
+    /// Vision pass: words about photos stay "not yet").
+    var visual: VisualSource = .vision
     /// Apple Maps (place names, and later place search).
     var maps: any MapsClient
     /// Apple Maps requests a minute, shared by place naming and search.
@@ -92,6 +95,7 @@ struct AppDependencies {
         dependencies.maps = FakeMapsClient(.empty)
         dependencies.network = FakeNetworkStatus(reachable: false)
         dependencies.indexLocation = .inMemory
+        dependencies.visual = .off
         #if DEBUG
         dependencies.censusSource = FakeCensusSource(library: photos, pace: .zero)
         #endif
@@ -120,7 +124,28 @@ struct AppDependencies {
         let photoLibrary = photoLibrary
         return IndexDependencies(location: indexLocation, reader: libraryReader, gazetteer: gazetteer, maps: maps, budget: budget, clock: clock,
                                  network: network, kv: kv, deviceTimeZone: deviceTimeZone, changes: { photoLibrary.changes() },
-                                 settings: indexSettings, resetOnLaunch: resetIndexOnLaunch,
+                                 settings: indexSettings, visualAnalyzer: visualAnalyzer, resetOnLaunch: resetIndexOnLaunch,
                                  isProtectedDataAvailable: { UIApplication.shared.isProtectedDataAvailable })
     }
+
+    /// The analyzer `visual` names.
+    private var visualAnalyzer: (any VisualAnalyzer)? {
+        switch visual {
+        case .vision: VisionAnalyzer(images: images)
+        #if DEBUG
+        case .seed: SeedVisualAnalyzer(labels: VisualVocabulary.english.labels)
+        #endif
+        case .off: nil
+        }
+    }
+}
+
+/// What tags photos for content search.
+enum VisualSource {
+    case vision
+    #if DEBUG
+    /// The hero seed's stand-in tags (its pictures are drawn).
+    case seed
+    #endif
+    case off
 }

@@ -24,7 +24,7 @@ enum IndexSchema {
     /// Every table, in schema order (the inspector's row counts).
     static let tables = [
         "meta", "zone", "asset", "moment", "trip", "home_base", "place", "place_name", "cell", "dirty_day",
-        "poi_cache", "map_search_cache", "saved_place", "place_choice",
+        "poi_cache", "map_search_cache", "saved_place", "place_choice", "visual_label", "asset_label", "asset_visual",
     ]
 
     static var migrator: DatabaseMigrator {
@@ -34,6 +34,7 @@ enum IndexSchema {
         migrator.eraseDatabaseOnSchemaChange = true
         #endif
         migrator.registerMigration("v1") { db in try db.execute(sql: v1) }
+        migrator.registerMigration("v2-visual") { db in try db.execute(sql: v2Visual) }
         return migrator
     }
 
@@ -144,6 +145,35 @@ enum IndexSchema {
           created_utc INTEGER NOT NULL, updated_utc INTEGER NOT NULL);
         CREATE UNIQUE INDEX saved_place_home ON saved_place(is_home) WHERE is_home = 1;
         CREATE TABLE place_choice (phrase TEXT PRIMARY KEY, place_key TEXT NOT NULL, radius_m REAL, updated_utc INTEGER NOT NULL);
+        """
+
+    /// The Vision pass (content search P1a): Vision's photo tags by name, the tags each photo passed with their
+    /// confidence and flags (``VisualLabelFlags``; confidences compare only within one tag), and each photo's pass:
+    /// its ``VisualStatus``, face and person counts, the largest face's share of the frame, Vision's utility verdict and
+    /// aesthetics score, the pass versions and the content edit it read. A photo's rows go with it.
+    static let v2Visual = """
+        CREATE TABLE visual_label (id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE);
+
+        CREATE TABLE asset_label (
+          label_id   INTEGER NOT NULL REFERENCES visual_label(id),
+          asset_id   INTEGER NOT NULL REFERENCES asset(id) ON DELETE CASCADE,
+          confidence REAL NOT NULL,
+          flags      INTEGER NOT NULL,
+          PRIMARY KEY (label_id, asset_id)
+        ) WITHOUT ROWID;
+        CREATE INDEX asset_label_asset ON asset_label(asset_id);
+
+        CREATE TABLE asset_visual (
+          asset_id       INTEGER PRIMARY KEY REFERENCES asset(id) ON DELETE CASCADE,
+          status         INTEGER NOT NULL,
+          faces          INTEGER, humans INTEGER, largest_face REAL,
+          is_utility     INTEGER, aesthetic REAL,
+          labels_version INTEGER NOT NULL,
+          embed_version  INTEGER,
+          adjusted_utc   INTEGER,
+          checked_utc    INTEGER NOT NULL
+        );
+        CREATE INDEX asset_visual_status ON asset_visual(status);
         """
 
     // MARK: Open

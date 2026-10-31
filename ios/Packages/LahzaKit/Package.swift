@@ -47,9 +47,10 @@ let package = Package(
         // models and the stores the app observes. GRDB stays inside this module (`internal import`), so the app and later modules never see it.
         .target(name: "LZIndex", dependencies: ["LZCore", "LZGeo", "LZLibrary", .product(name: "GRDB", package: "GRDB.swift")]),
         // Search: the query model (slots tied to spans, ready for a Foundation Models parser later), the English rules
-        // parser, and the time and place resolvers; then scoring, tiers, grouping and reasons over the index.
+        // parser, the time and place resolvers and the words mapped to photo tags; then scoring, tiers, grouping and
+        // reasons over the index.
         .target(name: "LZSearch", dependencies: ["LZCore", "LZGeo", "LZLibrary", "LZIndex"],
-                resources: [.copy("Resources/ContentWords.txt")]),
+                resources: [.copy("Resources/ContentWords.txt"), .copy("Resources/VisualLabels.txt"), .copy("Resources/VisionLabels.txt")]),
         // The embedding model behind a swappable interface: the converted SigLIP 2 towers (`make model`), loaded with
         // Core ML from a model folder and its `model.json`, turning photos and token ids into unit vectors.
         .target(name: "LZEmbedding", dependencies: ["LZCore"]),

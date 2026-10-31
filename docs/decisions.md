@@ -71,3 +71,12 @@ A short log of settled decisions, newest last. Proposed design rules that still 
 | # | Decision | Why |
 |---|---|---|
 | 35 | Search understands "the first time", "the last time" and "oldest first" before the Apple Photos comparison. The first time is the earliest occasion of the Best matches (a whole trip for a city or country away from home, else that outing), then "N later times · Show all", which lists every time oldest first. A free search whose first time is older than 12 months says so with the unlock row, never showing the earliest photo in the window as the first | Founder decision. Time reasoning ("first", "over the years") is a common way people search their memories, and needs no ML |
+
+## Content search (2026-10-30)
+
+| # | Decision | Why |
+|---|---|---|
+| 36 | Words about what's in photos are searched first with Apple's built-in photo tags (Vision, about 1,300 tags, no download) and a word map ("hike", "hikes", "trek" → hiking). A word with related tags is strict in Best (its own tag) and loose in More (related tags, such as trail or mountain for hiking), with a way to remove the related ones | Founder decision (E24). Best stays trustworthy, and scenery shots from a hike still show, marked as related |
+| 37 | While photos are still being checked, a content search shows what it has found with "Checked N of M photos so far". A photo not checked yet counts as unknown, never as "no" | Founder decision (E25). Fast first results, and a partial answer never looks like a wrong "no match" |
+| 38 | The first full photo check runs while Lahza is open, the last 12 months first. An "Index my library" button that starts a background task comes later | Founder decision (E26). Fastest on the Neural Engine, which iOS 27 keeps from background apps without an entitlement |
+| 39 | The image–text model (#22) is a download of about 200 MB, for free phrasing beyond the tags; it ships only if tests show it adds at least 10 points over tags alone | Founder decision (E27). Tags cover common words now; the model covers the rest later |

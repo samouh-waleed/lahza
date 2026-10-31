@@ -303,7 +303,7 @@ private struct QueryTop: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: LZSpace.lg) {
-            let chips = QueryChipModel.chips(result.query)
+            let chips = QueryChipModel.chips(result.query, tags: model.index.status.visual != nil)
             if !chips.isEmpty { UnderstoodAsRow(chips: chips, edit: edit) }
             if let notice = result.unsupportedNotice {
                 Notice(.info, message: notice)
@@ -357,6 +357,12 @@ private struct CoverageLines: View {
                 .lzText(.caption)
                 .foregroundStyle(.lz(.muted))
                 .accessibilityIdentifier("ask-partial")
+        }
+        if let line = coverage.visualLine {
+            Label(line, systemImage: "tag")
+                .lzText(.caption)
+                .foregroundStyle(.lz(.muted))
+                .accessibilityIdentifier("ask-visual-coverage")
         }
     }
 }
@@ -428,7 +434,8 @@ private struct NoMatchView: View {
                         .padding(.top, LZSpace.sm)
                 }
             }
-            if result.coverage.isPartial || result.coverage.isLimited {
+            // A no-match that is about photo tags already says how far checking has got.
+            if result.coverage.isPartial || result.coverage.isLimited || (result.coverage.visualLine != nil && result.noMatch?.kind != .notTagged) {
                 VStack(alignment: .leading, spacing: LZSpace.xs) {
                     CoverageLines(coverage: result.coverage)
                     if result.coverage.isLimited { ChooseMoreButton() }
@@ -458,13 +465,14 @@ private struct NoMatchView: View {
 private struct SearchLoadingView: View {
     let state: SearchStore.State
     let parsed: ParsedQuery?
+    @Environment(AppModel.self) private var model
     @State private var showsSkeleton = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: LZSpace.lg) {
             let lookingUp: String? = if case .lookingUpPlace(let name) = state { name } else { nil }
             if let parsed, !parsed.slots.isEmpty {
-                UnderstoodAsRow(chips: QueryChipModel.chips(parsed, lookingUpPlace: lookingUp != nil))
+                UnderstoodAsRow(chips: QueryChipModel.chips(parsed, capabilities: SearchCapabilities(model.index.status), lookingUpPlace: lookingUp != nil))
             }
             if showsSkeleton {
                 Text(lookingUp.map(AskCopy.lookingUp) ?? AskCopy.searching)

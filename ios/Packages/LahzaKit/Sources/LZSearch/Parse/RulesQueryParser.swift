@@ -516,7 +516,7 @@ struct RuleScan {
             var end = position + 1
             if isContent {
                 while end < run.upperBound, content[end - run.lowerBound] { end += 1 }
-                add(.visual(original(position, end - 1)), first: position, last: end - 1, claimed: position..<end)
+                emitVisual(position..<end)
             } else {
                 while end < run.upperBound, !content[end - run.lowerBound] { end += 1 }
                 // A name keeps the place words that follow it ("Salam Park").
@@ -530,6 +530,27 @@ struct RuleScan {
                 }
             }
             position = end
+        }
+    }
+
+    /// Words about what's in photos: each word or phrase with a photo tag is its own slot ("beach sunset" is two, "sand
+    /// dunes" one), and the words between them that have none stay together ("purple").
+    private mutating func emitVisual(_ run: Range<Int>) {
+        let words = tokens[run].map(\.text)
+        var position = run.lowerBound
+        var untagged = position
+        while position < run.upperBound {
+            guard let length = lexicon.visual.phraseLength(words[(position - run.lowerBound)...]) else {
+                position += 1
+                continue
+            }
+            if untagged < position { add(.visual(original(untagged, position - 1)), first: untagged, last: position - 1, claimed: untagged..<position) }
+            add(.visual(original(position, position + length - 1)), first: position, last: position + length - 1, claimed: position..<position + length)
+            position += length
+            untagged = position
+        }
+        if untagged < run.upperBound {
+            add(.visual(original(untagged, run.upperBound - 1)), first: untagged, last: run.upperBound - 1, claimed: untagged..<run.upperBound)
         }
     }
 

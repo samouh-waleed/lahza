@@ -112,7 +112,8 @@ public enum SlotValue: Sendable, Hashable, Codable {
     case order(SearchOrder)
     /// Parsed but not searchable in v0 ("with Ahmed").
     case people(String)
-    /// Words about what's in the photos; not searchable in v0 ("soccer", "sunset").
+    /// Words about what's in the photos ("soccer", "sunset"): searched by photo tags once the index has a Vision pass,
+    /// when the words map to one.
     case visual(String)
     /// Text in photos; reserved for OCR, never produced in v0.
     case text(String)
@@ -150,11 +151,12 @@ public struct SearchCapabilities: Sendable, Hashable {
     /// Places, dates, photo types, trips and order; nothing about what's in the photos.
     public static let v0 = SearchCapabilities()
 
+    /// Words about what's in photos count only when they map to a photo tag ("soccer", not "party").
     public func supports(_ value: SlotValue) -> Bool {
         switch value {
         case .place, .time, .media, .event, .order: true
         case .people: people
-        case .visual: visual
+        case .visual(let words): visual && VisualVocabulary.english.concept(for: words) != nil
         case .text: text
         }
     }

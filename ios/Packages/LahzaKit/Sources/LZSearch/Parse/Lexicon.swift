@@ -43,8 +43,11 @@ public struct Lexicon: Sendable {
     public var notBareCountries: Set<String>
     /// Words about what's in photos ("soccer", "sunset", "cake"): never guessed to be places.
     public var contentWords: Set<String>
+    /// Words for what's in photos mapped to photo tags: the parser gives each its own slot ("beach sunset" is two).
+    public var visual: VisualVocabulary = .english
 
-    /// The English lexicon, with the content words from `ContentWords.txt`.
+    /// The English lexicon, with the content words from `ContentWords.txt` and every word the visual vocabulary knows
+    /// (but a tag's name that is also a place word, "grill" in "Sufra Grill", stays free to end a place's name).
     public static let english = Lexicon.makeEnglish()
 
     /// The longest media, Hijri, holiday, order or people phrase, in words.
@@ -145,6 +148,8 @@ public struct Lexicon: Sendable {
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty && !$0.hasPrefix("#") }
             .map(PlaceNames.fold))
+            .union(VisualVocabulary.english.curatedWords)
+            .union(VisualVocabulary.english.labelWords.subtracting(RuleScan.placeWords))
 
         var lexicon = Lexicon(
             months: months, ambiguousMonths: ["may"],
@@ -186,8 +191,8 @@ public struct Lexicon: Sendable {
             notBareCountries: ["us", "the us", "me"],
             contentWords: content
         )
-        lexicon.longestPhrase = (Array(media.keys) + Array(hijri.keys) + Array(holidays.keys) + Array(orders.keys) + Array(lexicon.people.keys))
-            .map(\.count).max() ?? 1
+        let phrases: [[String]] = Array(media.keys) + Array(hijri.keys) + Array(holidays.keys) + Array(orders.keys) + Array(lexicon.people.keys)
+        lexicon.longestPhrase = phrases.map(\.count).max() ?? 1
         return lexicon
     }
 }

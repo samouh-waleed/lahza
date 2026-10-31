@@ -142,8 +142,11 @@ public actor SearchEngine {
             // Everything that matched is older than a free search covers: say so, never "nothing".
             noMatch = NoMatch(kind: .onlyEarlier, headline: copy.onlyEarlier(since: date, now: clock.now), detail: nil, offers: [], examples: [])
         } else if !matched {
-            let builder = NoMatchBuilder(snapshot: snapshot, query: query, copy: copy, context: context, index: index, since: since,
+            var builder = NoMatchBuilder(snapshot: snapshot, query: query, copy: copy, context: context, index: index, since: since,
                                          showWeaker: request.showWeaker)
+            // Related tags the person removed, for the tap that brings them back.
+            let removed = query.plan.visual.filter { $0.related.isEmpty }.flatMap(\.concept.related)
+            if !removed.isEmpty { builder.relatedPostings = try await reader.labelPostings(removed) }
             noMatch = try await builder.build(reader: reader)
             // No offer left (a lone name no place confirms, words Lahza can't search yet): the examples are the next tap.
             if noMatch?.offers.isEmpty == true, let examples = try? await examples(reader: reader, index: index, scope: request.scope) {
@@ -160,7 +163,7 @@ public actor SearchEngine {
                                   // "Showing all your photos …" only when photos match: above a no-match it would promise none (E23).
                                   unsupportedNotice: noMatch?.kind == .onlyUnsupported ? nil
                                       : copy.unsupportedNotice(query.unsupported, text: parsed.text, showing: matched ? query.showingPhrase(copy) : nil,
-                                                               occasion: occasion == nil ? nil : occasionTitle),
+                                                               occasion: occasion == nil ? nil : occasionTitle, tags: snapshot.hasVisualPass),
                                   occasion: occasion, weakerCount: hits.count(where: { $0.tier == .weaker }), lockedCount: locked, timings: timings)
         log.info("Search: slots \(parsed.slots.map(\.kind.rawValue).joined(separator: ",")), \(result.totals.moments) moments, "
                  + "\(result.totals.items) items, \(hits.count(where: { $0.tier == .locationUnknown })) unlocated, \(locked) locked, "
@@ -216,7 +219,8 @@ public actor SearchEngine {
     // MARK: Resolving
 
     /// Resolves every slot: the time slots together (pure), the place slot through the resolver (own index, gazetteer,
-    /// at most one Apple Maps search), media and events as they are.
+    /// at most one Apple Maps search), media and events as they are, and words about what's in photos to the photo tags
+    /// they map to (when the index has a Vision pass), whose photos are read from the index.
     func prepare(_ parsed: ParsedQuery, overrides: ResolutionOverrides, reader: IndexReader, writer: UserDataWriter?, snapshot: SearchSnapshot,
                  context: EngineContext, appleMaps: Bool, isRerun: Bool, progress: (@Sendable (SearchProgress) -> Void)?) async throws -> PreparedQuery {
         var query = PreparedQuery(parsed: parsed)
@@ -241,6 +245,7 @@ public actor SearchEngine {
         let places = try await preparePlaces(parsed, overrides: overrides, environment: environment, query: &query, reader: reader, context: context,
                                              isRerun: isRerun, progress: progress)
         var slots: [ResolvedSlot] = []
+        var concepts: [(slot: Int, concept: VisualConcept, related: [String])] = []
         for slot in parsed.slots {
             switch slot.value {
             case .time(let expression):
@@ -265,9 +270,25 @@ public actor SearchEngine {
             case .order(let order):
                 if query.orderSlot == nil { query.orderSlot = (slot.id, order) }
                 slots.append(ResolvedSlot(slot: slot, resolution: .order(order), chip: Self.orderChip(order), systemImage: Self.orderSymbol(order)))
-            case .people, .visual, .text:
+            case .visual(let words):
+                if snapshot.hasVisualPass, let concept = VisualVocabulary.english.concept(for: words) {
+                    let withoutRelated = overrides.withoutRelatedTags.contains(slot.id)
+                    concepts.append((slot.id, concept, withoutRelated ? [] : concept.related))
+                    query.visualSlots.append(slot.id)
+                    let match = VisualMatch(concept: concept.name, tags: Self.readable(concept.labels), related: Self.readable(concept.related),
+                                            relatedRemoved: withoutRelated)
+                    slots.append(ResolvedSlot(slot: slot, resolution: .visual(match), chip: concept.chip, systemImage: "tag"))
+                } else {
+                    slots.append(ResolvedSlot(slot: slot, resolution: .unsupported, chip: words, systemImage: "info.circle"))
+                }
+            case .people, .text:
                 slots.append(ResolvedSlot(slot: slot, resolution: .unsupported, chip: slot.value.phrase(locale: locale), systemImage: "info.circle"))
             }
+        }
+        if !concepts.isEmpty {
+            let names = Array(Set(concepts.flatMap { $0.concept.labels + $0.related }))
+            let postings = try await reader.labelPostings(names)
+            query.plan.visual = concepts.map { VisualTarget(slot: $0.slot, concept: $0.concept, related: $0.related, postings: postings, snapshot: snapshot) }
         }
         query.plan.media = parsed.mediaFilter
         query.slots = slots
@@ -403,6 +424,12 @@ public actor SearchEngine {
         }
     }
 
+    /// Tags as people read them, each once ("cake" for both `cake` and `cake_regular`).
+    static func readable(_ labels: [String]) -> [String] {
+        var seen = Set<String>()
+        return labels.map(VisualVocabulary.readable).filter { seen.insert($0).inserted }
+    }
+
     /// "Videos", "Favorite videos", "Screenshots", "Photos".
     static func mediaChip(_ filter: MediaFilter) -> String {
         filter.kinds == [.photo] && filter.flags.isEmpty ? "Photos" : filter.phrase.replacingOccurrences(of: "only photos", with: "photos").capitalizedFirst
@@ -438,6 +465,8 @@ struct PreparedQuery: Sendable {
     var timeExpression: TimeExpression?
     var mediaSlots: [Int] = []
     var eventSlot: Int?
+    /// The visual slots searched by photo tags, in the plan's order.
+    var visualSlots: [Int] = []
     /// The query's order: the first or last time, or oldest or newest first (the first order slot).
     var orderSlot: (id: Int, order: SearchOrder)?
     var picker: PlacePicker?
@@ -460,6 +489,7 @@ struct PreparedQuery: Sendable {
     /// "at Al-Nakheel Park during Ramadan 2024": what the results show, for the unsupported notice.
     func showingPhrase(_ copy: SearchCopy) -> String? {
         var parts: [String] = []
+        if !plan.visual.isEmpty { parts.append("tagged " + copy.list(plan.visual.map(\.concept.name))) }
         if let place = placeSlot { parts.append(place.description.phrase) }
         if let time = timeExpression, plan.time != nil { parts.append("\(copy.preposition(time)) \(copy.sentenceName(time))") }
         return parts.isEmpty ? nil : parts.joined(separator: " ")

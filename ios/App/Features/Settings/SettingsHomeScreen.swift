@@ -49,6 +49,8 @@ struct SettingsHomeScreen: View {
                         .accessibilityIdentifier("developer-library-census")
                     row("Index inspector", "tablecells", .indexInspector)
                         .accessibilityIdentifier("developer-index-inspector")
+                    row("Label lab", "tag", .labelLab)
+                        .accessibilityIdentifier("developer-label-lab")
                 }
                 #endif
                 if let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String {

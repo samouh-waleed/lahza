@@ -246,7 +246,7 @@ import Testing
     /// E17: a lone name no place confirms has no offer, so the examples follow it.
     @Test func noOfferLeftShowsTheExamples() async throws {
         let search = try await HeroSearch.shared.value
-        for text in ["Louvre", "kebab"] {
+        for text in ["Louvre", "Narnia"] {
             let result = try await search.search(request(text, scope: .wholeLibrary))
             let noMatch = try #require(result.noMatch, "\(text)")
             #expect(noMatch.kind == .placeNotFound(.unconfirmed), "\(text)")
