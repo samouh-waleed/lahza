@@ -35,6 +35,8 @@ struct AppDependencies {
     /// The image model on this iPhone (content search L3), which the Vision pass embeds photos with: none until step 11
     /// delivers it; in DEBUG, the folder ``ModelLocator`` finds.
     var embedders: (any ImageEmbedderSource)?
+    /// The text side of the same model (step 7), for descriptions the concept table doesn't hold; loaded when first used.
+    var textEncoder: (any TextEncoder)?
     /// Apple Maps (place names, and later place search).
     var maps: any MapsClient
     /// Apple Maps requests a minute, shared by place naming and search.

@@ -53,6 +53,8 @@ struct SettingsHomeScreen: View {
                         .accessibilityIdentifier("developer-label-lab")
                     row("Scoreboard", "checklist", .scoreboard)
                         .accessibilityIdentifier("developer-scoreboard")
+                    row("Description lab", "text.magnifyingglass", .descriptionLab)
+                        .accessibilityIdentifier("developer-description-lab")
                 }
                 #endif
                 if let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String {
