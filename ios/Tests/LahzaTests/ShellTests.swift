@@ -222,7 +222,7 @@ import Testing
     // MARK: Library census (DEBUG)
 
     @Test func libraryCensusIsADebugRouteOnTheSettingsTab() {
-        #expect(Route.developerRoutes == [.libraryCensus, .indexInspector, .lockedResults, .labelLab, .scoreboard])
+        #expect(Route.developerRoutes == [.libraryCensus, .indexInspector, .lockedResults, .labelLab, .scoreboard, .descriptionLab])
         #expect(Route(debugName: "locked-results") == .lockedResults)
         #expect(Route.libraryCensus.debugName == "library-census")
         #expect(Route(debugName: "library-census") == .libraryCensus)

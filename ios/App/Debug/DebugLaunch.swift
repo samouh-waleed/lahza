@@ -27,7 +27,7 @@ import LZSearch
 /// | `-LZQuery "<text>"`       | selects Ask and searches once the index is ready (or after 20 s)  |
 /// | `-LZModelDir <path>`      | the image and text model's folder (`make model`'s output); see ``ModelLocator`` |
 /// | `-LZModel 0`              | no model, even when one is on the iPhone (tags only)             |
-/// | `-LZLabAuto 1`            | Label lab runs its checks once the pass is done and prints the report (with `-LZRoute label-lab`) |
+/// | `-LZLabAuto 1`            | Label lab or Description lab runs its checks by itself and prints the report (with `-LZRoute label-lab` or `description-lab`) |
 /// | `-LZResultsLayout moments\|grid` | Ask's results start as moment cards or the grid (not remembered) |
 /// | `-LZRoute <name>`         | opens a route once launch settles (see ``Route/debugName``)      |
 /// | `-LZTheme light\|dark`    | forces an appearance                                             |
@@ -227,6 +227,8 @@ struct DebugLaunch {
         // The image model goes with Vision only (the seed's and the fakes' pictures are drawn).
         if dependencies.visual == .vision, model != false, let folder = ModelLocator.folder(override: modelDirectory) {
             dependencies.embedders = ModelFolderEmbedderSource(folder: folder)
+            let text = ModelFolderTextEncoder(folder: folder)
+            if text.model != nil { dependencies.textEncoder = text }
             labels.append("model")
         }
         if dependencies.visual != .vision { dependencies.albums = FakeAlbumSource() }

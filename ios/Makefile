@@ -28,12 +28,17 @@ MODEL_WORK ?= .build/model-work
 # never converts it again.
 MAIN_MODELS := $(abspath $(shell git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)/../ios/$(MODELS))
 MODEL_DIR ?= $(if $(wildcard $(MODELS)/model.json),$(abspath $(MODELS)),$(MAIN_MODELS))
-# What DEBUG builds read from the app's container: the image tower, its manifest, and the parity pictures the label lab checks.
-MODEL_FILES := model.json SigLIP2Image.mlmodelc parity.json parity-red.png parity-blue.png parity-gradient.png
+# What DEBUG builds read from the app's container: both towers, the manifest, the tokenizer's vocabulary (`make tokenizer`), and
+# the parity pictures the label lab checks.
+MODEL_FILES := model.json SigLIP2Image.mlmodelc SigLIP2Text.mlmodelc siglip2-vocab.lzvb parity.json parity-red.png parity-blue.png parity-gradient.png
+# SigLIP 2's tokenizer.json at the revision `make model` converts (Tools/model/convert_siglip2.py), for `make tokenizer`.
+TOKENIZER_URL := https://huggingface.co/google/siglip2-base-patch16-256/resolve/3f9f96cb90da5dbc758b01813f2f6f1aee24c1ab/tokenizer.json
+# The golden token ids run when the vocabulary exists.
+VOCAB := $(wildcard $(MODEL_DIR)/siglip2-vocab.lzvb)
 MODEL_DEST := Library/Application Support/Models/siglip2-b16-256
 PYTHON ?= python3
 
-.PHONY: help project build test test-kit test-app perf-kit model model-clean model-speed-sim run devices device device-model gazetteer seed-photos sim-reset grant-photos probe-photos verify-search screens clean
+.PHONY: help project build test test-kit test-app perf-kit model model-clean model-speed-sim tokenizer concepts run devices device device-model gazetteer seed-photos sim-reset grant-photos probe-photos verify-search screens clean
 
 help:
 	@echo 'make project   regenerate Lahza.xcodeproj from project.yml'
@@ -44,6 +49,8 @@ help:
 	@echo 'make model     convert SigLIP 2 to Core ML into .build/models and check it against PyTorch (downloads ~1.5 GB once)'
 	@echo 'make model-clean   delete the conversion'"'"'s tools and downloads, keeping .build/models'
 	@echo 'make model-speed-sim   embed the seeded simulator'"'"'s photos with the converted model and print photos per second'
+	@echo 'make tokenizer build the text side'"'"'s vocabulary file into the model folder (downloads tokenizer.json, 34 MB, once)'
+	@echo 'make concepts  rebuild the bundled concept table (LZSearch/Resources/Concepts.lzcv) from Tools/concepts/Concepts.txt'
 	@echo 'make devices   list connected iPhones and their UDIDs'
 	@echo 'make device DEVICE_ID=<udid>   build, sign, install and launch on your iPhone'
 	@echo 'make device-model DEVICE_ID=<udid>   copy the converted image model into Lahza on your iPhone (DEBUG builds use it; once)'
@@ -66,7 +73,7 @@ build: project      ## Build the app for the simulator
 
 # The latency targets (search spec §6.9) run alone after the rest, so no other suite is building indexes meanwhile.
 test-kit:           ## Logic tests on the Mac host (fast)
-	swift test --package-path $(KIT) --jobs $(JOBS) --skip ParseAndResolveLatencyTests
+	LZ_VOCAB=$(VOCAB) swift test --package-path $(KIT) --jobs $(JOBS) --skip ParseAndResolveLatencyTests
 	swift test --package-path $(KIT) --jobs $(JOBS) --filter ParseAndResolveLatencyTests
 
 test-app: project   ## App-hosted tests on the simulator
@@ -85,6 +92,7 @@ model:              ## Convert SigLIP 2 to Core ML (Tools/model) into .build/mod
 	$(MODEL_WORK)/venv/bin/python -m pip install --quiet --disable-pip-version-check -r Tools/model/requirements.txt
 	HF_HOME=$(abspath $(MODEL_WORK))/hf $(MODEL_WORK)/venv/bin/python Tools/model/convert_siglip2.py --out $(MODELS)
 	LZ_MODEL_DIR=$(abspath $(MODELS)) swift test --package-path $(KIT) --jobs $(JOBS) --filter EmbeddingParityTests
+	$(MAKE) tokenizer MODEL_DIR=$(abspath $(MODELS))
 
 model-clean:        ## Delete the conversion's virtualenv and the downloaded weights (keeps .build/models)
 	rm -rf $(MODEL_WORK)
@@ -94,6 +102,20 @@ model-speed-sim: project grant-photos  ## The image tower over the seeded simula
 	set -o pipefail && TEST_RUNNER_LZ_MODEL_DIR=$(abspath $(MODELS)) $(XCB) test -only-testing:LahzaTests/ModelSpeedTests -collect-test-diagnostics never \
 		| tee .build/model-speed-sim.log | xcbeautify --quiet --is-ci --preserve-unbeautified | grep -v -e IDESchemeActionSDKRecord -e IDETestOperationsObserverDebug; \
 		status=$$?; grep -o 'MODEL simulator.*' .build/model-speed-sim.log; exit $$status
+
+# Our own Gemma tokenizer (decision 41) reads a compact vocabulary file built from tokenizer.json; the golden ids in
+# LZEmbeddingTests check it against Python's tokenizers.
+tokenizer:          ## Build siglip2-vocab.lzvb into the model folder from SigLIP 2's tokenizer.json
+	@test -f "$(MODEL_DIR)/model.json" || { echo 'No converted model in $(MODEL_DIR): run make model, or set MODEL_DIR'; exit 1; }
+	@mkdir -p $(MODEL_WORK)
+	test -f $(MODEL_WORK)/tokenizer.json || curl -sSfL -o $(MODEL_WORK)/tokenizer.json $(TOKENIZER_URL)
+	swift run --package-path $(KIT) -c release lz-concepts vocab --tokenizer $(MODEL_WORK)/tokenizer.json --out "$(MODEL_DIR)/siglip2-vocab.lzvb"
+
+# The concept table is committed: rebuild it after changing Concepts.txt, the word map or the model.
+concepts:           ## Rebuild LZSearch's Concepts.lzcv with the converted text tower (about a minute)
+	@test -f "$(MODEL_DIR)/siglip2-vocab.lzvb" || { echo 'No tokenizer vocabulary in $(MODEL_DIR): run make tokenizer'; exit 1; }
+	swift run --package-path $(KIT) -c release lz-concepts table --model "$(MODEL_DIR)" --concepts Tools/concepts/Concepts.txt \
+		--out $(KIT)/Sources/LZSearch/Resources/Concepts.lzcv
 
 run: build          ## Install and launch on the simulator
 	xcrun simctl boot "$(SIM)" 2>/dev/null || true
@@ -118,6 +140,7 @@ device: project     ## Build, sign (with Xcode's saved profile), install and lau
 device-model:       ## Copy the converted image model into Lahza's container on an iPhone
 	@test -n "$(DEVICE_ID)" || { echo 'Set DEVICE_ID to the iPhone UDID from: make devices'; exit 1; }
 	@test -f "$(MODEL_DIR)/model.json" || { echo 'No converted model in $(MODEL_DIR): run make model, or set MODEL_DIR'; exit 1; }
+	@test -f "$(MODEL_DIR)/siglip2-vocab.lzvb" || { echo 'No tokenizer vocabulary in $(MODEL_DIR): run make tokenizer'; exit 1; }
 	xcrun devicectl device copy to --device $(DEVICE_ID) --domain-type appDataContainer --domain-identifier $(APP_ID) \
 		$(foreach file,$(MODEL_FILES),--source "$(MODEL_DIR)/$(file)") --destination "$(MODEL_DEST)"
 

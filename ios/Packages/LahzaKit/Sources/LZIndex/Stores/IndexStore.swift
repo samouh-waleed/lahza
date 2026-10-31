@@ -19,6 +19,8 @@ import Observation
     public private(set) var reader: IndexReader?
     /// Search's writes; nil while the index is off.
     public private(set) var writer: UserDataWriter?
+    /// The open index's vector file (search and the description lab read it once the model is on the iPhone).
+    public var vectors: VectorIndex? { session?.vectors }
     /// The `lahza.index.appleMapsNames` preference (on unless turned off).
     public private(set) var appleMapsNames: Bool
 

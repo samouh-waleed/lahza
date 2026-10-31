@@ -111,6 +111,8 @@ nonisolated enum Route: Hashable, Sendable {
     case labelLab
     /// Settings › Developer › Scoreboard: the labelled searches, scored (content search 5a).
     case scoreboard
+    /// Settings › Developer › Description lab: a description against the photos' vectors (content search step 7).
+    case descriptionLab
     #endif
 
     // MARK: Modals
@@ -133,7 +135,7 @@ nonisolated enum Route: Hashable, Sendable {
         case .moment(let ref): ref.origin
         case .trip(let ref): ref.origin
         #if DEBUG
-        case .libraryCensus, .indexInspector, .lockedResults, .labelLab, .scoreboard: .settings
+        case .libraryCensus, .indexInspector, .lockedResults, .labelLab, .scoreboard, .descriptionLab: .settings
         #endif
         case .paywall, .onboarding, .notFound: nil
         }
@@ -144,7 +146,7 @@ nonisolated enum Route: Hashable, Sendable {
         case .ask, .moments, .settings: .tabRoot
         case .photoAccess, .appearance, .privacy, .fullLibrary, .acknowledgements, .searchIndex, .savedPlaces, .moment, .trip: .push
         #if DEBUG
-        case .libraryCensus, .indexInspector, .lockedResults, .labelLab, .scoreboard: .push
+        case .libraryCensus, .indexInspector, .lockedResults, .labelLab, .scoreboard, .descriptionLab: .push
         #endif
         case .paywall, .onboarding: .fullScreen
         case .notFound: .sheet(.medium)
@@ -165,7 +167,7 @@ nonisolated enum Route: Hashable, Sendable {
     /// Routes that exist only in DEBUG builds (developer tools).
     static var developerRoutes: [Route] {
         #if DEBUG
-        return [.libraryCensus, .indexInspector, .lockedResults, .labelLab, .scoreboard]
+        return [.libraryCensus, .indexInspector, .lockedResults, .labelLab, .scoreboard, .descriptionLab]
         #else
         return []
         #endif
@@ -192,6 +194,7 @@ nonisolated enum Route: Hashable, Sendable {
         case .lockedResults: "locked-results"
         case .labelLab: "label-lab"
         case .scoreboard: "scoreboard"
+        case .descriptionLab: "description-lab"
         #endif
         case .paywall: "paywall"
         case .onboarding: "onboarding"

@@ -47,6 +47,8 @@ public struct VisualVocabulary: Sendable {
     public let labels: [String]
     /// The tags curated concepts use, strictly or loosely.
     public let curatedLabels: Set<String>
+    /// How many of ``concepts`` come from `VisualLabels.txt` (they come first).
+    let curatedCount: Int
     /// Folded word or phrase → index into ``concepts``.
     private let byWords: [String: Int]
     /// The curated words and forms (what the parser always treats as about photos).
@@ -59,6 +61,9 @@ public struct VisualVocabulary: Sendable {
 
     /// The bundled English vocabulary.
     public static let english = VisualVocabulary.bundled()
+
+    /// The concepts of `VisualLabels.txt` (soccer, hiking…), without the ones every other tag makes by its name.
+    public var curatedConcepts: ArraySlice<VisualConcept> { concepts.prefix(curatedCount) }
 
     // MARK: Lookup
 
@@ -181,6 +186,7 @@ public struct VisualVocabulary: Sendable {
                 curatedWords.insert(folded)
             }
         }
+        let curatedCount = concepts.count
         // Every tag no curated concept takes strictly is searchable by its name and its plural.
         var labelWords = Set<String>()
         let strict = Set(concepts.flatMap(\.labels))
@@ -199,6 +205,7 @@ public struct VisualVocabulary: Sendable {
         self.concepts = concepts
         self.labels = labels
         self.curatedLabels = curatedLabels
+        self.curatedCount = curatedCount
         self.byWords = byWords
         self.curatedWords = curatedWords
         self.labelWords = labelWords

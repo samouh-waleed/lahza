@@ -1,0 +1,761 @@
+# The concept table's words (content search step 7), read by `lz-concepts table` (`make concepts`). Every concept of the
+# word map (LZSearch/Resources/VisualLabels.txt) and every Vision tag is in the table already; a line here gives one a
+# better phrase or negative prompts, or adds a concept the word map lacks. One per line:
+#
+#   concept | phrase | negatives
+#
+# concept    what people type, folded ("people dancing"); a word map concept's own name to change that concept
+# phrase     what goes into the templates ("a photo of {}."), when it isn't the concept itself ("people playing soccer")
+# negatives  look-alikes that must not count, separated by ";" ("soccer on a tv screen"): a photo closer to one of them
+#            than to the concept scores lower
+#
+# Generic words only: never a person's own searches.
+
+# Word map concepts: activities read as people doing them
+soccer | people playing soccer | soccer on a tv screen; a soccer video game; a soccer ball on the floor; spectators in a stadium
+football | people playing football | football on a tv screen; a football video game; a football on the floor; spectators in a stadium
+hiking | people hiking on a trail
+skiing | people skiing on a snowy slope | skis leaning against a wall; a ski resort poster
+snowboarding | people snowboarding
+sledding | people sledding in the snow
+camping | a camping trip with a tent
+swimming | people swimming | an empty swimming pool
+scuba diving | a scuba diver underwater | a fish tank
+snorkeling | people snorkeling in clear water
+surfing | people surfing a wave
+kayaking | people kayaking
+jet ski | people riding a jet ski
+fishing | people fishing with a rod
+rock climbing | people rock climbing
+cycling | people riding bicycles | a parked bicycle
+quad biking | people riding quad bikes in the desert
+skydiving | people skydiving
+ice skating | people ice skating
+golf | people playing golf | golf on a tv screen
+tennis | people playing tennis | tennis on a tv screen
+basketball | people playing basketball | basketball on a tv screen; a basketball video game
+volleyball | people playing volleyball
+cricket | people playing cricket | cricket on a tv screen
+yoga | people doing yoga
+dancing | people dancing | a dance video on a screen
+birthday | a birthday party with a cake
+wedding | a wedding celebration
+graduation | a graduation ceremony
+concert | a concert with a crowd and a stage | a concert on a tv screen
+barbecue | a barbecue grill with food
+fireworks | fireworks in the night sky | fireworks on a tv screen
+sunset | a sunset over the horizon | a sunset painting; a sunset on a screen
+
+# Events and occasions
+party | a party with friends
+birthday party | a birthday party
+dinner party | a dinner party around a table
+pool party | a pool party
+dance party | people dancing at a party
+house party | a house party
+karaoke | people singing karaoke
+game night | friends playing board games
+movie night | people watching a movie at home
+picnic | a picnic on the grass
+family dinner | a family dinner at home
+family gathering | a family gathering
+eid | an eid celebration with family
+eid al-fitr | an eid celebration with family
+iftar | an iftar meal at sunset
+ramadan | a ramadan iftar table
+suhoor | a suhoor meal before dawn
+christmas | a christmas celebration
+new year | a new year's eve celebration
+halloween | people in halloween costumes
+baby shower | a baby shower party
+engagement | an engagement celebration
+anniversary | an anniversary dinner
+wedding ceremony | a wedding ceremony
+wedding reception | a wedding reception
+bride | a bride in a wedding dress
+groom | a groom in a suit
+festival | a festival with crowds
+carnival | a carnival
+parade | a parade on a street
+fair | a fair with rides
+theme park | a theme park with rides
+roller coaster | a roller coaster
+water park | a water park with slides
+zoo | animals at a zoo
+aquarium | fish in an aquarium
+museum | a museum exhibition
+art gallery | paintings in an art gallery
+exhibition | an exhibition hall
+conference | a conference with a speaker on stage
+meeting | people in a meeting
+presentation | a person giving a presentation
+lecture | a lecture in a classroom
+class | a classroom with students
+school trip | a school trip
+first day of school | a child on the first day of school
+road trip | a road trip in a car
+day trip | a day trip
+boat trip | a boat trip on the water
+desert trip | a trip in the desert
+desert safari | a desert safari with four-wheel drives on sand dunes
+ski trip | a ski trip in the mountains
+beach day | a day at the beach
+city break | sightseeing in a city
+sightseeing | tourists sightseeing
+shopping | people shopping in a store
+grocery shopping | grocery shopping in a supermarket
+market | a busy market
+night market | a night market with lights
+street food | street food stalls
+football match | a football match in a stadium | a football match on a tv screen
+sports game | a sports game in a stadium
+marathon | runners in a marathon
+race | a race
+car race | a car race on a track
+horse race | a horse race
+camel race | a camel race
+match | a sports match
+tournament | a tournament
+award ceremony | an award ceremony
+prayer | people praying
+mosque visit | people at a mosque
+hajj | pilgrims at the kaaba in mecca
+umrah | pilgrims at the kaaba in mecca
+funeral | a funeral
+hospital visit | a person in a hospital bed
+doctor's appointment | a doctor examining a patient
+vacation | a vacation
+holiday | a holiday trip
+honeymoon | a couple on honeymoon
+sleepover | kids at a sleepover
+playdate | children playing together
+
+# People doing things
+playing | people playing
+running | a person running
+jogging | a person jogging
+walking | people walking
+walking the dog | a person walking a dog
+climbing | a person climbing
+jumping | a person jumping in the air
+cooking | a person cooking in a kitchen
+baking | baking in a kitchen
+eating | people eating
+eating out | people eating at a restaurant
+drinking coffee | a person drinking coffee
+reading | a person reading a book
+studying | a student studying
+working | a person working on a laptop
+working from home | a person working on a laptop at home
+gaming | a person playing video games
+playing video games | people playing video games | a video game on a screen
+playing cards | people playing cards
+playing chess | people playing chess
+playing guitar | a person playing the guitar
+playing piano | a person playing the piano
+playing drums | a person playing drums
+singing | a person singing
+painting a picture | a person painting on a canvas
+drawing | a child drawing
+gardening | a person gardening
+cleaning | a person cleaning
+driving | a person driving a car
+riding a horse | a person riding a horse
+horse riding | people riding horses
+camel riding | people riding camels
+riding a camel | a person riding a camel
+riding a bike | a person riding a bike
+skateboarding | a person skateboarding
+roller skating | a person roller skating
+bowling | people bowling
+billiards | people playing pool
+ping pong | people playing table tennis
+table tennis | people playing table tennis
+padel | people playing padel
+badminton | people playing badminton
+boxing | people boxing
+martial arts | people practicing martial arts
+karate | people doing karate
+wrestling | people wrestling
+gym | people working out at a gym
+working out | a person working out
+weightlifting | a person lifting weights
+push ups | a person doing push ups
+stretching | a person stretching
+meditating | a person meditating
+sleeping | a person sleeping
+napping | a person napping on a sofa
+laughing | people laughing
+smiling | people smiling
+crying | a person crying
+hugging | people hugging
+kissing | a couple kissing
+holding hands | a couple holding hands
+waving | a person waving
+posing | people posing for a photo
+cheering | people cheering
+celebrating | people celebrating
+toasting | people raising glasses in a toast
+blowing out candles | a person blowing out birthday candles
+cutting the cake | a person cutting a cake
+opening presents | a child opening presents
+unwrapping gifts | a person unwrapping gifts
+feeding the ducks | people feeding ducks
+feeding birds | a person feeding birds
+playing with the dog | a person playing with a dog
+playing with a cat | a person playing with a cat
+holding a baby | a person holding a baby
+pushing a stroller | a person pushing a stroller
+building a sandcastle | children building a sandcastle
+flying a kite | a person flying a kite
+playing in the snow | children playing in the snow
+snowball fight | a snowball fight
+playing in the sand | children playing in the sand
+playground | children at a playground
+on the swings | a child on a swing
+on the slide | a child on a slide
+kids playing | children playing
+watching tv | people watching tv
+watching the sunset | people watching the sunset
+stargazing | people looking at the stars at night
+taking a photo | a person taking a photo with a phone
+taking a selfie | a person taking a selfie
+
+# Photo kinds
+selfie | a selfie
+mirror selfie | a mirror selfie
+gym selfie | a mirror selfie at the gym
+group selfie | a group selfie
+group photo | a group photo of people
+family photo | a family photo
+portrait | a portrait of a person
+headshot | a headshot of a person
+couple photo | a photo of a couple
+baby photo | a photo of a baby
+passport photo | a passport photo of a face
+profile picture | a profile picture
+close-up | a close-up photo
+landscape | a landscape photo
+panorama | a panoramic photo
+aerial view | an aerial view from above
+drone photo | an aerial drone photo
+view from the plane | a view from an airplane window
+airplane window | a view from an airplane window
+food photo | a photo of food on a table
+screenshot | a screenshot of a phone screen
+chat screenshot | a screenshot of a chat conversation
+meme | a meme with text
+whiteboard | a whiteboard with writing
+handwriting | handwritten notes
+notes | handwritten notes on paper
+scanned document | a scanned document
+black and white | a black and white photo
+blurry photo | a blurry photo
+night photo | a photo taken at night
+long exposure | a long exposure photo
+
+# People and how they look
+baby | a baby
+newborn | a newborn baby
+toddler | a toddler
+kids | children
+children | children
+boy | a boy
+girl | a girl
+teenagers | teenagers
+man | a man
+woman | a woman
+old man | an old man
+old woman | an old woman
+grandparents | grandparents
+grandma | a grandmother
+grandpa | a grandfather
+couple | a couple
+friends | a group of friends
+family | a family
+twins | twins
+crowd | a crowd of people
+people | people
+nobody | an empty place with nobody in it
+beard | a man with a beard
+mustache | a man with a mustache
+long hair | a person with long hair
+short hair | a person with short hair
+curly hair | a person with curly hair
+straight hair | a person with straight hair
+blonde hair | a person with blonde hair
+red hair | a person with red hair
+black hair | a person with black hair
+brown hair | a person with brown hair
+grey hair | a person with grey hair
+purple hair | a person with purple hair | purple lighting; a purple wall
+pink hair | a person with pink hair | pink lighting
+blue hair | a person with blue hair | blue lighting
+green hair | a person with green hair | green lighting
+dyed hair | a person with dyed hair
+mullet | a person with a mullet haircut
+bald | a bald man
+braids | a person with braided hair
+ponytail | a person with a ponytail
+bun | a person with a hair bun
+haircut | a fresh haircut
+new haircut | a fresh haircut at a barber
+barber | a barber cutting hair
+glasses | a person wearing glasses
+sunglasses | a person wearing sunglasses
+hat | a person wearing a hat
+cap | a person wearing a baseball cap
+hijab | a woman wearing a hijab
+niqab | a woman wearing a niqab
+abaya | a woman in an abaya
+thobe | a man in a white thobe
+ghutra | a man wearing a ghutra
+shemagh | a man wearing a red shemagh
+suit | a man in a suit
+tuxedo | a man in a tuxedo
+dress | a woman in a dress
+wedding dress | a woman in a white wedding dress
+red dress | a woman in a red dress
+black dress | a woman in a black dress
+uniform | a person in a uniform
+school uniform | children in school uniforms
+jersey | a person in a sports jersey
+football shirt | a person in a football shirt
+hoodie | a person in a hoodie
+black shirt | a person in a black shirt
+white shirt | a person in a white shirt
+t-shirt | a person in a t-shirt
+jacket | a person in a jacket
+coat | a person in a winter coat
+pajamas | a person in pajamas
+costume | a person in a costume
+face paint | a child with face paint
+tattoo | a tattoo on skin
+makeup | a person wearing makeup
+nail polish | painted nails
+henna | henna on hands
+cast | a cast on a broken arm or leg
+cast on arm | a cast on a broken arm
+cast on leg | a cast on a broken leg
+crutches | a person on crutches
+wheelchair | a person in a wheelchair
+bandage | a bandage on a wound
+stitches | stitches on a wound
+braces | a smile with dental braces
+x-ray | an x-ray image
+mri | an mri scan
+hospital bed | a person in a hospital bed
+iv drip | a hospital iv drip
+pregnant | a pregnant woman
+sunburn | sunburned skin
+
+# Animals
+dog | a dog
+puppy | a puppy
+cat | a cat
+kitten | a kitten
+pet | a pet
+bird | a bird
+parrot | a parrot
+falcon | a falcon
+pigeon | pigeons
+seagull | a seagull
+duck | ducks
+swan | a swan
+peacock | a peacock
+chicken | chickens
+camel | a camel
+horse | a horse
+donkey | a donkey
+goat | a goat
+sheep | sheep
+cow | a cow
+rabbit | a rabbit
+hamster | a hamster
+turtle | a turtle
+tortoise | a tortoise
+lizard | a lizard
+snake | a snake
+fish | fish
+goldfish | a goldfish
+dolphin | dolphins
+whale | a whale
+shark | a shark
+jellyfish | a jellyfish
+crab | a crab
+butterfly | a butterfly
+bee | a bee
+spider | a spider
+ant | ants
+mosquito | a mosquito
+elephant | an elephant
+giraffe | a giraffe
+lion | a lion
+tiger | a tiger
+bear | a bear
+monkey | a monkey
+penguin | penguins
+flamingo | flamingos
+deer | a deer
+squirrel | a squirrel
+gazelle | a gazelle
+oryx | an arabian oryx
+
+# Food and drink
+breakfast | breakfast on a table
+brunch | brunch on a table
+lunch | lunch on a table
+dinner | dinner on a table
+meal | a meal on a plate
+home cooking | a home-cooked meal
+restaurant food | food at a restaurant
+fast food | fast food
+pizza | a pizza
+burger | a burger
+fries | french fries
+sandwich | a sandwich
+shawarma | a shawarma wrap
+kebab | grilled kebab skewers
+falafel | falafel
+hummus | a plate of hummus
+mandi | a plate of mandi rice and meat
+kabsa | a plate of kabsa rice and chicken
+biryani | a plate of biryani
+rice | a plate of rice
+pasta | a plate of pasta
+noodles | a bowl of noodles
+ramen | a bowl of ramen
+dumplings | dumplings
+curry | a bowl of curry
+steak | a steak
+grilled chicken | grilled chicken
+fried chicken | fried chicken
+seafood | a seafood platter
+grilled fish | grilled fish on a plate
+shrimp | shrimp
+salad | a salad
+soup | a bowl of soup
+eggs | eggs on a plate
+pancakes | pancakes
+waffles | waffles
+croissant | a croissant
+bread | bread
+cheese | cheese
+dates | a plate of dates
+fruit | fresh fruit
+watermelon | watermelon slices
+strawberries | strawberries
+mango | a mango
+chocolate | chocolate
+cookies | cookies
+donuts | donuts
+cupcakes | cupcakes
+kunafa | a tray of kunafa
+baklava | baklava
+birthday cake | a birthday cake with candles
+wedding cake | a wedding cake
+ice cream cone | an ice cream cone
+popcorn | popcorn
+snacks | snacks
+coffee | a cup of coffee
+latte | a latte with latte art
+arabic coffee | arabic coffee poured from a dallah
+espresso | an espresso
+tea | a cup of tea
+karak | a cup of karak tea
+juice | a glass of juice
+smoothie | a smoothie
+lemonade | a glass of lemonade
+water bottle | a bottle of water
+soda | a can of soda
+milkshake | a milkshake
+
+# Things
+car | a car
+red car | a red car
+white car | a white car
+black car | a black car
+blue car | a blue car
+sports car | a sports car
+old car | a classic car
+car interior | the inside of a car
+new car | a new car at a dealership
+parked car | a parked car
+car accident | a damaged car after an accident
+flat tire | a flat tire
+truck | a truck
+pickup truck | a pickup truck
+four wheel drive | a four-wheel drive on sand
+motorcycle | a motorcycle
+scooter | a scooter
+electric scooter | an electric scooter
+bus | a bus
+taxi | a taxi
+train | a train
+metro | a metro train
+tram | a tram
+airplane | an airplane
+airport | an airport terminal
+boarding pass | a boarding pass
+helicopter | a helicopter
+yacht | a yacht
+ferry | a ferry
+cruise ship | a cruise ship
+balloons | balloons
+gifts | wrapped gifts
+presents | wrapped presents
+flowers | flowers
+bouquet | a bouquet of flowers
+roses | roses
+candles | lit candles
+lanterns | lanterns
+christmas lights | christmas lights
+decorations | party decorations
+ramadan decorations | ramadan decorations with lanterns and a crescent moon
+tent | a tent
+campfire | a campfire
+bonfire | a bonfire
+hammock | a hammock
+umbrella | an umbrella
+beach umbrella | a beach umbrella
+sunbed | a sun lounger
+laptop | a laptop
+computer | a computer
+phone | a phone
+tablet | a tablet
+tv | a television
+headphones | headphones
+camera | a camera
+drone | a drone
+watch | a wrist watch
+smartwatch | a smartwatch
+ring | a ring
+engagement ring | an engagement ring
+necklace | a necklace
+perfume | a bottle of perfume
+shoes | shoes
+sneakers | sneakers
+handbag | a handbag
+backpack | a backpack
+suitcase | a suitcase
+luggage | luggage
+keys | keys
+wallet | a wallet
+money | money
+credit card | a credit card
+book | a book
+books | books
+newspaper | a newspaper
+magazine | a magazine
+quran | a quran
+prayer mat | a prayer mat
+guitar | a guitar
+piano | a piano
+drums | drums
+oud | an oud
+microphone | a microphone
+trophy | a trophy
+medal | a medal
+certificate | a certificate
+diploma | a diploma
+id card | an id card
+driving license | a driving license
+visa | a visa in a passport
+bill | a bill
+invoice | an invoice
+contract | a contract
+letter | a letter
+form | a form
+map | a map
+menu | a restaurant menu
+sign | a sign
+street sign | a street sign
+license plate | a car license plate
+qr code | a qr code
+barcode | a barcode
+calendar | a calendar
+clock | a clock
+toys | toys
+lego | lego
+teddy bear | a teddy bear
+doll | a doll
+stroller | a baby stroller
+crib | a baby crib
+furniture | furniture
+sofa | a sofa
+bed | a bed
+table | a table
+desk | a desk
+chair | a chair
+plants | house plants
+cactus | a cactus
+palm tree | a palm tree
+tree | a tree
+garden | a garden
+pool | a swimming pool
+jacuzzi | a jacuzzi
+fountain | a fountain
+statue | a statue
+painting | a painting
+mural | a mural
+graffiti | graffiti
+sculpture | a sculpture
+
+# Places and scenes
+home | inside a home
+house | a house
+villa | a villa
+apartment | an apartment
+living room | a living room
+bedroom | a bedroom
+kitchen | a kitchen
+bathroom | a bathroom
+office | an office
+classroom | a classroom
+school | a school
+university | a university campus
+library | a library
+hospital | a hospital
+clinic | a clinic
+pharmacy | a pharmacy
+gym interior | the inside of a gym
+stadium | a stadium
+football pitch | a football pitch
+basketball court | a basketball court
+tennis court | a tennis court
+padel court | a padel court
+golf course | a golf course
+swimming pool area | a swimming pool area
+hotel | a hotel
+hotel room | a hotel room
+resort | a resort
+restaurant | a restaurant
+cafe | a cafe
+coffee shop | a coffee shop
+bakery | a bakery
+mall | a shopping mall
+supermarket | a supermarket
+souq | a traditional souq
+store | a store
+cinema | a cinema
+theater | a theater
+mosque | a mosque
+minaret | a minaret
+church | a church
+temple | a temple
+palace | a palace
+castle | a castle
+fort | a fort
+old town | an old town
+ruins | ancient ruins
+museum building | a museum building
+skyline | a city skyline
+skyscraper | a skyscraper
+tower | a tower
+city | a city
+downtown | a downtown street
+street | a street
+street at night | a city street at night
+road | a road
+highway | a highway
+bridge | a bridge
+tunnel | a tunnel
+traffic | traffic
+parking lot | a parking lot
+gas station | a gas station
+train station | a train station
+harbour | a harbour with boats
+marina | a marina with yachts
+pier | a pier
+corniche | a seaside promenade
+waterfront | a waterfront
+lake | a lake
+river | a river
+waterfall | a waterfall
+canyon | a canyon
+valley | a valley
+cliff | a cliff
+cave | a cave
+island | an island
+coast | a coastline
+seashore | the seashore
+sand | sand
+shells | seashells on the beach
+coral reef | a coral reef
+underwater | underwater
+oasis | an oasis with palm trees
+wadi | a dry valley in the desert
+farm | a farm
+field | a field
+countryside | the countryside
+village | a village
+forest | a forest
+jungle | a jungle
+park | a park
+camp | a campsite
+mountains | mountains
+mountain top | the view from a mountain top
+volcano | a volcano
+glacier | a glacier
+snowy mountains | snowy mountains
+winter | a winter scene with snow
+spring | spring flowers
+autumn | autumn leaves
+summer | a summer day
+
+# Weather, sky and light
+sunrise | a sunrise
+golden hour | golden hour light
+blue hour | the sky at blue hour
+night | a scene at night
+night sky | the night sky with stars
+stars | stars in the night sky
+milky way | the milky way
+moon | the moon
+full moon | a full moon
+crescent moon | a crescent moon
+eclipse | an eclipse
+rain | rain
+raining | rain falling on a street
+storm | a storm
+lightning | lightning
+fog | fog
+clouds | clouds
+blue sky | a clear blue sky
+rainbow | a rainbow
+snowfall | snow falling
+sandstorm | a sandstorm
+hail | hail
+
+# Landmarks
+statue of liberty | the statue of liberty
+eiffel tower | the eiffel tower
+big ben | big ben in london
+tower bridge | tower bridge in london
+london eye | the london eye
+colosseum | the colosseum in rome
+leaning tower of pisa | the leaning tower of pisa
+sagrada familia | the sagrada familia
+burj khalifa | the burj khalifa
+burj al arab | the burj al arab
+kingdom centre | the kingdom centre tower in riyadh
+kaaba | the kaaba in mecca
+masjid al-haram | the grand mosque in mecca
+prophet's mosque | the prophet's mosque in medina
+petra | the treasury at petra
+pyramids | the pyramids of giza
+sphinx | the great sphinx of giza
+taj mahal | the taj mahal
+golden gate bridge | the golden gate bridge
+times square | times square
+empire state building | the empire state building
+brooklyn bridge | the brooklyn bridge
+sydney opera house | the sydney opera house
+great wall | the great wall of china
+mount fuji | mount fuji
+santorini | white houses in santorini
+acropolis | the acropolis in athens
+hagia sophia | the hagia sophia
+blue mosque | the blue mosque in istanbul
+cn tower | the cn tower in toronto
+niagara falls | niagara falls

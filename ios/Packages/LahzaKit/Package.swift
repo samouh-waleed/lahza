@@ -18,6 +18,7 @@ let package = Package(
         .library(name: "LZEmbedding", targets: ["LZEmbedding"]),
         .executable(name: "lz-gazetteer", targets: ["LZGazetteerTool"]),
         .executable(name: "lz-seed", targets: ["LZSeedTool"]),
+        .executable(name: "lz-concepts", targets: ["LZConceptTool"]),
     ],
     dependencies: [
         .package(url: "https://github.com/RevenueCat/purchases-ios-spm.git", from: "5.91.0"),
@@ -47,17 +48,20 @@ let package = Package(
         // models and the stores the app observes; the Vision and embedding passes run the image tower through LZEmbedding. GRDB stays inside this module (`internal import`), so the app and later modules never see it.
         .target(name: "LZIndex", dependencies: ["LZCore", "LZGeo", "LZLibrary", "LZEmbedding", .product(name: "GRDB", package: "GRDB.swift")]),
         // Search: the query model (slots tied to spans, ready for a Foundation Models parser later), the English rules
-        // parser, the time and place resolvers and the words mapped to photo tags; then scoring, tiers, grouping and
-        // reasons over the index.
+        // parser, the time and place resolvers, the words mapped to photo tags and the bundled concept table of text
+        // vectors; then scoring, tiers, grouping and reasons over the index.
         .target(name: "LZSearch", dependencies: ["LZCore", "LZGeo", "LZLibrary", "LZIndex"],
-                resources: [.copy("Resources/ContentWords.txt"), .copy("Resources/VisualLabels.txt"), .copy("Resources/VisionLabels.txt")]),
+                resources: [.copy("Resources/ContentWords.txt"), .copy("Resources/VisualLabels.txt"), .copy("Resources/VisionLabels.txt"),
+                            .copy("Resources/Concepts.lzcv")]),
         // The embedding model behind a swappable interface: the converted SigLIP 2 towers (`make model`), loaded with
-        // Core ML from a model folder and its `model.json`, turning photos and token ids into unit vectors.
+        // Core ML from a model folder and its `model.json`, turning photos and token ids into unit vectors; and our own
+        // Gemma tokenizer over its compact vocabulary file (`make tokenizer`).
         .target(name: "LZEmbedding", dependencies: ["LZCore"]),
-        // macOS host tools, never linked into the app: the gazetteer resource builder (`make gazetteer`) and the
-        // seed library renderer (`make seed-photos`, debug builds only).
+        // macOS host tools, never linked into the app: the gazetteer resource builder (`make gazetteer`), the seed library
+        // renderer (`make seed-photos`, debug builds only) and the text side's builder (`make tokenizer`).
         .executableTarget(name: "LZGazetteerTool", dependencies: ["LZGeo"]),
         .executableTarget(name: "LZSeedTool", dependencies: ["LZGeo", "LZLibrary"]),
+        .executableTarget(name: "LZConceptTool", dependencies: ["LZEmbedding", "LZSearch"]),
 
         .testTarget(name: "LZCoreTests", dependencies: ["LZCore"]),
         .testTarget(name: "LZBillingTests", dependencies: ["LZBilling"]),
@@ -65,7 +69,7 @@ let package = Package(
         .testTarget(name: "LZLibraryTests", dependencies: ["LZLibrary", "LZGeo"]),
         .testTarget(name: "LZGeoTests", dependencies: ["LZGeo"]),
         .testTarget(name: "LZIndexTests", dependencies: ["LZIndex", "LZLibrary", "LZGeo", "LZCore", "LZEmbedding", .product(name: "GRDB", package: "GRDB.swift")]),
-        .testTarget(name: "LZEmbeddingTests", dependencies: ["LZEmbedding"]),
+        .testTarget(name: "LZEmbeddingTests", dependencies: ["LZEmbedding"], resources: [.copy("Resources/TokenizerGolden.json")]),
         .testTarget(name: "LZSearchTests", dependencies: ["LZSearch", "LZIndex", "LZLibrary", "LZGeo", "LZCore", .product(name: "GRDB", package: "GRDB.swift")]),
     ]
 )
