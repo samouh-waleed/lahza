@@ -337,7 +337,7 @@ extension HeroSuite.Golden {
             Self(45, "camping", Expectation(best: camping.best, moreMust: camping.more, maxSearches: 0)),
             Self(46, "fireworks in London", Expectation(
                 best: london.filter(fireworks.best.contains), moreMust: london.filter(fireworks.more.contains),
-                checks: [p.chips(["fireworks · photo tag", "London"]), p.reason("Related tag: night sky", on: london.filter(fireworks.more.contains))])),
+                checks: [p.chips(["fireworks · photo tag", "London"])])),
             Self(47, "beach sunset", Expectation(best: [], maxSearches: 0, checks: [p.noMatch(
                 .nothing, headline: "Nothing matches all of that.",
                 offers: [("Without “beach”", sunset.best.count), ("Without “sunset”", beach.best.count)])])),

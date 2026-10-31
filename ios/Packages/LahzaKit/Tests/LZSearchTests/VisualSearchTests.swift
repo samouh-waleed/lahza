@@ -71,7 +71,7 @@ import Testing
             Issue.record("not a visual slot")
             return
         }
-        #expect(match == VisualMatch(concept: "hiking", tags: ["hiking"], related: ["trail", "mountain", "cliff", "canyon", "hill", "forest"]))
+        #expect(match == VisualMatch(concept: "hiking", tags: ["hiking"], related: ["trail", "mountain", "cliff", "canyon", "forest"]))
         #expect(slot.systemImage == "tag")
 
         // "mountain" has no photo of its own in the seed, only related ones (cliffs).

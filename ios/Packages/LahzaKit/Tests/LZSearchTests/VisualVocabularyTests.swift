@@ -97,10 +97,17 @@ import Testing
         #expect(vocabulary.concept(for: "hike")?.kind == .occasion)
         #expect(vocabulary.concept(for: "hike")?.needsPerson == true)
         #expect(vocabulary.concept(for: "sunset")?.kind == .thing)
-        #expect(vocabulary.concept(for: "hike")?.related == ["trail", "mountain", "cliff", "canyon", "hill", "forest"])
+        #expect(vocabulary.concept(for: "hike")?.related == ["trail", "mountain", "cliff", "canyon", "forest"])
         #expect(vocabulary.concept(for: "sand dunes")?.name == "sand dune")
         #expect(vocabulary.concept(for: "waterfalls")?.name == "waterfall")
         #expect(vocabulary.concept(for: "cricket")?.name == "cricket")
+    }
+
+    /// Tags Vision gives to a large share of a real library are too broad to stand for a word, even as a related tag:
+    /// they would fill More.
+    @Test func broadTagsAreNeverRelated() {
+        let broad: Set = ["sky", "hill", "path", "night_sky", "water_body", "document", "sport", "seafood"]
+        for concept in vocabulary.concepts { #expect(broad.isDisjoint(with: concept.related), "\(concept.name)") }
     }
 
     @Test func tagsReadAsWords() {

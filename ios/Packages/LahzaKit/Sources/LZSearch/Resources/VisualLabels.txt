@@ -7,6 +7,8 @@
 # words         what people type, every form ("hike, hikes, hiked, trek"); phrases of up to 3 words
 # tags          searched strictly: a photo with one of them can be Best
 # related tags  searched loosely: a photo with only these goes under More (decision E24), and can be removed
+#               specific ones only: a broad tag (sky, hill, path, night sky, a body of water, document, sport) is on
+#               so many photos of a real library that it fills More
 # kind          occasion (something you do: the outing counts), thing (something you see), document (a paper or a card)
 # person        yes when the tag means people doing it (scored lower without a person, later)
 #
@@ -16,16 +18,16 @@
 # Sport and outdoors
 soccer | soccer, futsal, footy, footie, soccer ball, soccer game, soccer games, soccer match, soccer matches, soccer practice, playing soccer, play soccer, played soccer, football match, football matches, football game, football games, football practice, kickabout | soccer | football | occasion | yes
 football | football, footballs, playing football, play football, played football | soccer, football | | occasion | yes
-hiking | hike, hikes, hiked, hiking, hiker, hikers, trek, treks, trekked, trekking, trekker, hillwalking, hill walking, hill walk, rambling | hiking | trail, mountain, cliff, canyon, hill, forest | occasion | yes
-trail | trail, trails, footpath, footpaths, hiking trail, hiking trails | trail | hiking, path | thing | no
+hiking | hike, hikes, hiked, hiking, hiker, hikers, trek, treks, trekked, trekking, trekker, hillwalking, hill walking, hill walk, rambling | hiking | trail, mountain, cliff, canyon, forest | occasion | yes
+trail | trail, trails, footpath, footpaths, hiking trail, hiking trails | trail | hiking | thing | no
 skiing | ski, skis, skied, skiing, skier, skiers, ski trip, ski trips, ski slope, ski slopes, slopes | skiing | ski_equipment, ski_boot, snowboarding, snow | occasion | yes
 snowboarding | snowboarding, snowboarded, snowboarder, snowboarders | snowboarding | snowboard, snow, skiing | occasion | yes
 sledding | sled, sleds, sledding, sledge, sledging, toboggan, tobogganing | sledding | snow | occasion | yes
 camping | camp, camps, camped, camping, camper, campers, camp out, camping trip, camping trips | camping | tent, fire, forest | occasion | no
 tent | tent, tents | tent | camping | thing | no
 beach | beach, beaches, seaside, seashore, beach day, beach days | beach | shore, sand, sunbathing, ocean | thing | no
-sea | sea, seas, ocean, oceans | ocean | water_body, shore, beach | thing | no
-swimming | swim, swims, swam, swimming, swimmer, swimmers | swimming | pool, swimsuit, water_body | occasion | yes
+sea | sea, seas, ocean, oceans | ocean | shore, beach | thing | no
+swimming | swim, swims, swam, swimming, swimmer, swimmers | swimming | pool, swimsuit | occasion | yes
 scuba diving | scuba, scuba diving, scuba dive, diving, dive, dives, dived, diver, divers | scuba, diving | underwater, snorkeling | occasion | yes
 snorkeling | snorkel, snorkels, snorkeled, snorkelled, snorkeling, snorkelling | snorkeling | underwater, scuba | occasion | yes
 surfing | surf, surfs, surfed, surfing, surfer, surfers | surfing | surfboard, watersport | occasion | yes
@@ -48,19 +50,19 @@ volleyball | volleyball, playing volleyball, play volleyball | volleyball | | oc
 cricket | cricket, playing cricket, play cricket | cricket_sport | | occasion | yes
 yoga | yoga | yoga | | occasion | yes
 dancing | dance, dances, danced, dancing, dancer, dancers | dancing | ballet_dancer, breakdancing, bellydance | occasion | yes
-mountain | mountain, mountains | mountain | cliff, hill, canyon | thing | no
+mountain | mountain, mountains | mountain | cliff, canyon | thing | no
 
 # Sky and weather
-sunset | sunset, sunsets, sunrise, sunrises, sundown, sun set, golden hour | sunset_sunrise | sky, sun | thing | no
+sunset | sunset, sunsets, sunrise, sunrises, sundown, sun set, golden hour | sunset_sunrise | sun | thing | no
 night sky | stars, starry sky, starry night, night sky, milky way | night_sky | moon | thing | no
 snow | snow, snowy, snowing, snowfall | snow | snowman, snowball | thing | no
 storm | storm, storms, stormy, thunderstorm, thunderstorms, lightning | storm, thunderstorm | | thing | no
-clouds | cloud, clouds, cloudy | cloudy | sky | thing | no
-fireworks | fireworks, firework, sparkler, sparklers | fireworks | firecracker, sparkler, night_sky | thing | no
+clouds | cloud, clouds, cloudy | cloudy | | thing | no
+fireworks | fireworks, firework, sparkler, sparklers | fireworks | firecracker, sparkler | thing | no
 
 # Food
 food | food, meal, meals, dinner, dinners, lunch, lunches, breakfast, breakfasts, brunch, dish, dishes | food | | thing | no
-sushi | sushi, sashimi, maki, nigiri | sushi | seafood | thing | no
+sushi | sushi, sashimi, maki, nigiri | sushi | | thing | no
 pizza | pizza, pizzas | pizza | | thing | no
 burger | burger, burgers, hamburger, hamburgers | hamburger | | thing | no
 barbecue | bbq, barbecue, barbecues, barbeque, grilling | grill | grilled_chicken, kebab, steak, meat | thing | no
@@ -78,9 +80,9 @@ concert | concert, concerts, gig, gigs, live music | concert | music, nightclub,
 christmas tree | christmas tree, christmas trees | christmas_tree | | thing | no
 
 # Documents and places as things
-receipt | receipt, receipts, invoice, invoices | receipt | document | document | no
-passport | passport, passports | passport | document | document | no
-ticket | ticket, tickets, boarding pass, boarding passes | ticket | document | document | no
+receipt | receipt, receipts, invoice, invoices | receipt | | document | no
+passport | passport, passports | passport | | document | no
+ticket | ticket, tickets, boarding pass, boarding passes | ticket | | document | no
 document | document, documents, paperwork | document | receipt, passport, ticket | document | no
 hospital | hospital, hospitals | hospital | | thing | no
 train | train, trains | train, train_real | railroad, train_station | thing | no
