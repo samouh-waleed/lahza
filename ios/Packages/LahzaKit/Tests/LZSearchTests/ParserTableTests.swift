@@ -64,6 +64,7 @@ import Testing
     static let videos = media([.video])
     static let photos = media([.photo])
     static let trip = SlotValue.event(.trip)
+    static func order(_ order: SearchOrder) -> SlotValue { .order(order) }
 
     static func c(_ text: String, _ values: [SlotValue], _ vocabulary: Case.Vocabulary = .empty, locale: Locale = SearchFixture.uk) -> Case {
         Case(text: text, values: values, vocabulary: vocabulary, locale: locale)
@@ -72,7 +73,7 @@ import Testing
     // MARK: The table
 
     static let cases: [Case] = mediaCases + hijriCases + holidayCases + rangeCases + timeCases + dateCases + placeCases + eventAndPeopleCases
-        + leftoverCases + mixedCases
+        + leftoverCases + mixedCases + orderCases
 
     static let mediaCases: [Case] = [
         c("videos", [videos]),
@@ -385,5 +386,51 @@ import Testing
         c("trips abroad", [trip, .event(.abroad)]),
         c("sunset at the beach with Ahmed", [.visual("sunset"), .place(.category(.beach, relation: .at)), .people("Ahmed")]),
         c("Greece 2023 trip videos", [place("Greece"), time(.year(2023)), trip, videos]),
+    ]
+
+    static let orderCases: [Case] = [
+        // The first time: a phrase, or "first" before a trip word.
+        c("the first time we went to Greece", [order(.first), place("Greece", .to)]),
+        c("Show me the first time I went to Dubai", [order(.first), place("Dubai", .to)]),
+        c("first time in Dubai", [order(.first), place("Dubai")]),
+        c("for the first time at Al-Nakheel Park", [order(.first), place("Al-Nakheel Park", .at)], .known),
+        c("my first trip to Greece", [order(.first), trip, place("Greece", .to)]),
+        c("first trip abroad", [order(.first), trip, .event(.abroad)]),
+        c("the first time skiing", [order(.first), .visual("skiing")]),
+        c("photos where I skied", [.visual("skied")]),
+        c("the first time I visited Paris", [order(.first), place("Paris")]),
+        c("my very first videos", [order(.first), videos]),
+        c("earliest photos in Riyadh", [order(.first), place("Riyadh")]),
+        c("the earliest selfies", [order(.first), media([], [.selfie])]),
+        // The last time; "last" before a date stays a date.
+        c("last time at Al-Nakheel Park", [order(.last), place("Al-Nakheel Park", .at)], .known),
+        c("the last time I was in Dubai", [order(.last), place("Dubai")]),
+        c("my most recent trip", [order(.last), trip]),
+        c("latest videos", [order(.last), videos]),
+        c("my last trip to Dubai", [order(.last), trip, place("Dubai", .to)]),
+        c("the last summer", [time(.season(.summer, .last))]),
+        c("last year in Dubai", [time(.calendarUnit(.year, offset: -1)), place("Dubai")]),
+        c("the last Eid", [hijri(.eid, .last)]),
+        c("the last 3 months", [time(.rolling(.month, count: 3))]),
+        // Oldest first.
+        c("Al-Nakheel Park oldest first", [place("Al-Nakheel Park"), order(.oldestFirst)], .known),
+        c("the beach, oldest to newest", [.place(.category(.beach, relation: .at)), order(.oldestFirst)]),
+        c("Dubai from oldest to most recent", [place("Dubai"), order(.oldestFirst)]),
+        c("Riyadh in chronological order", [place("Riyadh"), order(.oldestFirst)]),
+        c("videos in order", [videos, order(.oldestFirst)]),
+        c("Dubai chronologically", [place("Dubai"), order(.oldestFirst)]),
+        c("Greece over time, since I started", [place("Greece"), order(.oldestFirst)]),
+        c("Riyadh throughout the years", [place("Riyadh"), order(.oldestFirst)]),
+        c("oldest photos of Dubai", [order(.oldestFirst), place("Dubai")]),
+        // Newest first.
+        c("Dubai newest first", [place("Dubai"), order(.newestFirst)]),
+        c("Dubai most recent first", [place("Dubai"), order(.newestFirst)]),
+        c("selfies from newest to oldest", [media([], [.selfie]), order(.newestFirst)]),
+        // "recently" gives way to named dates; beside a recurring time it still holds.
+        c("recently in 2026", [time(.year(2026))]),
+        c("Sydney lately, in 2022", [place("Sydney"), time(.year(2022))]),
+        c("recently, last summer", [time(.season(.summer, .last))]),
+        c("recently on Saturdays", [time(.all([.rolling(.day, count: 30), .weekday(7, .every)]))]),
+        c("since I started", [order(.oldestFirst)]),
     ]
 }

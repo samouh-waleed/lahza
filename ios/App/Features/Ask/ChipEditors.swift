@@ -18,6 +18,8 @@ nonisolated enum ChipEditorKind: Equatable {
     /// Photos, videos or both, favorites and screenshots.
     case media(MediaFilter)
     case event(EventKind)
+    /// First time, last time or all times; oldest or newest first.
+    case order(SearchOrder)
     /// Words Lahza can't search yet, a second place or dates it couldn't use: why, and Remove.
     case unsupported(String)
 
@@ -27,6 +29,7 @@ nonisolated enum ChipEditorKind: Equatable {
         case (.time(.constraint(let constraint)), .time(let expression)): self = .time(expression, constraint)
         case (.media(let filter), _): self = .media(filter)
         case (.event(let event), _): self = .event(event)
+        case (.order(let order), _): self = .order(order)
         default: self = .unsupported(AskCopy.unsupportedExplanation(slot.slot.kind))
         }
     }
@@ -73,6 +76,8 @@ struct ChipEditorSheet: View {
         case .event(let event):
             EditorExplanation(text: ChipEditorCopy.explanation(event))
             RemoveButton(title: ChipEditorCopy.remove(event), action: remove)
+        case .order(let order):
+            OrderEditor(slot: slot, order: order, remove: remove)
         case .unsupported(let explanation):
             EditorExplanation(text: explanation)
             RemoveButton(title: ChipEditorCopy.removeWords, action: remove)
@@ -302,6 +307,47 @@ private struct MediaEditor: View {
     }
 }
 
+// MARK: Order
+
+/// The first or last time, or every time (after the first time oldest first, as its "Show all" lists them); for an
+/// order, oldest or newest first.
+private struct OrderEditor: View {
+    let slot: ResolvedSlot
+    let order: SearchOrder
+    let remove: () -> Void
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        EditorExplanation(text: ChipEditorCopy.explanation(order))
+        EditorSection(ChipEditorCopy.show) {
+            if order.isOccasion {
+                LZChipGroup(ChipEditorCopy.occasionLabel, options: ChipEditorCopy.OccasionChoice.allCases.map { LZChipOption($0, title: $0.title) },
+                            selection: Binding(get: { ChipEditorCopy.OccasionChoice(order) }, set: { choose($0) }))
+                .accessibilityIdentifier("chip-editor-occasion")
+            } else {
+                LZSegmented(ChipEditorCopy.orderLabel, options: [SearchOrder.oldestFirst, .newestFirst].map { LZChipOption($0, title: ChipEditorCopy.title($0)) },
+                            selection: Binding(get: { order }, set: { changed in
+                                if changed != order { model.search.apply([.replaceOrder(slot: slot.id, changed)]) }
+                            }))
+                .accessibilityIdentifier("chip-editor-order")
+            }
+        }
+        RemoveButton(title: ChipEditorCopy.remove(order), action: remove)
+    }
+
+    /// All times lists every time as the result's "Show all" does: oldest first after the first time, newest first
+    /// (the chip goes) after the last.
+    private func choose(_ choice: ChipEditorCopy.OccasionChoice) {
+        guard choice != ChipEditorCopy.OccasionChoice(order) else { return }
+        switch choice {
+        case .first: model.search.apply([.replaceOrder(slot: slot.id, .first)])
+        case .last: model.search.apply([.replaceOrder(slot: slot.id, .last)])
+        case .all where order == .first: model.search.apply([.replaceOrder(slot: slot.id, .oldestFirst)])
+        case .all: remove()
+        }
+    }
+}
+
 // MARK: Parts
 
 /// A labelled group of an editor ("PLACES", "PART OF DAY").
@@ -368,6 +414,8 @@ nonisolated enum ChipEditorCopy {
     static let favoritesOnly = "Favorites only"
     static let screenshots = "Screenshots"
     static let removeWords = "Remove these words"
+    static let occasionLabel = "Which time"
+    static let orderLabel = "Order"
 
     /// The sheet's title: the chip, its dates kept on one line ("Last summer · Jun – Aug 2026" never breaks at the
     /// dash): spaces become no-break ones (the thin spaces around the dash narrow no-break ones).
@@ -383,6 +431,51 @@ nonisolated enum ChipEditorCopy {
         switch event {
         case .trip: "Photos from your trips: two or more days in a row away from home."
         case .abroad: "Photos from your trips outside your home country."
+        }
+    }
+
+    /// What an order chip keeps.
+    static func explanation(_ order: SearchOrder) -> String {
+        switch order {
+        case .first: "The earliest time that matches: the whole trip for a city or country away from home, otherwise that outing."
+        case .last: "The most recent time that matches: the whole trip for a city or country away from home, otherwise that outing."
+        case .oldestFirst: "Every time that matches, from oldest to newest."
+        case .newestFirst: "Every time that matches, from newest to oldest."
+        }
+    }
+
+    /// "Oldest first", "Newest first".
+    static func title(_ order: SearchOrder) -> String {
+        switch order {
+        case .first: "First time"
+        case .last: "Last time"
+        case .oldestFirst: "Oldest first"
+        case .newestFirst: "Newest first"
+        }
+    }
+
+    static func remove(_ order: SearchOrder) -> String {
+        switch order {
+        case .first: "Remove first time"
+        case .last: "Remove last time"
+        case .oldestFirst, .newestFirst: "Remove order"
+        }
+    }
+
+    /// The first or last time's choices.
+    enum OccasionChoice: String, CaseIterable, Sendable {
+        case first, last, all
+
+        init(_ order: SearchOrder) {
+            self = order == .first ? .first : order == .last ? .last : .all
+        }
+
+        var title: String {
+            switch self {
+            case .first: "First time"
+            case .last: "Last time"
+            case .all: "All times"
+            }
         }
     }
 

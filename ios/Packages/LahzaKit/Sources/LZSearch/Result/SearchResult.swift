@@ -7,7 +7,8 @@ import LZIndex
 public struct SearchResult: Sendable, Identifiable {
     public var id: UUID
     public var query: ResolvedQuery
-    /// Best, then More, then Location unknown, then Weaker (only when asked for); empty sections are left out.
+    /// Best, then More, then Location unknown, then Weaker (only when asked for); empty sections are left out. For the
+    /// first or last time, only that occasion's photos.
     public var sections: [ResultSection]
     /// Best and More.
     public var totals: Totals
@@ -18,6 +19,8 @@ public struct SearchResult: Sendable, Identifiable {
     /// "Lahza can't see what's in photos yet, so “soccer” was left out. Showing all your photos at Al-Nakheel Park."
     /// Above a no-match it ends at "left out.".
     public var unsupportedNotice: String?
+    /// "The first time" or "the last time": the occasion shown and the times left out (nil for every other query).
+    public var occasion: Occasion? = nil
     /// Hits behind "Show weaker" (counted even when they aren't shown).
     public var weakerCount: Int
     /// Hits a free search's scope left out: taken before ``SearchScope/since(_:)``, in the tiers the result lists
@@ -60,13 +63,14 @@ public struct ResolvedSlot: Sendable, Hashable, Identifiable {
         case time(TimeResolution)
         case media(MediaFilter)
         case event(EventKind)
+        case order(SearchOrder)
         /// Not searchable in this version (people, what's in photos), or a place or date Lahza couldn't use.
         case unsupported
     }
 
     public var slot: QuerySlot
     public var resolution: Resolution
-    /// The chip's text: "Al-Nakheel Park", "Last summer · Jun – Aug 2026", "Videos", "Trips", "soccer".
+    /// The chip's text: "Al-Nakheel Park", "Last summer · Jun – Aug 2026", "Videos", "Trips", "First time", "soccer".
     public var chip: String
     /// SF Symbol for the chip.
     public var systemImage: String
@@ -135,10 +139,26 @@ public struct PlacePicker: Sendable, Hashable {
     public var chosen: String
 }
 
+/// The one occasion a "first time" or "last time" search shows (a whole trip, or one moment), and the row after it
+/// that lists every time ("9 later times · Show all").
+public struct Occasion: Sendable, Hashable {
+    /// ``SearchOrder/first`` or ``SearchOrder/last``.
+    public var order: SearchOrder
+    /// The occasion is a whole trip (else one moment, or a day not grouped into moments).
+    public var isTrip: Bool
+    /// The other times search found; a free search counts those it covers (what Show all lists).
+    public var others: Int
+    /// "9 later times", "1 later trip", "3 earlier times".
+    public var othersLabel: String
+    /// Show all's edits: after the first time every time oldest first, after the last time newest first.
+    public var showAll: [SlotEdit]
+}
+
 /// A section of results.
 public struct ResultSection: Sendable, Hashable, Identifiable {
     public var tier: Tier
-    /// "Inside Al-Nakheel Park", "Matches", "Nearby or close in time", "Location unknown · 5", "Weaker matches".
+    /// "Inside Al-Nakheel Park", "Matches", "First time in Dubai", "Nearby or close in time", "Location unknown · 5",
+    /// "Weaker matches".
     public var title: String
     public var caption: String?
     public var groups: [ResultGroup]

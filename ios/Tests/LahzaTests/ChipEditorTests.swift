@@ -60,6 +60,60 @@ import Testing
         #expect(!june14.isEmpty && bestNumbers(app) == Set(june14.map(\.number)))
     }
 
+    /// The first time's chip opens the order editor; Last time searches the latest visit, and the result's Show all
+    /// (like the editor's All times after the first time) lists every visit oldest first, in moments and in the grid.
+    @Test func theFirstTimeChipAndShowAll() async throws {
+        let app = await SearchTestApp.ready(.unlocked)
+        let nakheel = Self.hero.items(.nakheel)
+        let first = try #require(await SearchTestApp.search(app, "the first time at Al-Nakheel Park"))
+        let order = try slot(app, .order)
+        #expect(ChipEditorKind(order) == .order(.first))
+        #expect(order.chip == "First time" && order.systemImage == AskCopy.orderSymbol(.first))
+        #expect(QueryChipModel.chips(first.query).map(\.title) == ["First time", "Al-Nakheel Park"])
+        #expect(QueryChipModel.chips(first.query).first?.accessibilityLabel == "Order, First time")
+        #expect(bestNumbers(app) == Set(nakheel.filter { $0.momentDay == LocalTime.day(year: 2024, month: 3, day: 2) }.map(\.number)))
+        let occasion = try #require(first.occasion)
+        #expect(occasion.othersLabel == "9 later times" && first.sections.first?.title == "First time at Al-Nakheel Park")
+
+        app.search.apply([.replaceOrder(slot: order.id, .last)])
+        #expect(await SearchTestApp.eventually(app) { app.search.text == "the last time at Al-Nakheel Park" && app.search.result?.occasion?.order == .last })
+        #expect(bestNumbers(app) == Set(nakheel.filter { $0.momentDay == LocalTime.day(year: 2026, month: 8, day: 22) }.map(\.number)))
+        #expect(app.search.result?.occasion?.othersLabel == "9 earlier times")
+
+        app.search.apply([.replaceOrder(slot: order.id, .first)])
+        #expect(await SearchTestApp.eventually(app) { app.search.result?.occasion?.order == .first })
+        app.search.apply(try #require(app.search.result?.occasion?.showAll))
+        #expect(await SearchTestApp.eventually(app) { app.search.text == "at Al-Nakheel Park oldest first" && app.search.result?.occasion == nil })
+        let all = try #require(app.search.result)
+        let oldest = try slot(app, .order)
+        #expect(oldest.chip == "Oldest first" && ChipEditorKind(oldest) == .order(.oldestFirst))
+        #expect(bestNumbers(app) == Set(nakheel.map(\.number)))
+        let days = all.cards.filter { $0.tier == .best }.map(\.id.day)
+        #expect(days == days.sorted() && days.count == 10, "moments oldest first")
+        // The grid lists the same photos in the same order, so switching keeps it.
+        app.search.setLayout(.grid)
+        let tiles = ResultGrid(all, showsUnknown: false).tiles.map(\.hit.id)
+        #expect(tiles == all.cards.filter { $0.tier != .locationUnknown }.flatMap(\.hits).map(\.id))
+        let utcs = ResultGrid(all, showsUnknown: false).tiles.filter { $0.hit.tier == .best }.compactMap(\.hit.utc)
+        #expect(utcs == utcs.sorted(), "the grid oldest first")
+        app.search.setLayout(.moments)
+
+        // Newest first from the order editor.
+        app.search.apply([.replaceOrder(slot: order.id, .newestFirst)])
+        #expect(await SearchTestApp.eventually(app) { app.search.text == "at Al-Nakheel Park newest first" })
+        let newest = app.search.result?.cards.filter { $0.tier == .best }.map(\.id.day) ?? []
+        #expect(newest == newest.sorted(by: >) && newest.count == 10)
+    }
+
+    /// The editors' words: an order chip's explanation, choices and Remove.
+    @Test func theOrderEditorsWords() {
+        #expect(ChipEditorCopy.OccasionChoice.allCases.map(\.title) == ["First time", "Last time", "All times"])
+        #expect(ChipEditorCopy.OccasionChoice(.oldestFirst) == .all)
+        #expect([SearchOrder.oldestFirst, .newestFirst].map(ChipEditorCopy.title) == ["Oldest first", "Newest first"])
+        #expect(ChipEditorCopy.remove(SearchOrder.first) == "Remove first time" && ChipEditorCopy.remove(SearchOrder.oldestFirst) == "Remove order")
+        #expect(AskCopy.slotName(.order) == "Order" && AskCopy.showAll == "Show all")
+    }
+
     /// Acceptance 2: the place picked (picker or editor) is searched when the words are typed again, without a picker.
     @Test func aPickIsRememberedOnAReSearch() async throws {
         let app = await SearchTestApp.ready(.unlocked)

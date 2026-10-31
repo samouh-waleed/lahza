@@ -65,3 +65,9 @@ A short log of settled decisions, newest last. Proposed design rules that still 
 | # | Decision | Why |
 |---|---|---|
 | 34 | The unlock (#32) is one non-consumable, `lahza_full_library` ($9.99 to start; the app always shows the store's price), sold through RevenueCat as a lifetime package. Only search beyond 12 months is paid: Moments stays free, and a free search shows its last-12-months results, then "N more from earlier years" with the unlock (no blurred previews) | Founder decision |
+
+## Search order (2026-10-30)
+
+| # | Decision | Why |
+|---|---|---|
+| 35 | Search understands "the first time", "the last time" and "oldest first" before the Apple Photos comparison. The first time is the earliest occasion of the Best matches (a whole trip for a city or country away from home, else that outing), then "N later times · Show all", which lists every time oldest first. A free search whose first time is older than 12 months says so with the unlock row, never showing the earliest photo in the window as the first | Founder decision. Time reasoning ("first", "over the years") is a common way people search their memories, and needs no ML |

@@ -68,6 +68,12 @@ public struct ParsedQuery: Sendable, Hashable, Codable {
         slots.compactMap { if case .time(let time) = $0.value { time } else { nil } }
     }
 
+    /// The order the query asks for: its first order slot ("the first time", "oldest first"), nil when none.
+    public var order: (slot: Int, order: SearchOrder)? {
+        for slot in slots { if case .order(let order) = slot.value { return (slot.id, order) } }
+        return nil
+    }
+
     /// Every media filter merged: kinds of one slot combine with OR, slots and flags with AND (nil when none is stated).
     public var mediaFilter: MediaFilter? {
         let filters = slots.compactMap { if case .media(let media) = $0.value { media } else { nil } }
@@ -102,6 +108,8 @@ public enum SlotValue: Sendable, Hashable, Codable {
     case time(TimeExpression)
     case media(MediaFilter)
     case event(EventKind)
+    /// Which occasion, or what order ("the first time", "oldest first").
+    case order(SearchOrder)
     /// Parsed but not searchable in v0 ("with Ahmed").
     case people(String)
     /// Words about what's in the photos; not searchable in v0 ("soccer", "sunset").
@@ -115,6 +123,7 @@ public enum SlotValue: Sendable, Hashable, Codable {
         case .time: .time
         case .media: .media
         case .event: .event
+        case .order: .order
         case .people: .people
         case .visual: .visual
         case .text: .text
@@ -123,7 +132,7 @@ public enum SlotValue: Sendable, Hashable, Codable {
 }
 
 public enum SlotKind: String, Sendable, Hashable, Codable, CaseIterable {
-    case place, time, media, event, people, visual, text
+    case place, time, media, event, order, people, visual, text
 }
 
 /// What search can do in this version.
@@ -138,12 +147,12 @@ public struct SearchCapabilities: Sendable, Hashable {
         self.text = text
     }
 
-    /// Places, dates, photo types and trips; nothing about what's in the photos.
+    /// Places, dates, photo types, trips and order; nothing about what's in the photos.
     public static let v0 = SearchCapabilities()
 
     public func supports(_ value: SlotValue) -> Bool {
         switch value {
-        case .place, .time, .media, .event: true
+        case .place, .time, .media, .event, .order: true
         case .people: people
         case .visual: visual
         case .text: text
@@ -157,4 +166,19 @@ public enum EventKind: String, Sendable, Hashable, Codable {
     case trip
     /// Photos from a trip abroad.
     case abroad
+}
+
+/// Which occasion a query asks for, or the order to list them in.
+public enum SearchOrder: String, Sendable, Hashable, Codable, CaseIterable {
+    /// Only the earliest occasion ("the first time", "my first", "earliest"): a whole trip, or a moment.
+    case first
+    /// Only the most recent occasion ("the last time", "most recent", "latest").
+    case last
+    /// Every occasion, oldest to newest ("oldest first", "in order", "over the years").
+    case oldestFirst
+    /// Every occasion, newest to oldest ("newest first"): the usual order, said out loud.
+    case newestFirst
+
+    /// One occasion rather than an order of all of them.
+    public var isOccasion: Bool { self == .first || self == .last }
 }

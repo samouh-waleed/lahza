@@ -5,8 +5,9 @@ import SwiftUI
 
 /// Ask's results (search spec §7.1): what the query was understood as (each chip opens its editor), the picker for an
 /// ambiguous place, the counts and what was searched, then moment cards in sections (trips under their headers) or a
-/// grid of every photo, or why nothing matched with taps that widen the search. A free search ends with how many older
-/// photos also match and the unlock. While it runs, skeleton cards; when it fails, a notice to try again. A grid tile
+/// grid of every photo, or why nothing matched with taps that widen the search. The first or last time shows that
+/// occasion, then how many other times matched and "Show all". A free search ends with how many older photos also match
+/// and the unlock. While it runs, skeleton cards; when it fails, a notice to try again. A grid tile
 /// opens the viewer.
 struct SearchResultsView: View {
     /// Searches typed words (an example search).
@@ -96,7 +97,8 @@ nonisolated enum ResultRow: Identifiable, Hashable {
 }
 
 /// The chips, notices and picker, the header, Moments | Grid (it stays at the top while the results scroll), the
-/// sections as cards or a grid, Show weaker, the older matches a free search leaves out and the coverage notes.
+/// sections as cards or a grid, Show weaker, the first or last time's other times, the older matches a free search
+/// leaves out and the coverage notes.
 /// Switching layouts keeps the result; scrolled into the results, the other layout opens at the same photos. While the
 /// grid scrolls, the next 60 thumbnails are prepared.
 private struct ResultsList: View {
@@ -152,6 +154,10 @@ private struct ResultsList: View {
                 if result.weakerCount > 0 {
                     ShowWeakerButton(count: result.weakerCount, isShown: showsWeaker)
                         .padding(.top, LZSpace.md)
+                }
+                if let occasion = result.occasion, occasion.others > 0 {
+                    OccasionRow(occasion: occasion)
+                        .padding(.top, LZSpace.sm + LZSpace.md)
                 }
                 LockedResultsRow(count: result.lockedCount)
                     .padding(.top, LZSpace.sm + LZSpace.md)
@@ -254,6 +260,22 @@ private struct ResultRowView: View {
                 model.open(.moment(MomentRef(key: card.id, origin: .ask, searchID: result.id)))
             }
         }
+    }
+}
+
+/// After the first or last time: "9 later times · Show all", which lists every time (oldest first after the first).
+private struct OccasionRow: View {
+    let occasion: Occasion
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        LZRowGroup {
+            ListRow(occasion.othersLabel, systemImage: occasion.isTrip ? "airplane" : "calendar", value: AskCopy.showAll, accessory: .chevron) {
+                model.search.apply(occasion.showAll)
+            }
+            .accessibilityHint(AskCopy.showAllHint)
+        }
+        .accessibilityIdentifier("ask-occasion")
     }
 }
 

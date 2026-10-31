@@ -42,6 +42,26 @@ import Testing
         #expect(BillingCopy.moreFromEarlierYears(result.lockedCount, locale: Locale(identifier: "en_US")) == "\(result.lockedCount) more from earlier years")
     }
 
+    /// The first time at the park is older than the 12 months: said so, with the unlock row, never the earliest visit
+    /// inside them shown as the first. The last time is inside them: shown, with no unlock row.
+    @Test func aFirstTimeOlderThanTheMonthsSaysSo() async throws {
+        let app = await SearchTestApp.ready(.free)
+        let since = try window(app)
+        let nakheel = Self.hero.items(.nakheel)
+        let first = try #require(await SearchTestApp.search(app, "the first time at Al-Nakheel Park"))
+        #expect(app.search.state == .noMatch(first))
+        #expect(first.noMatch?.kind == .onlyEarlier)
+        #expect(first.noMatch?.headline == "Your first time at Al-Nakheel Park was before the last 12 months.")
+        #expect(first.hits.isEmpty && first.occasion == nil)
+        #expect(first.lockedCount >= nakheel.count { $0.utc! < since })
+        #expect(LockedResultsRow.isShown(lockedCount: first.lockedCount, isUnlocked: app.entitlement.isUnlocked))
+
+        let last = try #require(await SearchTestApp.search(app, "the last time at Al-Nakheel Park"))
+        #expect(numbers(last, .best) == Set(nakheel.filter { $0.momentDay == LocalTime.day(year: 2026, month: 8, day: 22) }.map(\.number)))
+        #expect(last.occasion?.othersLabel == "\(Set(nakheel.filter { $0.utc! >= since }.compactMap(\.momentDay)).count - 1) earlier times")
+        #expect(!LockedResultsRow.isShown(lockedCount: last.lockedCount, isUnlocked: app.entitlement.isUnlocked))
+    }
+
     /// Greece (2023): nothing in the last 12 months, all 75 counted, and a headline that says why, never "nothing".
     @Test func everyMatchOlderSaysSoAndAnUnlockShowsThem() async throws {
         let app = await SearchTestApp.ready(.free)

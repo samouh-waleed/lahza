@@ -30,6 +30,7 @@ bikes
 bicycle
 skiing
 ski
+skied
 snowboard
 surfing
 surf

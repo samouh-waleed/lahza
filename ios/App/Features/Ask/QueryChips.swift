@@ -32,6 +32,7 @@ nonisolated struct QueryChipModel: Identifiable, Hashable {
             case .time: "calendar"
             case .media(let media): media.kinds == [.video] ? "film" : "photo"
             case .event: "airplane"
+            case .order(let order): AskCopy.orderSymbol(order)
             case .people, .visual, .text: "info.circle"
             }
             return QueryChipModel(id: slot.id, kind: slot.kind, title: supported ? AskCopy.capitalized(words) : AskCopy.notYet(words, kind: slot.kind),

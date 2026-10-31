@@ -257,6 +257,32 @@ struct SearchCopy {
         return total >= 3600 ? String(format: "%d:%02d:%02d", total / 3600, total / 60 % 60, total % 60) : String(format: "%d:%02d", total / 60, total % 60)
     }
 
+    // MARK: The first or last time
+
+    /// The occasion's section title: "First time at Al-Nakheel Park", "Last time in Dubai in 2024", "First trip to
+    /// Greece", "First trip abroad", "First time".
+    func occasionTitle(_ order: SearchOrder, query: PreparedQuery) -> String {
+        let word = order == .last ? "Last" : "First"
+        let time = query.timeExpression.flatMap { query.plan.time == nil ? nil : "\(preposition($0)) \(sentenceName($0))" }
+        if let event = query.plan.event {
+            let place = query.placeSlot.map { $0.description.isArea ? $0.description.phrase : "to \($0.description.name)" }
+            return ["\(word) trip", event == .abroad && place == nil ? "abroad" : nil, place, time].compactMap { $0 }.joined(separator: " ")
+        }
+        return ["\(word) time", query.showingPhrase(self)].compactMap { $0 }.joined(separator: " ")
+    }
+
+    /// "9 later times", "1 later trip", "3 earlier times": the times "Show all" adds.
+    func otherOccasions(_ count: Int, order: SearchOrder, trips: Bool) -> String {
+        let noun = trips ? (count == 1 ? "trip" : "trips") : (count == 1 ? "time" : "times")
+        return "\(count.formatted(.number.locale(locale))) \(order == .last ? "earlier" : "later") \(noun)"
+    }
+
+    /// "Your first time at Al-Nakheel Park was before the last 12 months." — a free search whose first (or last) time
+    /// is older than it covers: never the earliest it covers shown as the first.
+    func earlierOccasion(_ title: String, since: Date, now: Date) -> String {
+        "Your \(title.prefix(1).lowercased() + title.dropFirst()) was before the \(lastPeriod(since: since, now: now))."
+    }
+
     /// "No matches in the last 12 months." — a free search whose matches are all older than it covers.
     func onlyEarlier(since: Date, now: Date) -> String {
         "No matches in the \(lastPeriod(since: since, now: now))."
@@ -328,8 +354,9 @@ struct SearchCopy {
 
     /// "Lahza can't see what's in photos yet, so “soccer” was left out. Showing all your photos at Al-Nakheel Park."
     /// Dates Lahza couldn't use are quoted as typed (their chip says why). With no `showing` (nothing matched) it ends
-    /// at "left out.".
-    func unsupportedNotice(_ unsupported: [ResolvedSlot], text: String, showing: String?) -> String? {
+    /// at "left out.". The first or last time shows its `occasion` instead ("Showing your first time at Al-Nakheel
+    /// Park.").
+    func unsupportedNotice(_ unsupported: [ResolvedSlot], text: String, showing: String?, occasion: String? = nil) -> String? {
         guard !unsupported.isEmpty else { return nil }
         let words = unsupported.map { "“\($0.slot.kind == .time ? $0.slot.span?.substring(of: text) ?? $0.chip : $0.chip)”" }
         let list = words.count == 1 ? words[0] : words.dropLast().joined(separator: ", ") + " and " + words.last!
@@ -341,7 +368,8 @@ struct SearchCopy {
         } else {
             reason = "Lahza can’t search for everything you asked yet"
         }
-        let rest = showing.map { " Showing all your photos \($0)." } ?? ""
+        let rest = showing == nil ? "" : occasion.map { " Showing your \($0.prefix(1).lowercased() + $0.dropFirst())." }
+            ?? showing.map { " Showing all your photos \($0)." } ?? ""
         return "\(reason), so \(list) \(words.count == 1 ? "was" : "were") left out.\(rest)"
     }
 }
