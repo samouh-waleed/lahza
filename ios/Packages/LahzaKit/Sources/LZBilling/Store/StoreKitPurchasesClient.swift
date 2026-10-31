@@ -13,18 +13,26 @@ public final class StoreKitPurchasesClient: PurchasesClient {
     /// The app user StoreKit answers for (there is no RevenueCat identity).
     public static let appUserID = "$StoreKit"
 
+    /// Restore's sync with the App Store.
+    public typealias Sync = @Sendable () async throws -> Void
+
     private let productIdentifier: String
     private let entitlement: String
     private let offeringIdentifier: String
+    private let sync: Sync
 
+    /// `sync` is `AppStore.sync()`, which can show an Apple Account sign-in sheet; the app-hosted
+    /// tests pass a stub so no test leaves one on the Simulator.
     public init(
         productIdentifier: String = Brand.Products.fullLibrary,
         entitlement: String = Brand.fullLibraryEntitlement,
-        offeringIdentifier: String = Brand.Products.offering
+        offeringIdentifier: String = Brand.Products.offering,
+        sync: @escaping Sync = { try await AppStore.sync() }
     ) {
         self.productIdentifier = productIdentifier
         self.entitlement = entitlement
         self.offeringIdentifier = offeringIdentifier
+        self.sync = sync
     }
 
     // StoreKit needs no configuration and has no identity.
@@ -64,10 +72,10 @@ public final class StoreKitPurchasesClient: PurchasesClient {
         }
     }
 
-    /// `AppStore.sync()`, then the current entitlement.
+    /// `AppStore.sync()` (the injected `sync`), then the current entitlement.
     public func restorePurchases() async throws -> CustomerSnapshot {
         do {
-            try await AppStore.sync()
+            try await sync()
         } catch {
             throw Self.map(error)
         }
