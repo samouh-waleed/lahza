@@ -29,7 +29,7 @@ The research behind this is clear:
 | Labels | Apple's built-in image recognition (~1,300 labels: soccer, sushi, beach, dog…) | Built-in (free, on device) | Common activities and objects |
 | People present | Apple's built-in face and person detection: *how many*, not *who* | Built-in | "with friends"; is someone actually playing? |
 | Text in the photo | Apple's built-in text recognition | Built-in | "hotel receipt", signs, menus |
-| Visual meaning (embedding) | One bundled image–text model | Yes: the one model we plan to ship, kept only if early tests show it clearly helps | Anything labels can't cover, like "black shirt", or "playing" vs "a ball on the floor" |
+| Visual meaning (embedding) | One bundled image–text model | Yes: the one model we ship, the core of content search | Anything labels can't cover, like "black shirt", or "playing" vs "a ball on the floor" |
 
 ## What an embedding is, and why we need one model
 
@@ -85,7 +85,7 @@ The model must be licensed for commercial use. Apple's MobileCLIP, which some co
   - the fallback rules.
 - **Apple's built-in recognition:** labels, people detection and text reading. These are free, run on the device, and carry no license risk.
 - **Apple's on-device language model**, only to understand the question, on iPhones that have it. It works with words only; it never sees photos.
-- **One bundled model:** the image–text embedding. It is kept only if early tests show it measurably improves results.
+- **One bundled model:** the image–text embedding, the core of content search. Apple's photo tags answer while it downloads.
 - **Not used in the MVP:**
   - cloud AI;
   - using AI to write a description of every photo;

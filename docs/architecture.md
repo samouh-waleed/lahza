@@ -40,7 +40,7 @@ Builds the local index in passes, cheapest first, so search works within minutes
 | P0 Metadata | Reads date, GPS, type, favorites, and the user's own captions/keywords (iOS 27) | Foreground, about 1 min per 30k photos |
 | P0b Structure | Adds offline city/country names; groups photos into moments and trips | Foreground, seconds |
 | P1a Photo tags | From one local image per photo (about 360 px, network off): Apple Vision's photo tags, face and person counts, Vision's utility verdict and an aesthetics score | Foreground while Lahza is open (decision 38); later a user-started background task (CPU only unless the entitlement is granted; see below) |
-| P1b Embedding | The same image through the image model | Later, once the model ships (decision 39) |
+| P1b Embedding | The same image through the image model | Next, right after the photo tags (decision 39) |
 | P2 Place names | Looks up park/restaurant names for photo clusters in Apple Maps (rate-limited and cached) | Foreground only |
 | P3 Text | Reads text in screenshots, documents and receipts | Background (CPU), while charging |
 | P4 Video | Analyzes sampled frames from videos stored on the device (up to 30 per video, videos ≤10 min) | Background (CPU), while charging |
@@ -84,7 +84,7 @@ A free search covers the last 12 months, from the start of that day (decision 34
 - On a Mac: about 90 photos/s, and 3 ms to encode a query. On the CPU alone (the Simulator), 16-bit drifts further from PyTorch (image cosine about 0.97). iPhone numbers come from a device run.
 - Search on dates and places works while the model downloads.
 - Sits behind a swappable interface (`LZEmbedding`: `ImageEmbedder`, `TextEmbedder`, which take token ids until the Swift tokenizer lands). The index records which model produced the vectors, so switching models only triggers a re-index.
-- It ships only if Phase 0 shows a measurable gain. Otherwise P1 runs without it.
+- It is the core of content search (decision 39). Photo tags answer at once while it downloads or photos are still being checked.
 
 ## Design rules (proposed, evidence-backed)
 
