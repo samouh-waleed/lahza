@@ -4,7 +4,7 @@ import LZGeo
 /// The v0 parser: English rules, no model, a few milliseconds per query (search spec §6.3).
 ///
 /// Recognisers run left to right, longest match first, in priority order: media, Hijri events and holidays, time
-/// ranges, times, saved places and home (and "at my pitch" when no place is saved by that name), places after a
+/// ranges, times, the first or last time and orders ("oldest first"), saved places and home (and "at my pitch" when no place is saved by that name), places after a
 /// preposition, "the beach", known place names, trips, people, filler, and finally leftovers. Each claims its words,
 /// so a later one never takes them. Leftover words become a maybe-place (it resolves only to an exact name) or, for
 /// words about what's in photos ("soccer"), an unsupported chip; nothing is dropped silently.
@@ -52,6 +52,8 @@ struct RuleScan {
         hijriAndHolidays()
         timeRanges()
         times()
+        recentlyYields()
+        orders()
         aliases()
         prepositionalPlaces()
         categoryPlaces()
@@ -67,9 +69,15 @@ struct RuleScan {
     func query() -> ParsedQuery {
         let ordered = found.sorted { $0.first < $1.first }
         var seenEvents = Set<EventKind>()
+        var seenOrder = false
         var slots: [QuerySlot] = []
         for item in ordered {
             if case .event(let kind) = item.value, !seenEvents.insert(kind).inserted { continue }
+            // One order per query: the first said ("over the years, from when I started").
+            if case .order = item.value {
+                if seenOrder { continue }
+                seenOrder = true
+            }
             let start = tokens[item.first].range.lowerBound, end = tokens[item.last].range.upperBound
             slots.append(QuerySlot(id: slots.count, value: item.value, span: TextSpan(location: start, length: end - start)))
         }

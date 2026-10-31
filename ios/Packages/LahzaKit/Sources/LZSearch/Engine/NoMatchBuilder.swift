@@ -32,6 +32,11 @@ struct NoMatchBuilder {
             if let message = query.slots.first(where: { $0.slot.kind == .time && !$0.isSupported })?.chip {
                 return NoMatch(kind: .nothing, headline: message, detail: "Try a date, like “last summer” or “Ramadan 2024”.", offers: [], examples: [])
             }
+            // "the first time" or "oldest first" alone: nothing to find the first of, or to order.
+            if let order = query.orderSlot, query.unsupported.isEmpty {
+                let example = order.order.isOccasion ? "the first time at the beach" : "the beach, oldest first"
+                return NoMatch(kind: .nothing, headline: "Add a place, a date or a photo type, like “\(example)”.", detail: nil, offers: [], examples: [])
+            }
             return NoMatch(kind: .onlyUnsupported, headline: "Lahza can’t search what’s in photos yet. Try a place, a date or a photo type.", detail: nil,
                            offers: [], examples: [])
         }

@@ -12,6 +12,8 @@ public enum SlotEdit: Sendable, Hashable {
     case setNear(slot: Int, Bool)
     case replaceTime(slot: Int, TimeExpression)
     case replaceMedia(slot: Int, MediaFilter)
+    /// The first or last time, or the order ("Show all" after the first time is oldest first).
+    case replaceOrder(slot: Int, SearchOrder)
     case add(SlotValue)
     /// The place editor's "Search Apple Maps for “X”": the slot's words are looked up even when a place in the
     /// library matches, spending the query's one Apple Maps search (kept in ``ResolutionOverrides``).
@@ -47,6 +49,9 @@ extension ParsedQuery {
             case .replaceMedia(let id, let media):
                 guard let position = index(id) else { continue }
                 slots[position] = (QuerySlot(id: id, value: .media(media), span: nil), nil, nil)
+            case .replaceOrder(let id, let order):
+                guard let position = index(id) else { continue }
+                slots[position] = (QuerySlot(id: id, value: .order(order), span: nil), nil, nil)
             case .add(let value):
                 let id = (slots.map(\.slot.id).max() ?? -1) + 1
                 slots.append((QuerySlot(id: id, value: value, span: nil), nil, nil))
@@ -112,7 +117,7 @@ extension ResolutionOverrides {
         case .setNear(let slot, let near): places[slot, default: PlaceOverride()].near = near
         case .searchAppleMaps(let slot): places[slot, default: PlaceOverride()].searchesAppleMaps = true
         case .remove(let slot): places[slot] = nil
-        case .replaceTime, .replaceMedia, .add: break
+        case .replaceTime, .replaceMedia, .replaceOrder, .add: break
         }
     }
 
@@ -140,6 +145,7 @@ extension SlotValue {
         case .media(let media): media.phrase
         case .event(.trip): "trips"
         case .event(.abroad): "abroad"
+        case .order(let order): order.phrase
         case .people(let words): "with \(words)"
         case .visual(let words), .text(let words): words
         }
@@ -193,6 +199,18 @@ extension PlaceExpression {
         .park: "park", .beach: "beach", .restaurant: "restaurant", .cafe: "cafe", .stadium: "stadium", .hotel: "hotel", .museum: "museum",
         .airport: "airport", .store: "mall", .zoo: "zoo", .marina: "marina", .campground: "campground", .university: "university",
     ]
+}
+
+extension SearchOrder {
+    /// "the first time", "oldest first": words the rules parser reads back to the same order.
+    public var phrase: String {
+        switch self {
+        case .first: "the first time"
+        case .last: "the last time"
+        case .oldestFirst: "oldest first"
+        case .newestFirst: "newest first"
+        }
+    }
 }
 
 extension MediaFilter {

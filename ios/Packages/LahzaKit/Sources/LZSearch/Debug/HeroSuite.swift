@@ -15,6 +15,8 @@ import LZLibrary
 public enum HeroSuite {
     /// 2026-10-28T12:00+03:00.
     public static let now = Date(timeIntervalSince1970: 1_793_178_000)
+    /// A free search's start: 12 months before `now`.
+    public static let freeSince = Date(timeIntervalSince1970: 1_761_642_000)
     public static let locale = Locale(identifier: "en_GB")
 
     /// What the library under test kept of the seed.
@@ -74,7 +76,7 @@ public enum HeroSuite {
             var outcome = Outcome(number: golden.number, query: golden.query, skipped: golden.skip, failures: [], precision: 1, recall: 1)
             if golden.skip == nil {
                 let before = mapsSearches()
-                let result = try await engine.search(SearchRequest(text: golden.query), reader: reader, writer: writer)
+                let result = try await engine.search(SearchRequest(text: golden.query, scope: golden.scope), reader: reader, writer: writer)
                 outcome = golden.expectation.evaluate(result, number: golden.number, query: golden.query, searches: mapsSearches() - before)
                 if let followUp = golden.followUp, let request = followUp.request(result) {
                     let next = try await engine.search(request, reader: reader, writer: writer)
@@ -150,13 +152,17 @@ public enum HeroSuite {
     struct Golden {
         var number: Int
         var query: String
+        /// The whole library, or a free search's months.
+        var scope: SearchScope
         var skip: String?
         var expectation: Expectation
         var followUp: FollowUp?
 
-        init(_ number: Int, _ query: String, skip: String? = nil, _ expectation: Expectation, followUp: FollowUp? = nil) {
+        init(_ number: Int, _ query: String, scope: SearchScope = .wholeLibrary, skip: String? = nil, _ expectation: Expectation,
+             followUp: FollowUp? = nil) {
             self.number = number
             self.query = query
+            self.scope = scope
             self.skip = skip
             self.expectation = expectation
             self.followUp = followUp
@@ -184,7 +190,13 @@ extension HeroSuite.Golden {
         let salamDubai = p.tagged(.dubai1).filter { $0.title == SeedPlace.salamParkDubai.name && $0.isLocated }
         let greeceTrip = SeedScenario.hero.trips.first { $0.name == "Greece" }!
         let dubaiTrip = SeedScenario.hero.trips.last { $0.name == "Dubai" }!
+        let firstDubaiTrip = SeedScenario.hero.trips.first { $0.name == "Dubai" }!
         let year2025 = p.days(2025, 1, 1, through: 2025, 12, 31)
+        // The park's visits, by moment day: the first and the last.
+        let nakheelDays = Set(nakheel.compactMap(\.momentDay))
+        let firstVisit = nakheel.filter { $0.momentDay == nakheelDays.min() }
+        let lastVisit = nakheel.filter { $0.momentDay == nakheelDays.max() }
+        let freeStart = Int64(HeroSuite.freeSince.timeIntervalSince1970)
 
         return [
             Self(1, "Al-Nakheel Park", Expectation(
@@ -275,6 +287,21 @@ extension HeroSuite.Golden {
                      overrides.apply(edit)
                      return SearchRequest(text: result.query.parsed.text, parsed: result.query.parsed.applying([edit]), overrides: overrides)
                  }, expectation: Expectation(best: salamDubai))),
+            // The first and last time, and oldest first: the whole first trip to a city away from home, the park's
+            // latest visit, every visit in time order, and a free search whose first time is older than it covers.
+            Self(34, "the first time I went to Dubai", Expectation(
+                best: p.tagged(.dubai1).filter { firstDubaiTrip.contains(day: $0.momentDay!) },
+                checks: [p.chips(["First time", "Dubai"]), p.tripHeader(firstDubaiTrip, in: .best), p.sectionTitle(.best, "First time in Dubai"),
+                         p.occasion("1 later trip"), p.bestOldestFirst])),
+            Self(35, "last time at Al-Nakheel Park", Expectation(
+                best: lastVisit, moreMust: receivedOnNakheelDays.filter { $0.momentDay == nakheelDays.max() },
+                checks: [p.sectionTitle(.best, "Last time at Al-Nakheel Park"), p.occasion("\(nakheelDays.count - 1) earlier times"), p.cards(.best, 1)])),
+            Self(36, "Al-Nakheel Park oldest first", Expectation(
+                best: nakheel, moreMust: receivedOnNakheelDays, moreAllowed: p.received,
+                checks: [p.chips(["Al-Nakheel Park", "Oldest first"]), p.cards(.best, nakheelDays.count), p.bestOldestFirst])),
+            Self(37, "the first time at Al-Nakheel Park", scope: .since(HeroSuite.freeSince), Expectation(best: [], checks: [
+                p.noMatch(.onlyEarlier, headline: "Your first time at Al-Nakheel Park was before the last 12 months."),
+                p.lockedAtLeast(nakheel.count { ($0.utc ?? .max) < freeStart }), p.absent(firstVisit)])),
         ]
     }
 }
@@ -485,6 +512,29 @@ private struct Predicates {
             let utcs = result.hits.filter { $0.tier == .best }.compactMap(\.utc)
             return utcs == utcs.sorted(by: >) ? nil : "Best isn't newest first"
         }
+    }
+
+    var bestOldestFirst: Check {
+        { result in
+            let utcs = result.hits.filter { $0.tier == .best }.compactMap(\.utc)
+            return utcs == utcs.sorted() ? nil : "Best isn't oldest first"
+        }
+    }
+
+    func sectionTitle(_ tier: Tier, _ title: String) -> Check {
+        { result in
+            let got = result.sections.first { $0.tier == tier }?.title
+            return got == title ? nil : "\(tier) titled “\(got ?? "-")”, expected “\(title)”"
+        }
+    }
+
+    /// The first or last time's row: "9 later times".
+    func occasion(_ label: String) -> Check {
+        { result in result.occasion?.othersLabel == label ? nil : "occasion row “\(result.occasion?.othersLabel ?? "-")”, expected “\(label)”" }
+    }
+
+    func lockedAtLeast(_ count: Int) -> Check {
+        { result in result.lockedCount >= count ? nil : "\(result.lockedCount) locked, expected at least \(count)" }
     }
 
     func absent(_ items: [SeedItem]) -> Check {

@@ -24,6 +24,9 @@ public struct Lexicon: Sendable {
     public var holidays: [[String]: Holiday]
     public var categories: [String: PlaceCategory]
     public var events: [String: EventKind]
+    /// "the first time", "most recent", "oldest to newest", "over the years". A phrase ending in "first" or "last" after
+    /// "the", "my" or "our" ("my first") stands only before a word that isn't about dates ("the first of June").
+    public var orders: [[String]: SearchOrder]
     public var placePrepositions: [String: PlaceRelation]
     /// Words after which "to" introduces a place ("trip to", "went to").
     public var toTriggers: Set<String>
@@ -44,7 +47,7 @@ public struct Lexicon: Sendable {
     /// The English lexicon, with the content words from `ContentWords.txt`.
     public static let english = Lexicon.makeEnglish()
 
-    /// The longest media, Hijri, holiday or people phrase, in words.
+    /// The longest media, Hijri, holiday, order or people phrase, in words.
     public var longestPhrase = 3
 
     private static func makeEnglish() -> Lexicon {
@@ -104,6 +107,29 @@ public struct Lexicon: Sendable {
         holidays[["national", "day"]] = .nationalDay
         holidays[["founding", "day"]] = .foundingDay
 
+        var orders: [[String]: SearchOrder] = [:]
+        for phrase in ["first time", "first times", "the first time", "my first time", "our first time", "for the first time", "the first",
+                       "my first", "our first", "the very first", "my very first", "first ever", "the first ever", "my first ever", "earliest",
+                       "the earliest", "my earliest"] {
+            orders[phrase.split(separator: " ").map(String.init)] = .first
+        }
+        for phrase in ["last time", "the last time", "my last time", "our last time", "the last", "my last", "our last", "most recent",
+                       "the most recent", "my most recent", "latest", "the latest", "my latest"] {
+            orders[phrase.split(separator: " ").map(String.init)] = .last
+        }
+        for phrase in ["oldest", "oldest first", "oldest to newest", "oldest to latest", "oldest to most recent", "from oldest", "from the oldest",
+                       "from oldest to newest", "from oldest to most recent", "from the oldest to the newest", "earliest first",
+                       "earliest to latest", "from earliest", "from the earliest", "old to new", "from old to new", "in order", "in date order",
+                       "in chronological order", "chronological", "chronological order", "chronologically", "over the years",
+                       "throughout the years", "through the years", "over time", "from when i started", "since i started"] {
+            orders[phrase.split(separator: " ").map(String.init)] = .oldestFirst
+        }
+        for phrase in ["newest", "newest first", "newest to oldest", "from newest", "from the newest", "from newest to oldest", "latest first",
+                       "latest to oldest", "most recent first", "most recent to oldest", "from most recent", "from the most recent",
+                       "new to old", "from new to old", "reverse chronological", "reverse chronological order"] {
+            orders[phrase.split(separator: " ").map(String.init)] = .newestFirst
+        }
+
         var categories: [String: PlaceCategory] = [:]
         let categoryWords: [(PlaceCategory, [String])] = [
             (.park, ["park", "parks"]), (.beach, ["beach", "beaches"]), (.restaurant, ["restaurant", "restaurants"]),
@@ -136,6 +162,7 @@ public struct Lexicon: Sendable {
             hijri: hijri, holidays: holidays, categories: categories,
             events: ["trip": .trip, "trips": .trip, "vacation": .trip, "vacations": .trip, "holiday": .trip, "holidays": .trip, "travel": .trip,
                      "travels": .trip, "travelling": .trip, "traveling": .trip, "abroad": .abroad, "overseas": .abroad],
+            orders: orders,
             placePrepositions: ["in": .in, "inside": .in, "at": .at, "near": .near, "around": .near, "by": .near, "from": .from],
             toTriggers: ["trip", "trips", "travel", "travelled", "traveled", "travelling", "traveling", "went", "go", "going", "visit", "visited",
                          "visiting", "flew", "fly", "flight", "drove", "drive", "vacation", "holiday", "moved", "back"],
@@ -145,7 +172,8 @@ public struct Lexicon: Sendable {
                      "took", "taken", "take", "was", "were", "is", "are", "be", "been", "when", "some", "any", "please", "have", "has", "had",
                      "did", "do", "can", "could", "may", "might", "it", "its", "there", "where", "what", "which", "everything", "every",
                      "stuff", "just", "only", "and", "or", "to", "for", "about", "like", "lahza", "search", "look", "see", "want", "need",
-                     "sat", "wed", "you", "your", "us", "they", "them", "he", "she", "him", "her", "his", "with"],
+                     "sat", "wed", "you", "your", "us", "they", "them", "he", "she", "him", "her", "his", "with", "go", "goes", "going",
+                     "went", "gone", "visited", "visiting"],
             stopWords: ["with", "and", "when", "while", "during", "last", "this", "or", "but", "where", "who", "that", "which", "me", "us",
                         "him", "her", "them", "you", "i", "we", "trip", "trips", "vacation", "vacations", "holiday", "holidays"],
             people: [["me"]: "me", ["my", "family"]: "my family", ["my", "friends"]: "my friends", ["the", "family"]: "the family",
@@ -158,7 +186,8 @@ public struct Lexicon: Sendable {
             notBareCountries: ["us", "the us", "me"],
             contentWords: content
         )
-        lexicon.longestPhrase = (Array(media.keys) + Array(hijri.keys) + Array(holidays.keys) + Array(lexicon.people.keys)).map(\.count).max() ?? 1
+        lexicon.longestPhrase = (Array(media.keys) + Array(hijri.keys) + Array(holidays.keys) + Array(orders.keys) + Array(lexicon.people.keys))
+            .map(\.count).max() ?? 1
         return lexicon
     }
 }

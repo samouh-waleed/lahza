@@ -126,6 +126,21 @@ import Testing
         return all
     }
 
+    /// Every order reads back from its phrase, survives Codable, and its chip edit renders the words in place.
+    @Test func ordersParseBackAndEditInPlace() throws {
+        for order in SearchOrder.allCases {
+            #expect(SearchFixture.parse(order.phrase).values == [.order(order)], "“\(order.phrase)”")
+        }
+        let query = SearchFixture.parse("the first time at Al-Nakheel Park", ParserTableTests.knownVocabulary)
+        #expect(try JSONDecoder().decode(ParsedQuery.self, from: JSONEncoder().encode(query)) == query)
+        let slot = try #require(query.order)
+        #expect(slot.order == .first)
+        let last = query.applying([.replaceOrder(slot: slot.slot, .last)], locale: SearchFixture.uk)
+        #expect(last.text == "the last time at Al-Nakheel Park")
+        #expect(SearchFixture.parse(last.text, ParserTableTests.knownVocabulary).values == last.values)
+        #expect(query.applying([.remove(slot: slot.slot)]).text == "at Al-Nakheel Park")
+    }
+
     // MARK: Edits
 
     @Test func anEditChangesOneSlotAndRendersTheText() throws {

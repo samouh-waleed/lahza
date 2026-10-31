@@ -3,13 +3,17 @@ import LZGeo
 import LZIndex
 
 /// Groups scored hits into sections of moment cards, wraps trips under headers, and writes the reasons (search spec
-/// §6.7): a card sits in the section of its best hit and is ordered newest first; undated hits go to a last "No date"
-/// card; a card's reasons are the slot reasons most of its hits share.
+/// §6.7): a card sits in the section of its best hit and is ordered newest first (oldest first when the query asks,
+/// and for the first or last time, whose one occasion reads in time order); undated hits go to a last "No date" card;
+/// a card's reasons are the slot reasons most of its hits share.
 struct ResultAssembler {
     let snapshot: SearchSnapshot
     let query: PreparedQuery
     let copy: SearchCopy
     let context: EngineContext
+    /// The first or last time, with the title its first section takes ("First time in Dubai"): the hits are that
+    /// occasion's, and a trip gets its header.
+    var occasion: (Occasion, title: String)?
 
     struct Built {
         var sections: [ResultSection]
@@ -83,12 +87,15 @@ struct ResultAssembler {
         }
 
         let groupTrips = shouldGroupTrips(cards, hits: hits)
+        let chronological = query.orderSlot.map { $0.order != .newestFirst } ?? false
         var sections: [ResultSection] = []
         for tier in Tier.allCases {
-            let inTier = cards.filter { $0.tier == tier }.sorted(by: Self.newestFirst)
+            let inTier = cards.filter { $0.tier == tier }.sorted(by: chronological ? Self.oldestFirst : Self.newestFirst)
             guard !inTier.isEmpty else { continue }
             let count = hits.count(where: { $0.tier == tier })
-            let (title, caption) = copy.sectionTitle(tier, place: query.placeSlot?.description, count: count)
+            let (tierTitle, caption) = copy.sectionTitle(tier, place: query.placeSlot?.description, count: count)
+            // The occasion's title heads its first section (its matches' tier).
+            let title = sections.isEmpty ? occasion?.title ?? tierTitle : tierTitle
             sections.append(ResultSection(tier: tier, title: title, caption: caption, groups: group(inTier, trips: groupTrips ? trips : [:])))
         }
 
@@ -104,12 +111,18 @@ struct ResultAssembler {
         return (lhs.id.startUTC, lhs.id.day) > (rhs.id.startUTC, rhs.id.day)
     }
 
+    /// Oldest first; the "No date" card last.
+    static func oldestFirst(_ lhs: MomentCard, _ rhs: MomentCard) -> Bool {
+        if (lhs.id == MomentCard.noDateKey) != (rhs.id == MomentCard.noDateKey) { return rhs.id == MomentCard.noDateKey }
+        return (lhs.id.startUTC, lhs.id.day) < (rhs.id.startUTC, rhs.id.day)
+    }
+
     // MARK: Trips
 
     /// Trips get headers when the query asks for trips, when the place is a country, region or city outside the
-    /// home country, or when two Best cards share a trip.
+    /// home country, when two Best cards share a trip, or when the first or last time is a trip.
     private func shouldGroupTrips(_ cards: [MomentCard], hits: [ScoredAsset]) -> Bool {
-        if query.plan.event != nil { return true }
+        if query.plan.event != nil || occasion?.0.isTrip == true { return true }
         if let place = query.placeSlot, case .membership(let level, _, let key, _) = place.candidate.resolved, level != .locality {
             if level == .country, let code = context.home?.countryCode, key != PlaceKey.country(code) { return true }
             if let home = context.homeCountryPlace, let first = hits.first(where: { $0.tier == .best }) {
@@ -124,7 +137,7 @@ struct ResultAssembler {
         return bestPerTrip.values.contains { $0 >= 2 }
     }
 
-    /// Cards in order, those of one trip gathered under its header where its newest card is.
+    /// Cards in order, those of one trip gathered under its header where its first card in that order is.
     private func group(_ cards: [MomentCard], trips: [Int64: TripRow]) -> [ResultGroup] {
         guard !trips.isEmpty else { return cards.map(ResultGroup.moment) }
         var groups: [ResultGroup] = []

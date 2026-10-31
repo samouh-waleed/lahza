@@ -101,12 +101,44 @@ public actor SearchEngine {
 
         let groupStarted = ContinuousClock.now
         let copy = SearchCopy(locale: locale, resolver: TimeResolver(context: context.time))
-        let assembler = ResultAssembler(snapshot: snapshot, query: query, copy: copy, context: context)
+        // The first or last time: only that occasion's photos. A free search whose occasion is older than it covers
+        // says so (never the earliest it covers as "the first time"); one it covers locks only its own older photos.
+        var occasion: Occasion?
+        var earlierOccasion = false
+        var occasionTitle: String?
+        if let order = query.orderSlot, order.order.isOccasion {
+            let picker = OccasionPicker(snapshot: snapshot, query: query)
+            if let pick = picker.pick(order.order, hits: scored, since: since) {
+                occasionTitle = copy.occasionTitle(order.order, query: query)
+                if pick.isEarlier {
+                    earlierOccasion = true
+                    hits = []
+                } else {
+                    hits = hits.filter { picker.contains($0, pick.chosen.key) }
+                    locked = since.map { start in
+                        scored.count { hit in
+                            let i = Int(hit.index)
+                            return snapshot.isDated(i) && snapshot.utc[i] < start && (hit.tier != .weaker || request.showWeaker)
+                                && picker.contains(hit, pick.chosen.key)
+                        }
+                    } ?? 0
+                    let others = pick.covered - 1
+                    occasion = Occasion(order: order.order, isTrip: pick.chosen.isTrip, others: others,
+                                        othersLabel: copy.otherOccasions(others, order: order.order, trips: pick.allTrips),
+                                        showAll: order.order == .first ? [.replaceOrder(slot: order.id, .oldestFirst)] : [.remove(slot: order.id)])
+                }
+            }
+        }
+        var assembler = ResultAssembler(snapshot: snapshot, query: query, copy: copy, context: context)
+        assembler.occasion = occasion.map { ($0, occasionTitle ?? "") }
         let shown = hits.filter { $0.tier != .weaker || request.showWeaker }
         let built = try await assembler.assemble(shown, reader: reader)
         let matched = hits.contains { $0.tier == .best || $0.tier == .more }
         var noMatch: NoMatch?
-        if !matched, lockedMatches > 0, case .since(let date) = request.scope {
+        if earlierOccasion, let occasionTitle, case .since(let date) = request.scope {
+            noMatch = NoMatch(kind: .onlyEarlier, headline: copy.earlierOccasion(occasionTitle, since: date, now: clock.now), detail: nil, offers: [],
+                              examples: [])
+        } else if !matched, lockedMatches > 0, case .since(let date) = request.scope {
             // Everything that matched is older than a free search covers: say so, never "nothing".
             noMatch = NoMatch(kind: .onlyEarlier, headline: copy.onlyEarlier(since: date, now: clock.now), detail: nil, offers: [], examples: [])
         } else if !matched {
@@ -127,8 +159,9 @@ public actor SearchEngine {
                                   unsupported: query.unsupported.map(\.slot),
                                   // "Showing all your photos …" only when photos match: above a no-match it would promise none (E23).
                                   unsupportedNotice: noMatch?.kind == .onlyUnsupported ? nil
-                                      : copy.unsupportedNotice(query.unsupported, text: parsed.text, showing: matched ? query.showingPhrase(copy) : nil),
-                                  weakerCount: hits.count(where: { $0.tier == .weaker }), lockedCount: locked, timings: timings)
+                                      : copy.unsupportedNotice(query.unsupported, text: parsed.text, showing: matched ? query.showingPhrase(copy) : nil,
+                                                               occasion: occasion == nil ? nil : occasionTitle),
+                                  occasion: occasion, weakerCount: hits.count(where: { $0.tier == .weaker }), lockedCount: locked, timings: timings)
         log.info("Search: slots \(parsed.slots.map(\.kind.rawValue).joined(separator: ",")), \(result.totals.moments) moments, "
                  + "\(result.totals.items) items, \(hits.count(where: { $0.tier == .locationUnknown })) unlocated, \(locked) locked, "
                  + "no match \(noMatch.map { "\($0.kind)" } ?? "-"), "
@@ -229,6 +262,9 @@ public actor SearchEngine {
                     query.eventSlot = slot.id
                 }
                 slots.append(ResolvedSlot(slot: slot, resolution: .event(event), chip: event == .trip ? "Trips" : "Abroad", systemImage: "airplane"))
+            case .order(let order):
+                if query.orderSlot == nil { query.orderSlot = (slot.id, order) }
+                slots.append(ResolvedSlot(slot: slot, resolution: .order(order), chip: Self.orderChip(order), systemImage: Self.orderSymbol(order)))
             case .people, .visual, .text:
                 slots.append(ResolvedSlot(slot: slot, resolution: .unsupported, chip: slot.value.phrase(locale: locale), systemImage: "info.circle"))
             }
@@ -349,6 +385,24 @@ public actor SearchEngine {
         return resolution
     }
 
+    /// "First time", "Last time", "Oldest first", "Newest first".
+    static func orderChip(_ order: SearchOrder) -> String {
+        switch order {
+        case .first: "First time"
+        case .last: "Last time"
+        case .oldestFirst: "Oldest first"
+        case .newestFirst: "Newest first"
+        }
+    }
+
+    static func orderSymbol(_ order: SearchOrder) -> String {
+        switch order {
+        case .first: "flag"
+        case .last: "clock.arrow.circlepath"
+        case .oldestFirst, .newestFirst: "arrow.up.arrow.down"
+        }
+    }
+
     /// "Videos", "Favorite videos", "Screenshots", "Photos".
     static func mediaChip(_ filter: MediaFilter) -> String {
         filter.kinds == [.photo] && filter.flags.isEmpty ? "Photos" : filter.phrase.replacingOccurrences(of: "only photos", with: "photos").capitalizedFirst
@@ -384,6 +438,8 @@ struct PreparedQuery: Sendable {
     var timeExpression: TimeExpression?
     var mediaSlots: [Int] = []
     var eventSlot: Int?
+    /// The query's order: the first or last time, or oldest or newest first (the first order slot).
+    var orderSlot: (id: Int, order: SearchOrder)?
     var picker: PlacePicker?
     var searchedAppleMaps = false
     var appleMapsMissed: PlaceNotFound?

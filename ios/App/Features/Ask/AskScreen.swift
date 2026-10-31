@@ -223,8 +223,18 @@ nonisolated enum AskCopy {
         case .time: "Dates"
         case .media: "Photo type"
         case .event: "Trips"
+        case .order: "Order"
         case .people: "People"
         case .visual, .text: "What’s in photos"
+        }
+    }
+
+    /// The order chip's symbol while typing (search gives the same).
+    static func orderSymbol(_ order: SearchOrder) -> String {
+        switch order {
+        case .first: "flag"
+        case .last: "clock.arrow.circlepath"
+        case .oldestFirst, .newestFirst: "arrow.up.arrow.down"
         }
     }
 
@@ -257,6 +267,8 @@ nonisolated enum AskCopy {
     static let hideWeaker = "Hide weaker matches"
     static let noDate = "No date"
     static let layoutLabel = "Show results as"
+    static let showAll = "Show all"
+    static let showAllHint = "Shows every time"
 
     /// "Moments" or "Grid".
     static func layoutName(_ layout: SearchStore.ResultsLayout) -> String {
