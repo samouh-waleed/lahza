@@ -83,7 +83,7 @@ import Testing
         app.search.apply([.replaceOrder(slot: order.id, .first)])
         #expect(await SearchTestApp.eventually(app) { app.search.result?.occasion?.order == .first })
         app.search.apply(try #require(app.search.result?.occasion?.showAll))
-        #expect(await SearchTestApp.eventually(app) { app.search.text == "oldest first at Al-Nakheel Park" && app.search.result?.occasion == nil })
+        #expect(await SearchTestApp.eventually(app) { app.search.text == "at Al-Nakheel Park oldest first" && app.search.result?.occasion == nil })
         let all = try #require(app.search.result)
         let oldest = try slot(app, .order)
         #expect(oldest.chip == "Oldest first" && ChipEditorKind(oldest) == .order(.oldestFirst))
@@ -100,7 +100,7 @@ import Testing
 
         // Newest first from the order editor.
         app.search.apply([.replaceOrder(slot: order.id, .newestFirst)])
-        #expect(await SearchTestApp.eventually(app) { app.search.text == "newest first at Al-Nakheel Park" })
+        #expect(await SearchTestApp.eventually(app) { app.search.text == "at Al-Nakheel Park newest first" })
         let newest = app.search.result?.cards.filter { $0.tier == .best }.map(\.id.day) ?? []
         #expect(newest == newest.sorted(by: >) && newest.count == 10)
     }

@@ -58,13 +58,26 @@ extension ParsedQuery {
             }
         }
         // Render: the typed words for untouched slots, the canonical words for the rest, each after the words its span
-        // leaves out.
+        // leaves out. An order rendered from its value reads last ("Dubai oldest first").
+        let sorts = slots.filter { $0.typed == nil && $0.slot.value.isSortOrder }
+        let ordered = slots.filter { !($0.typed == nil && $0.slot.value.isSortOrder) } + sorts
         var text = ""
         var rendered: [QuerySlot] = []
-        for (slot, typed, lead) in slots {
-            let words = typed ?? slot.value.spanWords(locale: locale)
+        for (position, (slot, typed, lead)) in ordered.enumerated() {
+            var words = typed ?? slot.value.spanWords(locale: locale)
+            // "the last trip to Greece", not "the last time trip".
+            if typed == nil, case .order(let order) = slot.value, order.isOccasion, position + 1 < ordered.count,
+               case .event = ordered[position + 1].slot.value {
+                words = order == .first ? "the first" : "the last"
+            }
             guard !words.isEmpty else { continue }
-            let before = slot.value.lead(lead, wordsTyped: typed != nil)
+            var before = slot.value.lead(lead, wordsTyped: typed != nil)
+            // "to" reads right only after a word of going ("trips to Greece"); the words that said it ("went to") aren't
+            // rendered, so elsewhere the place reads "in" ("the last time in Dubai").
+            if let lead, lead.relation == .to, before.hasPrefix(lead.preposition + " "),
+               !(text.split(whereSeparator: \.isWhitespace).last.map { Lexicon.english.toTriggers.contains(PlaceNames.fold(String($0))) } ?? false) {
+                before = "in " + before.dropFirst(lead.preposition.count + 1)
+            }
             if !text.isEmpty { text += " " }
             text += before
             let start = text.utf16.count
@@ -199,6 +212,14 @@ extension PlaceExpression {
         .park: "park", .beach: "beach", .restaurant: "restaurant", .cafe: "cafe", .stadium: "stadium", .hotel: "hotel", .museum: "museum",
         .airport: "airport", .store: "mall", .zoo: "zoo", .marina: "marina", .campground: "campground", .university: "university",
     ]
+}
+
+extension SlotValue {
+    /// Oldest or newest first (an order of every time, not one occasion).
+    var isSortOrder: Bool {
+        if case .order(let order) = self { return !order.isOccasion }
+        return false
+    }
 }
 
 extension SearchOrder {

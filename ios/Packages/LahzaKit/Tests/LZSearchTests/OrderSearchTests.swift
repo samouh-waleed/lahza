@@ -65,7 +65,7 @@ import Testing
         let first = try await search.search("the first time at Al-Nakheel Park")
         let showAll = try #require(first.occasion?.showAll)
         let query = first.query.parsed.applying(showAll, locale: SearchFixture.uk)
-        #expect(query.text == "oldest first at Al-Nakheel Park")
+        #expect(query.text == "at Al-Nakheel Park oldest first")
         let all = try await search.search(SearchRequest(text: query.text, parsed: query))
         #expect(numbers(all.items(.best)) == numbers(Self.hero.items(.nakheel)))
         #expect(all.occasion == nil)
