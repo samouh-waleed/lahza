@@ -52,8 +52,8 @@ P1 order:
 
 ### Local index
 - **SQLite (GRDB)** holds metadata, labels, moments, places, saved places, name albums, and a full-text (FTS5) index of text found in photos.
-- **A flat file of embedding vectors** holds about 1.5 KB per photo at 16-bit.
-- Search compares the query against every vector directly. On a Mac, 100k photos take about 4.5 ms; we haven't measured an iPhone yet.
+- **A flat file of embedding vectors** (`Index/vectors.lzvf`, `VectorStore`) holds about 1.5 KB per photo at 16-bit. Its header names the model and carries the index's identity, so a new model or a rebuilt index (new asset ids) starts it again.
+- Search compares the query against every vector directly. On a Mac, 100k photos take about 7–8 ms (16-bit to 32-bit in blocks, then one matrix-vector product); we haven't measured an iPhone yet.
 - The index is protected with iOS data protection and excluded from backups.
 - It is a cache of the library (decision 33): one SQLite file under Application Support. A damaged file, or one from a newer build, is rebuilt from the library at launch, keeping saved places. Revoking photo access deletes it.
 - Sync (`LZIndex`): one writer applies PhotoKit's persistent-history changes since the saved token, and reads the whole library instead when the history can't answer (first run, an expired token, a very large change, limited access). A full read goes newest first and saves its progress with every batch, so recent photos are searchable early and a killed app resumes where it stopped.
@@ -80,8 +80,10 @@ A free search covers the last 12 months, from the start of that day (decision 34
 
 ### Embedding model
 - SigLIP 2 B/16, vocabulary trimmed to English, 8-bit (about 200 MB), downloaded through Apple-hosted Background Assets.
+- `make model` converts it to Core ML (Tools/model). The image tower is 94 MB. The text tower is 283 MB, still with the full vocabulary; trimming it is later. Both are checked against PyTorch (cosine ≥ 0.99). Models are never committed.
+- On a Mac: about 90 photos/s, and 3 ms to encode a query. On the CPU alone (the Simulator), 16-bit drifts further from PyTorch (image cosine about 0.97). iPhone numbers come from a device run.
 - Search on dates and places works while the model downloads.
-- Sits behind a swappable interface. The index records which model version produced each vector, so switching models only triggers a re-index.
+- Sits behind a swappable interface (`LZEmbedding`: `ImageEmbedder`, `TextEmbedder`, which take token ids until the Swift tokenizer lands). The index records which model produced the vectors, so switching models only triggers a re-index.
 - It ships only if Phase 0 shows a measurable gain. Otherwise P1 runs without it.
 
 ## Design rules (proposed, evidence-backed)
@@ -132,8 +134,9 @@ A free search covers the last 12 months, from the start of that day (decision 34
 |---|---|
 | `ios/project.yml` | XcodeGen spec; the Xcode project is generated (`make project`) and not committed |
 | `ios/App/` | The app: `Shell/` (composition root, dependencies, preferences), `Navigation/`, `Chrome/`, `Features/` (Ask, Moments, Library, Onboarding, Settings, Paywall), `Debug/` (launch arguments, developer screens) |
-| `ios/Packages/LahzaKit/` | Swift package: `LZCore` (brand, environment, storage, clock, log), `LZBilling` (the one-time unlock: RevenueCat client, a StoreKit-only client for local testing, entitlement, paywall model), `LZDesign` (tokens, type, components, motion), `LZLibrary` (photo access: PhotoKit client, fake, access store, the shared fetch rules; the library reader and image provider the index uses and the viewer's video loader, live and fake; the library census for spike S2, whose screen is DEBUG-only; the DEBUG seed library), `LZGeo` (coordinates, local time and the moment rule, the offline GeoNames gazetteer, place-name folding, the Apple Maps client), `LZIndex` (the on-device search index: GRDB storage, library sync, the structure pass, the Apple Maps place-name queue, read queries and the stores the Ask, Moments and Settings screens observe; GRDB stays inside it), `LZSearch` (the query model, the rules parser, the time and place resolvers, scoring, tiers, grouping and reasons, and the store the Ask screen observes). Modules use the `LZ` prefix |
+| `ios/Packages/LahzaKit/` | Swift package: `LZCore` (brand, environment, storage, clock, log), `LZBilling` (the one-time unlock: RevenueCat client, a StoreKit-only client for local testing, entitlement, paywall model), `LZDesign` (tokens, type, components, motion), `LZLibrary` (photo access: PhotoKit client, fake, access store, the shared fetch rules; the library reader and image provider the index uses and the viewer's video loader, live and fake; the library census for spike S2, whose screen is DEBUG-only; the DEBUG seed library), `LZGeo` (coordinates, local time and the moment rule, the offline GeoNames gazetteer, place-name folding, the Apple Maps client), `LZIndex` (the on-device search index: GRDB storage, library sync, the structure pass, the Apple Maps place-name queue, read queries and the stores the Ask, Moments and Settings screens observe, and the vector file; GRDB stays inside it), `LZEmbedding` (the embedding model behind `ImageEmbedder` and `TextEmbedder`: the converted SigLIP 2 towers loaded with Core ML), `LZSearch` (the query model, the rules parser, the time and place resolvers, scoring, tiers, grouping and reasons, and the store the Ask screen observes). Modules use the `LZ` prefix |
 | `ios/Tools/gazetteer/` | Source, licence and curated aliases of the bundled GeoNames place list; `make gazetteer` rebuilds it with the `lz-gazetteer` package tool |
+| `ios/Tools/model/` | The SigLIP 2 to Core ML conversion (`make model`, with pinned Python tools in a throwaway virtualenv; `make model-clean` deletes the downloads). The models land in the git-ignored `ios/.build/models` |
 | `ios/Config/` | xcconfig files (secrets go only in the git-ignored `Local.xcconfig`) and `Lahza.storekit`, the local store products for Simulator purchases |
 | `ios/Tests/` | App-hosted tests |
 

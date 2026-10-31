@@ -40,7 +40,7 @@ targets:
         buildPhase: none
     dependencies:
       - package: LahzaKit
-        products: [LZCore, LZBilling, LZDesign, LZLibrary, LZGeo, LZIndex, LZSearch]
+        products: [LZCore, LZBilling, LZDesign, LZLibrary, LZGeo, LZIndex, LZSearch, LZEmbedding]
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.waleedsamouh.lahza

@@ -1,0 +1,9 @@
+# Tools for convert_siglip2.py (`make model`), installed into a throwaway virtualenv; never shipped with the app.
+# Needs Python 3.10–3.13 (torch 2.7 has no wheels for 3.14; numpy 2.2 needs 3.10+).
+coremltools==9.0
+torch==2.7.0
+transformers==4.57.1
+sentencepiece==0.2.1
+protobuf==6.32.1
+pillow==11.3.0
+numpy==2.2.6

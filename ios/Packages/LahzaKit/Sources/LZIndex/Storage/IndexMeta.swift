@@ -34,6 +34,9 @@ enum MetaKey: String, CaseIterable {
     /// ``HomeOverride``: the person's home choice when it isn't a saved place (absent: estimate it). A user value:
     /// Rebuild keeps it and a rebuild at open carries it over (``IndexSchema/userMetaKeys``).
     case homeOverride
+    /// The UUID the vector file (``VectorStore``) must carry to belong to these asset ids. Created when absent;
+    /// Rebuild clears it and a rebuild at open starts without it, so vectors are never matched to reused ids.
+    case vectorIdentity
 }
 
 /// ``MetaKey/homeOverride``'s values.

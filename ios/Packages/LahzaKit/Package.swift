@@ -15,6 +15,7 @@ let package = Package(
         .library(name: "LZGeo", targets: ["LZGeo"]),
         .library(name: "LZIndex", targets: ["LZIndex"]),
         .library(name: "LZSearch", targets: ["LZSearch"]),
+        .library(name: "LZEmbedding", targets: ["LZEmbedding"]),
         .executable(name: "lz-gazetteer", targets: ["LZGazetteerTool"]),
         .executable(name: "lz-seed", targets: ["LZSeedTool"]),
     ],
@@ -42,13 +43,16 @@ let package = Package(
         // in DEBUG builds; and the DEBUG seed scenario (library, artwork, fake Apple Maps, import capabilities).
         .target(name: "LZLibrary", dependencies: ["LZCore", "LZGeo"]),
         // The search index: GRDB storage (one SQLite file, a rebuildable cache), library sync, the structure pass
-        // (zones, places, moments, home bases, trips), Apple Maps place names, read models and the stores the app
-        // observes. GRDB stays inside this module (`internal import`), so the app and later modules never see it.
+        // (zones, places, moments, home bases, trips), Apple Maps place names, the vector file of embeddings, read
+        // models and the stores the app observes. GRDB stays inside this module (`internal import`), so the app and later modules never see it.
         .target(name: "LZIndex", dependencies: ["LZCore", "LZGeo", "LZLibrary", .product(name: "GRDB", package: "GRDB.swift")]),
         // Search: the query model (slots tied to spans, ready for a Foundation Models parser later), the English rules
         // parser, and the time and place resolvers; then scoring, tiers, grouping and reasons over the index.
         .target(name: "LZSearch", dependencies: ["LZCore", "LZGeo", "LZLibrary", "LZIndex"],
                 resources: [.copy("Resources/ContentWords.txt")]),
+        // The embedding model behind a swappable interface: the converted SigLIP 2 towers (`make model`), loaded with
+        // Core ML from a model folder and its `model.json`, turning photos and token ids into unit vectors.
+        .target(name: "LZEmbedding", dependencies: ["LZCore"]),
         // macOS host tools, never linked into the app: the gazetteer resource builder (`make gazetteer`) and the
         // seed library renderer (`make seed-photos`, debug builds only).
         .executableTarget(name: "LZGazetteerTool", dependencies: ["LZGeo"]),
@@ -60,6 +64,7 @@ let package = Package(
         .testTarget(name: "LZLibraryTests", dependencies: ["LZLibrary", "LZGeo"]),
         .testTarget(name: "LZGeoTests", dependencies: ["LZGeo"]),
         .testTarget(name: "LZIndexTests", dependencies: ["LZIndex", "LZLibrary", "LZGeo", "LZCore", .product(name: "GRDB", package: "GRDB.swift")]),
+        .testTarget(name: "LZEmbeddingTests", dependencies: ["LZEmbedding"]),
         .testTarget(name: "LZSearchTests", dependencies: ["LZSearch", "LZIndex", "LZLibrary", "LZGeo", "LZCore", .product(name: "GRDB", package: "GRDB.swift")]),
     ]
 )

@@ -21,15 +21,22 @@ SIM_UDID ?= $(shell xcrun simctl list devices available | awk -v p='    $(SIM) $
 SIM_MEDIA = $(HOME)/Library/Developer/CoreSimulator/Devices/$(SIM_UDID)/data/Media/DCIM
 SIM_SAMPLES := 6
 SEED_DIR := .build/seed
+# The converted embedding model (`make model`), and the conversion's throwaway tools and downloads (`make model-clean`).
+MODELS := .build/models
+MODEL_WORK ?= .build/model-work
+PYTHON ?= python3
 
-.PHONY: help project build test test-kit test-app perf-kit run devices device gazetteer seed-photos sim-reset grant-photos probe-photos verify-search screens clean
+.PHONY: help project build test test-kit test-app perf-kit model model-clean model-speed-sim run devices device gazetteer seed-photos sim-reset grant-photos probe-photos verify-search screens clean
 
 help:
 	@echo 'make project   regenerate Lahza.xcodeproj from project.yml'
 	@echo 'make build     build for the simulator ($(SIM))'
 	@echo 'make run       build, install and launch on the simulator'
 	@echo 'make test      kit tests on the Mac + app tests on the simulator'
-	@echo 'make perf-kit  the opt-in performance tests (100k-asset index build), in release on the Mac'
+	@echo 'make perf-kit  the opt-in performance tests (100k-asset index build, vector search; the model if converted), in release on the Mac'
+	@echo 'make model     convert SigLIP 2 to Core ML into .build/models and check it against PyTorch (downloads ~1.5 GB once)'
+	@echo 'make model-clean   delete the conversion'"'"'s tools and downloads, keeping .build/models'
+	@echo 'make model-speed-sim   embed the seeded simulator'"'"'s photos with the converted model and print photos per second'
 	@echo 'make devices   list connected iPhones and their UDIDs'
 	@echo 'make device DEVICE_ID=<udid>   build, sign, install and launch on your iPhone'
 	@echo 'make gazetteer GEONAMES=<dir>  rebuild the offline place list from a GeoNames dump (Tools/gazetteer/README.md)'
@@ -61,7 +68,24 @@ test: test-kit test-app
 
 # Optimised, with DEBUG still defined: the kit tests share the DEBUG-only seed library. Adds a release build to the package's .build.
 perf-kit:           ## Opt-in performance tests on the Mac, optimised
-	LZ_PERF=1 swift test --package-path $(KIT) -c release -Xswiftc -DDEBUG --jobs $(JOBS) --filter Performance
+	LZ_PERF=1 LZ_MODEL_DIR=$(abspath $(MODELS)) swift test --package-path $(KIT) -c release -Xswiftc -DDEBUG --jobs $(JOBS) --filter Performance
+
+model:              ## Convert SigLIP 2 to Core ML (Tools/model) into .build/models, then check it from Swift
+	@$(PYTHON) -c 'import sys; sys.exit(not (3, 10) <= sys.version_info[:2] <= (3, 13))' \
+		|| { echo 'make model needs Python 3.10–3.13 (torch 2.7, numpy 2.2): make model PYTHON=python3.13'; exit 1; }
+	$(PYTHON) -m venv $(MODEL_WORK)/venv
+	$(MODEL_WORK)/venv/bin/python -m pip install --quiet --disable-pip-version-check -r Tools/model/requirements.txt
+	HF_HOME=$(abspath $(MODEL_WORK))/hf $(MODEL_WORK)/venv/bin/python Tools/model/convert_siglip2.py --out $(MODELS)
+	LZ_MODEL_DIR=$(abspath $(MODELS)) swift test --package-path $(KIT) --jobs $(JOBS) --filter EmbeddingParityTests
+
+model-clean:        ## Delete the conversion's virtualenv and the downloaded weights (keeps .build/models)
+	rm -rf $(MODEL_WORK)
+
+model-speed-sim: project grant-photos  ## The image tower over the seeded simulator's thumbnails (CPU only there), after `make model`
+	@mkdir -p .build
+	set -o pipefail && TEST_RUNNER_LZ_MODEL_DIR=$(abspath $(MODELS)) $(XCB) test -only-testing:LahzaTests/ModelSpeedTests -collect-test-diagnostics never \
+		| tee .build/model-speed-sim.log | xcbeautify --quiet --is-ci --preserve-unbeautified | grep -v -e IDESchemeActionSDKRecord -e IDETestOperationsObserverDebug; \
+		status=$$?; grep -o 'MODEL simulator.*' .build/model-speed-sim.log; exit $$status
 
 run: build          ## Install and launch on the simulator
 	xcrun simctl boot "$(SIM)" 2>/dev/null || true
