@@ -435,7 +435,8 @@ private struct NoMatchView: View {
                 }
             }
             // A no-match that is about photo tags already says how far checking has got.
-            if result.coverage.isPartial || result.coverage.isLimited || (result.coverage.visualLine != nil && result.noMatch?.kind != .notTagged) {
+            if result.coverage.isPartial || result.coverage.isLimited
+                || (result.coverage.visualLine != nil && result.noMatch?.kind != .notTagged && result.noMatch?.kind != .notConfident) {
                 VStack(alignment: .leading, spacing: LZSpace.xs) {
                     CoverageLines(coverage: result.coverage)
                     if result.coverage.isLimited { ChooseMoreButton() }
@@ -472,7 +473,9 @@ private struct SearchLoadingView: View {
         VStack(alignment: .leading, spacing: LZSpace.lg) {
             let lookingUp: String? = if case .lookingUpPlace(let name) = state { name } else { nil }
             if let parsed, !parsed.slots.isEmpty {
-                UnderstoodAsRow(chips: QueryChipModel.chips(parsed, capabilities: SearchCapabilities(model.index.status), lookingUpPlace: lookingUp != nil))
+                UnderstoodAsRow(chips: QueryChipModel.chips(parsed, capabilities: SearchCapabilities(model.index.status,
+                                                                                                 textModel: model.dependencies.textEncoder != nil),
+                                                            lookingUpPlace: lookingUp != nil))
             }
             if showsSkeleton {
                 Text(lookingUp.map(AskCopy.lookingUp) ?? AskCopy.searching)

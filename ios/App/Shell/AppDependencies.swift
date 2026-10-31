@@ -58,6 +58,8 @@ struct AppDependencies {
     var albums: any AlbumSource = LiveAlbumSource()
     /// DEBUG: the label lab runs its checks by itself once the pass is done (`-LZLabAuto`).
     var labelLabAuto = false
+    /// DEBUG: the seed's stand-in vectors (``SeedVectors``) stand for the image model (`-LZSeed`).
+    var seedVectors = false
     #endif
     /// Start launch from the model's `init` (false for the unit-test host).
     var autoBoot = true

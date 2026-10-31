@@ -1,5 +1,6 @@
 import Foundation
 import LZCore
+import LZEmbedding
 import LZGeo
 import LZIndex
 
@@ -53,7 +54,8 @@ public actor SearchEngine {
     /// Runs `request` over the index. `isRerun` (the index changed under a shown result) reuses the places resolved
     /// for the same words.
     public func search(_ request: SearchRequest, reader: IndexReader, writer: UserDataWriter?, index: SearchIndexContext = SearchIndexContext(),
-                       isRerun: Bool = false, progress: (@Sendable (SearchProgress) -> Void)? = nil) async throws -> SearchResult {
+                       embedding: EmbeddingContext = .off, isRerun: Bool = false,
+                       progress: (@Sendable (SearchProgress) -> Void)? = nil) async throws -> SearchResult {
         let started = ContinuousClock.now
         var timings = Timings()
         let parsed: ParsedQuery
@@ -73,15 +75,31 @@ public actor SearchEngine {
         timings.snapshot = ContinuousClock.now - snapshotStarted
 
         let resolveStarted = ContinuousClock.now
-        let query = try await prepare(parsed, overrides: request.overrides, reader: reader, writer: writer, snapshot: snapshot, context: context,
-                                      appleMaps: index.appleMapsEnabled, content: request.content, isRerun: isRerun, progress: progress)
+        var query = try await prepare(parsed, overrides: request.overrides, reader: reader, writer: writer, snapshot: snapshot, context: context,
+                                      appleMaps: index.appleMapsEnabled, content: request.content, embedding: embedding, isRerun: isRerun,
+                                      progress: progress)
         timings.resolve = ContinuousClock.now - resolveStarted
         progress?(.scoring)
         try Task.checkCancellation()
 
         let scoreStarted = ContinuousClock.now
         var scorer = Scorer(snapshot: snapshot, plan: query.plan)
-        let (scored, unreliable) = query.canScore ? scorer.run() : ([], 0)
+        var (scored, unreliable) = query.canScore ? scorer.run() : ([], 0)
+        // No confident match: no photo has a likely or precise tag, and the model is sure of none. Nothing is Best or
+        // More; what it found waits behind "Show weaker" (content search, honest "no confident match").
+        let unsure = query.plan.visual.first { target in target.embedding != nil && !(0..<snapshot.count).contains { target.isConfident($0) } }
+        if unsure != nil {
+            for index in scored.indices where scored[index].tier <= .locationUnknown { scored[index].tier = .weaker }
+        } else if request.content.contains(.outings), query.plan.visual.contains(where: \.isActivity) {
+            // An activity's whole outing: every outing with a Best photo brings its other photos into More (step 4).
+            var anchors: [Int32: Int] = [:]
+            for hit in scored where hit.tier == .best && snapshot.moment[Int(hit.index)] >= 0 { anchors[snapshot.moment[Int(hit.index)], default: 0] += 1 }
+            if !anchors.isEmpty {
+                query.plan.outings = anchors
+                scorer = Scorer(snapshot: snapshot, plan: query.plan)
+                (scored, unreliable) = scorer.run()
+            }
+        }
         // A free search keeps what was taken since its start (undated photos too) and counts the rest as locked.
         var hits = scored
         var locked = 0, lockedMatches = 0
@@ -138,6 +156,9 @@ public actor SearchEngine {
         if earlierOccasion, let occasionTitle, case .since(let date) = request.scope {
             noMatch = NoMatch(kind: .onlyEarlier, headline: copy.earlierOccasion(occasionTitle, since: date, now: clock.now), detail: nil, offers: [],
                               examples: [])
+        } else if !matched, let unsure {
+            noMatch = NoMatch(kind: .notConfident, headline: copy.notConfident(unsure.concept.name), detail: assembler.visualLine(for: unsure).map { $0 + "." },
+                              offers: [], examples: [])
         } else if !matched, lockedMatches > 0, case .since(let date) = request.scope {
             // Everything that matched is older than a free search covers: say so, never "nothing".
             noMatch = NoMatch(kind: .onlyEarlier, headline: copy.onlyEarlier(since: date, now: clock.now), detail: nil, offers: [], examples: [])
@@ -222,9 +243,11 @@ public actor SearchEngine {
     /// at most one Apple Maps search), media and events as they are, and words about what's in photos to the photo tags
     /// they map to (when the index has a Vision pass), whose photos are read from the index.
     func prepare(_ parsed: ParsedQuery, overrides: ResolutionOverrides, reader: IndexReader, writer: UserDataWriter?, snapshot: SearchSnapshot,
-                 context: EngineContext, appleMaps: Bool, content: ContentSignals = .all, isRerun: Bool,
+                 context: EngineContext, appleMaps: Bool, content: ContentSignals = .all, embedding: EmbeddingContext = .off, isRerun: Bool,
                  progress: (@Sendable (SearchProgress) -> Void)?) async throws -> PreparedQuery {
         var query = PreparedQuery(parsed: parsed)
+        // With the image model, the words about the photos become one description (``Description``).
+        let describe = content.contains(.model) && embedding.isOn
         let resolver = TimeResolver(context: context.time)
         // A re-run (the index changed under a shown search) never asks Apple Maps again: it reads cached answers only.
         let environment = PlaceEnvironment(reader: reader, writer: writer, density: SnapshotDensity(snapshot: snapshot), appleMapsEnabled: appleMaps,
@@ -244,7 +267,7 @@ public actor SearchEngine {
         }
 
         let places = try await preparePlaces(parsed, overrides: overrides, environment: environment, query: &query, reader: reader, context: context,
-                                             isRerun: isRerun, progress: progress)
+                                             describe: describe, table: embedding.table, isRerun: isRerun, progress: progress)
         var slots: [ResolvedSlot] = []
         var concepts: [(slot: Int, concept: VisualConcept, related: [String])] = []
         for slot in parsed.slots {
@@ -259,6 +282,9 @@ public actor SearchEngine {
                 }
             case .place:
                 if let place = places[slot.id] { slots.append(place) }
+            case .media(let filter) where describe && filter.isSelfiesOnly:
+                // "mirror selfie": with the model, the words describe the photo (a mirror selfie isn't a front-camera one).
+                slots.append(Self.visual(slot, slot.span?.substring(of: parsed.text) ?? filter.phrase))
             case .media(let filter):
                 query.mediaSlots.append(slot.id)
                 slots.append(ResolvedSlot(slot: slot, resolution: .media(filter), chip: Self.mediaChip(filter), systemImage: filter.kinds == [.video] ? "film" : "photo"))
@@ -272,7 +298,9 @@ public actor SearchEngine {
                 if query.orderSlot == nil { query.orderSlot = (slot.id, order) }
                 slots.append(ResolvedSlot(slot: slot, resolution: .order(order), chip: Self.orderChip(order), systemImage: Self.orderSymbol(order)))
             case .visual(let words):
-                if snapshot.hasVisualPass, content.contains(.tags), let concept = VisualVocabulary.english.concept(for: words) {
+                if describe {
+                    slots.append(ResolvedSlot(slot: slot, resolution: .unsupported, chip: words, systemImage: "info.circle"))
+                } else if snapshot.hasVisualPass, content.contains(.tags), let concept = VisualVocabulary.english.concept(for: words) {
                     let withoutRelated = overrides.withoutRelatedTags.contains(slot.id)
                     concepts.append((slot.id, concept, withoutRelated ? [] : concept.related))
                     query.visualSlots.append(slot.id)
@@ -286,12 +314,17 @@ public actor SearchEngine {
                 slots.append(ResolvedSlot(slot: slot, resolution: .unsupported, chip: slot.value.phrase(locale: locale), systemImage: "info.circle"))
             }
         }
+        if describe {
+            try await describeVisual(parsed, slots: &slots, query: &query, overrides: overrides, reader: reader, snapshot: snapshot, content: content,
+                                     embedding: embedding)
+        }
         if !concepts.isEmpty {
             let names = Array(Set(concepts.flatMap { $0.concept.labels + $0.related }))
             let postings = try await reader.labelPostings(names)
             query.plan.visual = concepts.map { VisualTarget(slot: $0.slot, concept: $0.concept, related: $0.related, postings: postings, snapshot: snapshot) }
         }
-        query.plan.media = parsed.mediaFilter
+        // A selfie described by the model isn't the front camera's ("mirror selfie").
+        query.plan.media = describe ? parsed.mediaFilter.flatMap(\.withoutSelfies) : parsed.mediaFilter
         query.slots = slots
         return query
     }
@@ -303,8 +336,12 @@ public actor SearchEngine {
     /// only might be a place and couldn't be looked up or confirmed ("Louvre" when Apple Maps names no place exactly
     /// that), and "my …" naming no saved place, are the query's failing place only when no other place was found;
     /// otherwise they are left out the same way.
+    ///
+    /// With the image model (`describe`), words that only might be a place are about the photos instead when they are
+    /// content as a whole ("party", "snow": never looked up), or when no place confirms them ("parked", and a lone "Louvre"
+    /// that Apple Maps doesn't name): they join the description. "my …" naming no saved place still says so (E22).
     private func preparePlaces(_ parsed: ParsedQuery, overrides: ResolutionOverrides, environment: PlaceEnvironment, query: inout PreparedQuery,
-                               reader: IndexReader, context: EngineContext, isRerun: Bool,
+                               reader: IndexReader, context: EngineContext, describe: Bool = false, table: ConceptTable? = nil, isRerun: Bool,
                                progress: (@Sendable (SearchProgress) -> Void)?) async throws -> [Int: ResolvedSlot] {
         var outcomes: [Int: ResolvedSlot] = [:]
         var unresolved: [(slot: QuerySlot, expression: PlaceExpression, reason: PlaceNotFound, phrase: String, rank: Int)] = []
@@ -319,6 +356,10 @@ public actor SearchEngine {
 
         for (slot, expression, rank, _) in ranked {
             let phrase = slot.span?.substring(of: parsed.text) ?? expression.phrase
+            if describe, case .named(let name, _, .maybe) = expression, overrides.places[slot.id] == nil, Description.isContent(name, table: table) {
+                outcomes[slot.id] = Self.visual(slot, phrase)
+                continue
+            }
             guard query.placeSlot == nil, query.placeFailure == nil else {
                 outcomes[slot.id] = leftOut(slot, expression, rank: rank, phrase: phrase)
                 continue
@@ -330,6 +371,8 @@ public actor SearchEngine {
             if environment.allowance.searched { query.searchedAppleMaps = true }
             if let missed = environment.allowance.missed { query.appleMapsMissed = missed }
             switch resolution {
+            case .notFound(let reason) where describe && expression.isMaybe && reason != .notSaved:
+                outcomes[slot.id] = Self.visual(slot, phrase)
             case .notFound(let reason):
                 if reason == .unconfirmed || reason == .notSaved || expression.isMaybe {
                     unresolved.append((slot, expression, reason, phrase, rank))

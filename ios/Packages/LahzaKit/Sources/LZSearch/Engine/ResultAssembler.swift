@@ -95,7 +95,8 @@ struct ResultAssembler {
             let count = hits.count(where: { $0.tier == tier })
             let tags = !query.plan.visual.isEmpty
             let tagsOnly = tags && query.plan.place == nil && query.plan.time == nil && query.plan.event == nil
-            let (tierTitle, caption) = copy.sectionTitle(tier, place: query.placeSlot?.description, count: count, tags: tags, tagsOnly: tagsOnly)
+            let (tierTitle, caption) = copy.sectionTitle(tier, place: query.placeSlot?.description, count: count, tags: tags, tagsOnly: tagsOnly,
+                                                         model: query.plan.visual.contains { $0.embedding != nil })
             // The occasion's title heads its first section (its matches' tier).
             let title = sections.isEmpty ? occasion?.title ?? tierTitle : tierTitle
             sections.append(ResultSection(tier: tier, title: title, caption: caption, groups: group(inTier, trips: groupTrips ? trips : [:])))
@@ -234,8 +235,12 @@ struct ResultAssembler {
     }
 
     /// Up to two slot reasons at least half the hits share (most shared first, then in the hits' own order: place,
-    /// time, trip, photo type), then the borrowed-location line.
-    private func cardReasons(_ hits: [AssetHit], borrowed: Int) -> [Reason] {
+    /// time, trip, photo type), then the borrowed-location line. A card with Best photos reads their reasons, and the
+    /// rest of their outing gets its own line (step 4).
+    private func cardReasons(_ all: [AssetHit], borrowed: Int) -> [Reason] {
+        let best = all.filter { $0.tier == .best }
+        let hits = best.isEmpty ? all : best
+        let outing = best.isEmpty ? 0 : all.count { $0.tier != .best && $0.reasons.contains { $0.systemImage == SearchCopy.outingSymbol } }
         // Reasons that read the same on a pill are one reason (a sentence may say "photo" or "video").
         struct Pill: Hashable {
             var kind: Reason.Kind
@@ -258,11 +263,21 @@ struct ResultAssembler {
         var reasons = counts.filter { Double($0.value) >= needed }.keys
             .sorted { (-counts[$0]!, first[$0]!.hit, first[$0]!.index) < (-counts[$1]!, first[$1]!.hit, first[$1]!.index) }
             .prefix(2).map { first[$0]!.reason }
+        if outing > 0 { reasons.append(SearchCopy.outingCardReason(outing)) }
         if borrowed > 0 { reasons.append(SearchCopy.borrowedCardReason(borrowed)) }
         return reasons
     }
 
     // MARK: Coverage
+
+    /// "Checked 4,200 of 5,848 photos so far": photos tagged for a word with a photo tag, photos with a vector for a
+    /// description; nil once all are checked.
+    func visualLine(for target: VisualTarget) -> String? {
+        let counts = snapshot.visualCounts
+        guard target.isDescription, let embedding = target.embedding else { return copy.visualLine(counts, total: snapshot.count) }
+        let unchecked = max(0, snapshot.count - embedding.embedded - counts.pendingCloud)
+        return copy.visualLine((checked: embedding.embedded, pendingCloud: counts.pendingCloud, unchecked: unchecked), total: snapshot.count)
+    }
 
     /// `since`: a free search's start (its caption names the window).
     func coverage(searched: Int, index: SearchIndexContext, unreliable: Int, borrowed: Int, since: Date? = nil) -> Coverage {
@@ -281,7 +296,7 @@ struct ResultAssembler {
         if index.isPartial, let since = index.coveredSince { header = copy.partialHeader(since: since, zone: context.zone) }
         let caption = copy.coverageCaption(searched: searched, index: index, since: since, now: context.time.now)
         // Photos not tagged yet are left out of a search for what's in them, never counted as "no" (E25).
-        let visualLine = query.plan.visual.isEmpty ? nil : copy.visualLine(snapshot.visualCounts, total: snapshot.count)
+        let visualLine = query.plan.visual.lazy.compactMap { visualLine(for: $0) }.first
         return Coverage(searched: searched, libraryTotal: index.libraryTotal, isPartial: index.isPartial, coveredSince: index.coveredSince,
                         isLimited: index.isLimited, unlocatedShare: share, undatedExcluded: query.plan.time == nil ? 0 : unreliable,
                         borrowedShown: borrowed, caption: caption, header: header, notes: notes, visualLine: visualLine)

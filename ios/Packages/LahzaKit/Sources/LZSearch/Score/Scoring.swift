@@ -8,8 +8,13 @@ import LZLibrary
 struct SlotScore: Sendable, Hashable {
     var value: Double
     var isUnknown = false
+    /// What the slot gives toward Best when it is less than ``value`` (a related tag reaches More, never Best on its own).
+    var best: Double?
 
     static let unknown = SlotScore(value: 0.5, isUnknown: true)
+
+    /// The value Best's bar applies to.
+    var bestValue: Double { best ?? value }
 }
 
 /// Why a place slot scored what it did.
@@ -47,6 +52,10 @@ enum VisualEvidence: Sendable, Hashable {
     case tagged(label: String, VisualStrength)
     /// Only a related tag ("trail" for hiking).
     case related(label: String)
+    /// The image model finds the photo close to the words: `sure` once its z-score reaches the library's bar.
+    case looks(sure: Bool)
+    /// From the same outing as `anchors` photos that show it (step 4: an activity's whole outing counts).
+    case sameOuting(anchors: Int)
     /// Checked, and none of the tags.
     case untagged
     /// Not checked yet: unknown, never "no" (E25).
@@ -76,9 +85,8 @@ enum VisualStrength: UInt8, Sendable, Hashable, Comparable {
     static func < (lhs: VisualStrength, rhs: VisualStrength) -> Bool { lhs.rawValue < rhs.rawValue }
 }
 
-/// One concept to score, read from the index once per search: each photo's strongest own tag and its related tag.
-struct VisualTarget: Sendable {
-    var slot: Int
+/// One concept's photo tags, read from the index once per search: each photo's strongest own tag and its related tag.
+struct TagMatch: Sendable {
     var concept: VisualConcept
     /// The related tags searched (none once removed in the editor).
     var related: [String]
@@ -89,15 +97,7 @@ struct VisualTarget: Sendable {
     /// Per asset: 1 + the index of its related tag in ``related``, 0 for none.
     var relatedLabel: [UInt16]
 
-    /// A related tag only: More at best (E24).
-    static let relatedScore = 0.6
-    /// Checked, without any of the tags.
-    static let untaggedScore = 0.05
-    /// A photo's own tag must be this sure for Best.
-    static let bestScore = 0.7
-
-    init(slot: Int, concept: VisualConcept, related: [String], postings: [String: [LabelPosting]], snapshot: SearchSnapshot) {
-        self.slot = slot
+    init(concept: VisualConcept, related: [String], postings: [String: [LabelPosting]], snapshot: SearchSnapshot) {
         self.concept = concept
         self.related = related
         strength = [UInt8](repeating: 0, count: snapshot.count)
@@ -120,17 +120,123 @@ struct VisualTarget: Sendable {
         }
     }
 
+    /// Asset `i`'s own tag, if it has one.
+    func own(_ i: Int) -> (score: Double, evidence: VisualEvidence)? {
+        guard let level = VisualStrength(rawValue: strength[i]) else { return nil }
+        return (level.score, .tagged(label: concept.labels[Int(label[i]) - 1], level))
+    }
+
+    /// Asset `i`'s related tag, if it has one.
+    func relatedTag(_ i: Int) -> String? { relatedLabel[i] > 0 ? related[Int(relatedLabel[i]) - 1] : nil }
+}
+
+/// A description's image-model scores for every asset of a snapshot (content search L3): s_emb after penalties, and
+/// the z-score it came from; NaN for assets without a vector yet.
+struct EmbeddingColumn: Sendable {
+    var score: [Float]
+    var z: [Float]
+    /// Photos with a vector.
+    var embedded: Int
+    /// The z-score from which the model is sure of a photo (``confidentZ(photos:)``).
+    var bar: Float
+    /// Some photo reaches the bar.
+    var confident: Bool
+
+    func has(_ i: Int) -> Bool { !score[i].isNaN }
+
+    /// The bar grows with the library: among n photos a description that matches nothing still reaches about
+    /// √(2 ln n) somewhere by chance (3.6 among 600 photos, 4.2 among 6,000, 4.5 among 30,000), never below 3.
+    static func confidentZ(photos: Int) -> Float { max(3, Float(sqrt(2 * log(Double(max(photos, 2)))))) }
+}
+
+/// One visual slot to score: a word with a photo tag (Milestone A), or, with the image model, the query's description,
+/// fused with the tags of the concepts it names: s_vis = 1 − (1 − s_label)(1 − s_emb) (content search fusion).
+struct VisualTarget: Sendable {
+    var slot: Int
+    /// What the slot searches: the concept, or for a description its words (no tags of its own).
+    var concept: VisualConcept
+    /// The concepts whose tags count: the word's own, or those a description names (all must show for s_label).
+    var tags: [TagMatch]
+    /// The description's image-model scores; nil without the model.
+    var embedding: EmbeddingColumn?
+
+    /// A related tag only: More at best (E24).
+    static let relatedScore = 0.6
+    /// Checked, without any of the tags.
+    static let untaggedScore = 0.05
+    /// A photo's own tag must be this sure for Best.
+    static let bestScore = 0.7
+    /// The rest of an outing with a confident photo of an activity: More, like a related tag.
+    static let outingScore = 0.6
+
+    /// The related tags searched (a word with one concept).
+    var related: [String] { tags.count == 1 ? tags[0].related : [] }
+
+    /// A description the image model searches (its tags only add), not one word with a photo tag.
+    var isDescription: Bool { concept.labels.isEmpty }
+
+    /// Something people do, whose whole outing counts (soccer, hiking), not a thing seen (sunset, sushi).
+    var isActivity: Bool { concept.kind == .occasion }
+
+    /// A word with a photo tag (Milestone A).
+    init(slot: Int, concept: VisualConcept, related: [String], postings: [String: [LabelPosting]], snapshot: SearchSnapshot) {
+        self.init(slot: slot, concept: concept, tags: [TagMatch(concept: concept, related: related, postings: postings, snapshot: snapshot)])
+    }
+
+    init(slot: Int, concept: VisualConcept, tags: [TagMatch], embedding: EmbeddingColumn? = nil) {
+        self.slot = slot
+        self.concept = concept
+        self.tags = tags
+        self.embedding = embedding
+    }
+
     /// How well asset `i` shows the concept. A photo with any of the tags was checked, whatever the snapshot says.
     func score(_ i: Int, snapshot: SearchSnapshot) -> (SlotScore, VisualEvidence) {
-        var best: (SlotScore, VisualEvidence)?
-        if let level = VisualStrength(rawValue: strength[i]) {
-            best = (SlotScore(value: level.score), .tagged(label: concept.labels[Int(label[i]) - 1], level))
+        // The weakest own tag over the concepts named (every one must show), or else a related tag (one concept).
+        var own: (score: Double, evidence: VisualEvidence)?
+        if !tags.isEmpty {
+            let found = tags.map { $0.own(i) }
+            if found.allSatisfy({ $0 != nil }) { own = found.compactMap { $0 }.min { $0.score < $1.score } }
         }
-        if relatedLabel[i] > 0, (best?.0.value ?? 0) < Self.relatedScore {
-            best = (SlotScore(value: Self.relatedScore), .related(label: related[Int(relatedLabel[i]) - 1]))
+        let related = own == nil && tags.count == 1 ? tags[0].relatedTag(i) : nil
+        if let embedding, embedding.has(i) {
+            let model = Double(embedding.score[i]), label = own?.score ?? 0, loose = related == nil ? label : max(label, Self.relatedScore)
+            let best = 1 - (1 - label) * (1 - model)
+            let value = 1 - (1 - loose) * (1 - model)
+            // A sure tag explains a photo best; the model's likeness shows when it is the stronger or only evidence.
+            let evidence: VisualEvidence = if let own, own.score >= VisualStrength.likely.score || own.score >= model { own.evidence }
+                else if model > 0 { .looks(sure: embedding.z[i] >= embedding.bar) }
+                else if let related { .related(label: related) }
+                else { .untagged }
+            return (SlotScore(value: value, best: best < value ? best : nil), evidence)
         }
-        if let best { return best }
-        return snapshot.isChecked(i) ? (SlotScore(value: Self.untaggedScore), .untagged) : (.unknown, .notChecked)
+        if let own { return (SlotScore(value: own.score), own.evidence) }
+        if let related { return (SlotScore(value: Self.relatedScore, best: 0), .related(label: related)) }
+        // A description waits for the photo's vector; a tagged word's checked photo is a no.
+        if isDescription || !snapshot.isChecked(i) { return (.unknown, .notChecked) }
+        return (SlotScore(value: Self.untaggedScore), .untagged)
+    }
+
+    /// Asset `i` is a confident match: its own tags are likely or precise, or the model is confident about it.
+    func isConfident(_ i: Int) -> Bool {
+        if let embedding, embedding.has(i), embedding.z[i] >= embedding.bar { return true }
+        guard !tags.isEmpty else { return false }
+        return tags.allSatisfy { $0.strength[i] >= VisualStrength.likely.rawValue }
+    }
+}
+
+/// How many people a photo must show ("without people": none; "two people": two; "a group": three or more), as Vision's
+/// face and person counts saw them; a photo not checked yet is unknown, never a no.
+struct PeopleCount: Sendable, Hashable {
+    var minimum: Int
+    var maximum: Int?
+    /// The words that asked ("without people").
+    var words: String
+
+    func score(_ i: Int, snapshot: SearchSnapshot) -> SlotScore {
+        guard snapshot.isChecked(i) else { return .unknown }
+        let seen = max(Int(snapshot.humans[i]), Int(snapshot.faces[i]))
+        return SlotScore(value: seen >= minimum && seen <= (maximum ?? .max) ? 1 : 0.05)
     }
 }
 
@@ -161,6 +267,7 @@ struct ScoredAsset: Sendable {
     var event: SlotScore?
     /// One per visual slot, in the plan's order.
     var visual: [SlotScore] = []
+    var people: SlotScore?
     var visualEvidence: [VisualEvidence] = []
 }
 
@@ -208,11 +315,15 @@ struct ScoringPlan: Sendable {
     var media: MediaFilter?
     /// Words about what's in photos, one concept per slot: two make a soft AND ("beach sunset").
     var visual: [VisualTarget] = []
+    /// Outings of an activity with a confident photo, by moment: how many Best photos anchor each (step 4).
+    var outings: [Int32: Int] = [:]
+    /// How many people a photo must show, as Vision counted them ("without people", "two people").
+    var people: PeopleCount?
 
-    var scoredSlots: Int { (place == nil ? 0 : 1) + (time == nil ? 0 : 1) + (event == nil ? 0 : 1) + visual.count }
+    var scoredSlots: Int { (place == nil ? 0 : 1) + (time == nil ? 0 : 1) + (event == nil ? 0 : 1) + visual.count + (people == nil ? 0 : 1) }
 
     /// A concept is a document (receipt, passport): utility photos and screenshots are what's wanted.
-    var wantsDocuments: Bool { visual.contains { $0.concept.kind == .document } }
+    var wantsDocuments: Bool { visual.contains { $0.concept.kind == .document || $0.tags.contains { $0.concept.kind == .document } } }
 
     /// No slot to score or filter by: nothing to list.
     var isEmpty: Bool { scoredSlots == 0 && media == nil }
@@ -324,9 +435,18 @@ struct Scorer {
             scores.append(score)
         }
         for target in plan.visual {
-            let (score, evidence) = target.score(i, snapshot: snapshot)
+            var (score, evidence) = target.score(i, snapshot: snapshot)
+            // The rest of an anchored outing reaches More (never Best); junk never comes along.
+            if let anchors = plan.outings[snapshot.moment[i]], !score.isUnknown, score.value < VisualTarget.outingScore, junk >= 1 {
+                (score, evidence) = (SlotScore(value: VisualTarget.outingScore, best: 0), .sameOuting(anchors: anchors))
+            }
             asset.visual.append(score)
             asset.visualEvidence.append(evidence)
+            scores.append(score)
+        }
+        if let people = plan.people {
+            let score = people.score(i, snapshot: snapshot)
+            asset.people = score
             scores.append(score)
         }
         asset.score = scores.isEmpty ? junk : junk * exp(scores.reduce(0) { $0 + log(max($1.value, Self.floor)) } / Double(scores.count))
@@ -342,8 +462,8 @@ struct Scorer {
         if !anyUnknown {
             let placeOK = asset.place.map { $0.value >= 0.85 } ?? true
             let timeOK = asset.time.map { $0.value >= 1 } ?? true
-            let eventOK = asset.event.map { $0.value >= 1 } ?? true
-            let visualOK = asset.visual.allSatisfy { $0.value >= VisualTarget.bestScore }
+            let eventOK = (asset.event.map { $0.value >= 1 } ?? true) && (asset.people.map { $0.value >= 1 } ?? true)
+            let visualOK = asset.visual.allSatisfy { $0.bestValue >= VisualTarget.bestScore }
             if placeOK, timeOK, eventOK, visualOK, asset.junk >= 1 { return .best }
             if asset.score >= 0.5, !anyLow { return .more }
             if asset.score >= 0.35, !anyLow { return .weaker }
@@ -352,7 +472,7 @@ struct Scorer {
         // Location unknown: only the place is unknown, another slot is scored, and every other slot matches exactly.
         guard asset.place?.isUnknown == true, asset.junk >= 1, scores.count >= 2 else { return nil }
         let others = [asset.time, asset.event].compactMap { $0 }
-        let visualOK = asset.visual.allSatisfy { !$0.isUnknown && $0.value >= VisualTarget.bestScore }
+        let visualOK = asset.visual.allSatisfy { !$0.isUnknown && $0.bestValue >= VisualTarget.bestScore }
         return others.allSatisfy({ !$0.isUnknown && $0.value >= 1 }) && visualOK ? .locationUnknown : nil
     }
 

@@ -139,11 +139,14 @@ public enum SlotKind: String, Sendable, Hashable, Codable, CaseIterable {
 /// What search can do in this version.
 public struct SearchCapabilities: Sendable, Hashable {
     public var visual = false
+    /// Any description, through the image model (Milestone B): words without a photo tag are searched too.
+    public var freeText = false
     public var people = false
     public var text = false
 
-    public init(visual: Bool = false, people: Bool = false, text: Bool = false) {
+    public init(visual: Bool = false, freeText: Bool = false, people: Bool = false, text: Bool = false) {
         self.visual = visual
+        self.freeText = freeText
         self.people = people
         self.text = text
     }
@@ -156,7 +159,7 @@ public struct SearchCapabilities: Sendable, Hashable {
         switch value {
         case .place, .time, .media, .event, .order: true
         case .people: people
-        case .visual(let words): visual && VisualVocabulary.english.concept(for: words) != nil
+        case .visual(let words): freeText || visual && VisualVocabulary.english.concept(for: words) != nil
         case .text: text
         }
     }

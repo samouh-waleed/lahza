@@ -32,8 +32,14 @@ public struct ContentSignals: OptionSet, Sendable, Hashable {
 
     /// The Vision pass's photo tags (Milestone A).
     public static let tags = ContentSignals(rawValue: 1)
+    /// The image model: descriptions scored against the photos' vectors (Milestone B).
+    public static let model = ContentSignals(rawValue: 2)
+    /// The model's scores judged against the library (robust z-scores); without it, SigLIP's own probability.
+    public static let calibration = ContentSignals(rawValue: 4)
+    /// An activity's whole outing comes with its confident photos (step 4).
+    public static let outings = ContentSignals(rawValue: 8)
 
-    public static let all: ContentSignals = [.tags]
+    public static let all: ContentSignals = [.tags, .model, .calibration, .outings]
     /// Search v0: places, dates and order only.
     public static let none: ContentSignals = []
 }
