@@ -1,9 +1,30 @@
 import Foundation
+import LZEmbedding
 
 /// The Vision pass's version (content search P1a): bump it when tags are stored differently, and every photo is
 /// tagged again.
 public enum VisualPass {
     public static let version = 1
+}
+
+/// The embedding pass's version (content search P1b), apart from the Vision pass's: bump it when vectors are made
+/// differently, and every photo is embedded again. Turning the model on only fills the photos without a vector.
+public enum EmbedPass {
+    public static let version = 1
+}
+
+/// What made a photo's vector (`asset_visual.embed_units`). The CPU's vectors are a little further from the model's
+/// reference, so the foreground makes them again.
+public enum EmbedUnits: Int, Sendable, Hashable {
+    /// The model was asked and gave none (no image now, or it failed): tried again after ``VisualPolicy/cloudRetry``.
+    case failed = 0
+    /// The Neural Engine or the GPU (in the foreground).
+    case all = 1
+    case cpu = 2
+
+    public init(_ mode: ComputeMode) {
+        self = mode == .foreground ? .all : .cpu
+    }
 }
 
 /// Which of Vision's filters a photo's tag passed (`asset_label.flags`). Every stored tag passed Apple's high-recall
@@ -64,7 +85,9 @@ public struct VisualAnalysis: Sendable, Hashable {
 }
 
 public enum VisualOutcome: Sendable, Hashable {
-    case analysed(VisualAnalysis)
+    /// What was asked for from one image: the tags (nil when not asked) and the embedding (nil when not asked, or when
+    /// the model failed on it).
+    case analysed(VisualAnalysis?, vector: [Float]? = nil)
     /// No local image large enough (`pendingCloud`).
     case inCloud
     case failed
@@ -85,10 +108,11 @@ public struct VisualAsset: Sendable, Hashable {
     }
 }
 
-/// Tags photos (``VisionAnalyzer`` on the iPhone; the seed's stand-in in DEBUG). Videos are tagged from their poster
-/// frame.
+/// Tags and embeds photos (``VisionAnalyzer`` on the iPhone; the seed's stand-in in DEBUG), from one image each.
+/// Videos are tagged and embedded from their poster frame.
 public protocol VisualAnalyzer: Sendable {
     /// Every tag it can give, in its own order (Vision's `supportedIdentifiers`).
     func supportedLabels() async -> [String]
-    func analyze(_ asset: VisualAsset) async -> VisualOutcome
+    /// The photo's tags when `tags`, and its embedding by `embedder` when there is one.
+    func analyze(_ asset: VisualAsset, tags: Bool, embedder: (any ImageEmbedder)?) async -> VisualOutcome
 }

@@ -50,6 +50,19 @@ public struct IndexReader: Sendable {
         }
     }
 
+    /// The `PHAsset.localIdentifier`s among `localIDs` that the index holds.
+    public func indexed(localIDs: [String]) async throws -> Set<String> {
+        try await database.read { db in
+            var found = Set<String>()
+            for start in stride(from: 0, to: localIDs.count, by: 900) {
+                let chunk = localIDs[start..<min(localIDs.count, start + 900)]
+                let marks = Array(repeating: "?", count: chunk.count).joined(separator: ", ")
+                found.formUnion(try String.fetchAll(db, sql: "SELECT local_id FROM asset WHERE local_id IN (\(marks))", arguments: StatementArguments(chunk)))
+            }
+            return found
+        }
+    }
+
     /// Moments newest first: the page after `key` (from the start when nil), at most `limit`.
     public func moments(after key: MomentKey?, limit: Int, filter: MomentFilter = .all) async throws -> [MomentRow] {
         try await database.read { db in

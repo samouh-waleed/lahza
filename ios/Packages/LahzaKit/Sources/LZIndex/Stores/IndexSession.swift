@@ -1,5 +1,6 @@
 import Foundation
 import LZCore
+import LZEmbedding
 import LZGeo
 import LZLibrary
 
@@ -23,6 +24,8 @@ public struct IndexDependencies: Sendable {
     /// Tags photos for content search (Vision on the iPhone); nil: no Vision pass, and words about what's in photos
     /// aren't searchable.
     public var visualAnalyzer: (any VisualAnalyzer)?
+    /// The image model on this iPhone (nil: none, and no vectors): the Vision pass embeds the same image with it.
+    public var embedders: (any ImageEmbedderSource)?
     public var visualPolicy: VisualPolicy
     /// Destroy an on-disk index before opening it (DEBUG `-LZIndex reset`).
     public var resetOnLaunch: Bool
@@ -33,7 +36,8 @@ public struct IndexDependencies: Sendable {
     public init(location: IndexLocation, reader: any LibraryReader, gazetteer: Gazetteer?, maps: any MapsClient, budget: MapsBudget, clock: any AppClock,
                 network: any NetworkStatus, kv: any KeyValueStore, deviceTimeZone: @escaping @Sendable () -> TimeZone = { .current },
                 changes: @escaping @Sendable () -> AsyncStream<PhotoLibraryChange>, settings: IndexerSettings = .init(),
-                placeNamePolicy: PlaceNamePolicy = .default, visualAnalyzer: (any VisualAnalyzer)? = nil, visualPolicy: VisualPolicy = .default,
+                placeNamePolicy: PlaceNamePolicy = .default, visualAnalyzer: (any VisualAnalyzer)? = nil,
+                embedders: (any ImageEmbedderSource)? = nil, visualPolicy: VisualPolicy = .default,
                 resetOnLaunch: Bool = false,
                 isProtectedDataAvailable: @escaping @MainActor @Sendable () -> Bool = { true }, changeDebounce: Duration = .seconds(2)) {
         self.location = location
@@ -49,6 +53,7 @@ public struct IndexDependencies: Sendable {
         self.settings = settings
         self.placeNamePolicy = placeNamePolicy
         self.visualAnalyzer = visualAnalyzer
+        self.embedders = embedders
         self.visualPolicy = visualPolicy
         self.resetOnLaunch = resetOnLaunch
         self.isProtectedDataAvailable = isProtectedDataAvailable
@@ -64,6 +69,8 @@ public final class IndexSession: Sendable {
     public let placeNames: PlaceNameQueue
     /// The Vision pass; nil without an analyzer.
     public let visual: VisualQueue?
+    /// The vector file (``VectorStore``), opened by the Vision pass once an image model is on the iPhone.
+    public let vectors: VectorIndex
     public let reader: IndexReader
     /// Search's and Settings' writes (Apple Maps answers, picked places, saved places, the home choice).
     public let writer: UserDataWriter
@@ -78,9 +85,11 @@ public final class IndexSession: Sendable {
         placeNames = PlaceNameQueue(database: database, maps: dependencies.maps, budget: dependencies.budget, clock: dependencies.clock,
                                     network: dependencies.network, notify: { await indexer.enqueue(.restructure) },
                                     policy: dependencies.placeNamePolicy)
+        let vectors = VectorIndex(database: database)
+        self.vectors = vectors
         visual = dependencies.visualAnalyzer.map { analyzer in
-            VisualQueue(database: database, analyzer: analyzer, clock: dependencies.clock, notify: { await indexer.enqueue(.restructure) },
-                        policy: dependencies.visualPolicy)
+            VisualQueue(database: database, analyzer: analyzer, embedders: dependencies.embedders, vectors: vectors, clock: dependencies.clock,
+                        notify: { await indexer.enqueue(.restructure) }, policy: dependencies.visualPolicy)
         }
         reader = IndexReader(database: database, generation: generation)
         writer = UserDataWriter(database: database, clock: dependencies.clock, changed: { await indexer.enqueue(.restructure) })

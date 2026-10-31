@@ -35,6 +35,7 @@ enum IndexSchema {
         #endif
         migrator.registerMigration("v1") { db in try db.execute(sql: v1) }
         migrator.registerMigration("v2-visual") { db in try db.execute(sql: v2Visual) }
+        migrator.registerMigration("v3-embedding") { db in try db.execute(sql: v3Embedding) }
         return migrator
     }
 
@@ -174,6 +175,12 @@ enum IndexSchema {
           checked_utc    INTEGER NOT NULL
         );
         CREATE INDEX asset_visual_status ON asset_visual(status);
+        """
+
+    /// Content search P1b: what made each photo's vector (``EmbedUnits``), next to `embed_version` (NULL: no vector).
+    /// The vectors themselves are in the vector file (``VectorStore``).
+    static let v3Embedding = """
+        ALTER TABLE asset_visual ADD COLUMN embed_units INTEGER;
         """
 
     // MARK: Open

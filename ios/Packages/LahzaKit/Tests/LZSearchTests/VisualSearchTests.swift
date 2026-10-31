@@ -1,5 +1,6 @@
 import Foundation
 import LZCore
+import LZEmbedding
 import LZGeo
 import LZLibrary
 import Synchronization
@@ -18,9 +19,9 @@ import Testing
 
         func supportedLabels() async -> [String] { await seed.supportedLabels() }
 
-        func analyze(_ asset: VisualAsset) async -> VisualOutcome {
+        func analyze(_ asset: VisualAsset, tags: Bool, embedder: (any ImageEmbedder)?) async -> VisualOutcome {
             if let item = SeedScenario.hero.item(id: asset.localID), skip(item) { return .inCloud }
-            return await seed.analyze(asset)
+            return await seed.analyze(asset, tags: tags, embedder: embedder)
         }
     }
 

@@ -1,10 +1,11 @@
 #if DEBUG
 import Foundation
+import LZEmbedding
 import LZLibrary
 
 /// The hero seed's stand-in for Vision (its pictures are drawn gradients): each item's ``SeedLabels``, found by its
 /// seed id (the fake library) or its capture second (the seeded Simulator's PhotoKit). Anything else, such as the
-/// Simulator's own samples, has no tags.
+/// Simulator's own samples, has no tags. It makes no vectors.
 public struct SeedVisualAnalyzer: VisualAnalyzer {
     private let labels: [String]
 
@@ -15,7 +16,7 @@ public struct SeedVisualAnalyzer: VisualAnalyzer {
 
     public func supportedLabels() async -> [String] { labels }
 
-    public func analyze(_ asset: VisualAsset) async -> VisualOutcome {
+    public func analyze(_ asset: VisualAsset, tags _: Bool, embedder _: (any ImageEmbedder)?) async -> VisualOutcome {
         guard let item = SeedScenario.hero.item(id: asset.localID) ?? asset.createdUTC.flatMap({ SeedScenario.hero.item(matchingUTC: $0) }) else {
             return .analysed(VisualAnalysis(labels: []))
         }

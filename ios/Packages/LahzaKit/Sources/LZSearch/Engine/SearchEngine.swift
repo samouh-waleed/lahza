@@ -74,7 +74,7 @@ public actor SearchEngine {
 
         let resolveStarted = ContinuousClock.now
         let query = try await prepare(parsed, overrides: request.overrides, reader: reader, writer: writer, snapshot: snapshot, context: context,
-                                      appleMaps: index.appleMapsEnabled, isRerun: isRerun, progress: progress)
+                                      appleMaps: index.appleMapsEnabled, content: request.content, isRerun: isRerun, progress: progress)
         timings.resolve = ContinuousClock.now - resolveStarted
         progress?(.scoring)
         try Task.checkCancellation()
@@ -222,7 +222,8 @@ public actor SearchEngine {
     /// at most one Apple Maps search), media and events as they are, and words about what's in photos to the photo tags
     /// they map to (when the index has a Vision pass), whose photos are read from the index.
     func prepare(_ parsed: ParsedQuery, overrides: ResolutionOverrides, reader: IndexReader, writer: UserDataWriter?, snapshot: SearchSnapshot,
-                 context: EngineContext, appleMaps: Bool, isRerun: Bool, progress: (@Sendable (SearchProgress) -> Void)?) async throws -> PreparedQuery {
+                 context: EngineContext, appleMaps: Bool, content: ContentSignals = .all, isRerun: Bool,
+                 progress: (@Sendable (SearchProgress) -> Void)?) async throws -> PreparedQuery {
         var query = PreparedQuery(parsed: parsed)
         let resolver = TimeResolver(context: context.time)
         // A re-run (the index changed under a shown search) never asks Apple Maps again: it reads cached answers only.
@@ -271,7 +272,7 @@ public actor SearchEngine {
                 if query.orderSlot == nil { query.orderSlot = (slot.id, order) }
                 slots.append(ResolvedSlot(slot: slot, resolution: .order(order), chip: Self.orderChip(order), systemImage: Self.orderSymbol(order)))
             case .visual(let words):
-                if snapshot.hasVisualPass, let concept = VisualVocabulary.english.concept(for: words) {
+                if snapshot.hasVisualPass, content.contains(.tags), let concept = VisualVocabulary.english.concept(for: words) {
                     let withoutRelated = overrides.withoutRelatedTags.contains(slot.id)
                     concepts.append((slot.id, concept, withoutRelated ? [] : concept.related))
                     query.visualSlots.append(slot.id)
