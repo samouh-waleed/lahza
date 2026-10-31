@@ -556,6 +556,8 @@ public actor LibraryIndexer {
             let scanKeys: [MetaKey] = [.libraryToken, .pendingToken, .scanPhase, .scanFrontier, .scanTotal, .scanDone, .scanReason,
                                        .accessScope, .firstBuildDone, .lastFullScan, .rederiveLocated]
             for key in scanKeys { try Meta.set(db, key, nil) }
+            // Every asset gets a new id: the vector file no longer matches them.
+            try Meta.set(db, .vectorIdentity, nil)
             // Place counts must be redone even if the library turns out empty.
             try Meta.markStructureDue(db)
             try Meta.bumpVersion(db)
