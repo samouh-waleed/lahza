@@ -24,9 +24,16 @@ SEED_DIR := .build/seed
 # The converted embedding model (`make model`), and the conversion's throwaway tools and downloads (`make model-clean`).
 MODELS := .build/models
 MODEL_WORK ?= .build/model-work
+# The converted model `make device-model` copies: this checkout's (`make model`), or else the main checkout's, so a worktree
+# never converts it again.
+MAIN_MODELS := $(abspath $(shell git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)/../ios/$(MODELS))
+MODEL_DIR ?= $(if $(wildcard $(MODELS)/model.json),$(abspath $(MODELS)),$(MAIN_MODELS))
+# What DEBUG builds read from the app's container: the image tower, its manifest, and the parity pictures the label lab checks.
+MODEL_FILES := model.json SigLIP2Image.mlmodelc parity.json parity-red.png parity-blue.png parity-gradient.png
+MODEL_DEST := Library/Application Support/Models/siglip2-b16-256
 PYTHON ?= python3
 
-.PHONY: help project build test test-kit test-app perf-kit model model-clean model-speed-sim run devices device gazetteer seed-photos sim-reset grant-photos probe-photos verify-search screens clean
+.PHONY: help project build test test-kit test-app perf-kit model model-clean model-speed-sim run devices device device-model gazetteer seed-photos sim-reset grant-photos probe-photos verify-search screens clean
 
 help:
 	@echo 'make project   regenerate Lahza.xcodeproj from project.yml'
@@ -39,6 +46,7 @@ help:
 	@echo 'make model-speed-sim   embed the seeded simulator'"'"'s photos with the converted model and print photos per second'
 	@echo 'make devices   list connected iPhones and their UDIDs'
 	@echo 'make device DEVICE_ID=<udid>   build, sign, install and launch on your iPhone'
+	@echo 'make device-model DEVICE_ID=<udid>   copy the converted image model into Lahza on your iPhone (DEBUG builds use it; once)'
 	@echo 'make gazetteer GEONAMES=<dir>  rebuild the offline place list from a GeoNames dump (Tools/gazetteer/README.md)'
 	@echo 'make seed-photos   add the 557-item hero seed library to the simulator'"'"'s Photos (once; FORCE=1 adds it again)'
 	@echo 'make grant-photos  give Lahza full photo access on the simulator'
@@ -103,6 +111,15 @@ device: project     ## Build, sign (with Xcode's saved profile), install and lau
 	set -o pipefail && xcodebuild -project Lahza.xcodeproj -scheme Lahza -configuration Debug -destination 'id=$(DEVICE_ID)' -derivedDataPath $(DERIVED) -onlyUsePackageVersionsFromResolvedFile build | xcbeautify --quiet
 	xcrun devicectl device install app --device $(DEVICE_ID) "$(DERIVED)/Build/Products/Debug-iphoneos/Lahza.app"
 	xcrun devicectl device process launch --terminate-existing --device $(DEVICE_ID) $(APP_ID)
+
+# DEBUG builds look for the model in the app's container until Background Assets deliver it (step 11); it is never bundled
+# or committed. Lahza must be installed on the iPhone. Unchanged files are skipped, so running it again is cheap. On the
+# Simulator, launch with `-LZModelDir $(MODEL_DIR)` instead: it reads the Mac's folder in place.
+device-model:       ## Copy the converted image model into Lahza's container on an iPhone
+	@test -n "$(DEVICE_ID)" || { echo 'Set DEVICE_ID to the iPhone UDID from: make devices'; exit 1; }
+	@test -f "$(MODEL_DIR)/model.json" || { echo 'No converted model in $(MODEL_DIR): run make model, or set MODEL_DIR'; exit 1; }
+	xcrun devicectl device copy to --device $(DEVICE_ID) --domain-type appDataContainer --domain-identifier $(APP_ID) \
+		$(foreach file,$(MODEL_FILES),--source "$(MODEL_DIR)/$(file)") --destination "$(MODEL_DEST)"
 
 gazetteer:          ## Rebuild LZGeo's cities15000.lzgz from a GeoNames dump (Tools/gazetteer/README.md)
 	@test -n "$(GEONAMES)" || { echo 'Set GEONAMES to the folder with cities15000.txt and admin1CodesASCII.txt'; exit 1; }

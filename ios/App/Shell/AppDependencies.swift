@@ -1,5 +1,6 @@
 import LZBilling
 import LZCore
+import LZEmbedding
 import Foundation
 import LZGeo
 import LZIndex
@@ -31,6 +32,9 @@ struct AppDependencies {
     /// What tags photos for content search: Vision on the iPhone, the seed's stand-in (`-LZSeed`), or nothing (no
     /// Vision pass: words about photos stay "not yet").
     var visual: VisualSource = .vision
+    /// The image model on this iPhone (content search L3), which the Vision pass embeds photos with: none until step 11
+    /// delivers it; in DEBUG, the folder ``ModelLocator`` finds.
+    var embedders: (any ImageEmbedderSource)?
     /// Apple Maps (place names, and later place search).
     var maps: any MapsClient
     /// Apple Maps requests a minute, shared by place naming and search.
@@ -48,6 +52,10 @@ struct AppDependencies {
     var censusSource: any CensusSource = LiveCensusSource()
     /// DEBUG: a search Ask runs once the index is ready (`-LZQuery`).
     var queryAtLaunch: String?
+    /// DEBUG: the albums Settings › Developer › Scoreboard reads (PhotoKit; none under the fakes and the seed).
+    var albums: any AlbumSource = LiveAlbumSource()
+    /// DEBUG: the label lab runs its checks by itself once the pass is done (`-LZLabAuto`).
+    var labelLabAuto = false
     #endif
     /// Start launch from the model's `init` (false for the unit-test host).
     var autoBoot = true
@@ -97,6 +105,7 @@ struct AppDependencies {
         dependencies.indexLocation = .inMemory
         dependencies.visual = .off
         #if DEBUG
+        dependencies.albums = FakeAlbumSource()
         dependencies.censusSource = FakeCensusSource(library: photos, pace: .zero)
         #endif
         dependencies.autoBoot = false
@@ -124,7 +133,7 @@ struct AppDependencies {
         let photoLibrary = photoLibrary
         return IndexDependencies(location: indexLocation, reader: libraryReader, gazetteer: gazetteer, maps: maps, budget: budget, clock: clock,
                                  network: network, kv: kv, deviceTimeZone: deviceTimeZone, changes: { photoLibrary.changes() },
-                                 settings: indexSettings, visualAnalyzer: visualAnalyzer, resetOnLaunch: resetIndexOnLaunch,
+                                 settings: indexSettings, visualAnalyzer: visualAnalyzer, embedders: embedders, resetOnLaunch: resetIndexOnLaunch,
                                  isProtectedDataAvailable: { UIApplication.shared.isProtectedDataAvailable })
     }
 

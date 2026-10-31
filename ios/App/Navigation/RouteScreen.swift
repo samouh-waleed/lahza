@@ -25,6 +25,7 @@ struct RouteScreen: View {
         case .indexInspector: IndexInspectorScreen()
         case .lockedResults: LockedResultsPreviewScreen()
         case .labelLab: LabelLabScreen()
+        case .scoreboard: ScoreboardScreen()
         #endif
         case .paywall: PaywallScreen()
         case .onboarding: OnboardingView(revisit: true)

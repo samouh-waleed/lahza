@@ -109,6 +109,8 @@ nonisolated enum Route: Hashable, Sendable {
     case lockedResults
     /// Settings › Developer › Label lab: the Vision pass on this iPhone.
     case labelLab
+    /// Settings › Developer › Scoreboard: the labelled searches, scored (content search 5a).
+    case scoreboard
     #endif
 
     // MARK: Modals
@@ -131,7 +133,7 @@ nonisolated enum Route: Hashable, Sendable {
         case .moment(let ref): ref.origin
         case .trip(let ref): ref.origin
         #if DEBUG
-        case .libraryCensus, .indexInspector, .lockedResults, .labelLab: .settings
+        case .libraryCensus, .indexInspector, .lockedResults, .labelLab, .scoreboard: .settings
         #endif
         case .paywall, .onboarding, .notFound: nil
         }
@@ -142,7 +144,7 @@ nonisolated enum Route: Hashable, Sendable {
         case .ask, .moments, .settings: .tabRoot
         case .photoAccess, .appearance, .privacy, .fullLibrary, .acknowledgements, .searchIndex, .savedPlaces, .moment, .trip: .push
         #if DEBUG
-        case .libraryCensus, .indexInspector, .lockedResults, .labelLab: .push
+        case .libraryCensus, .indexInspector, .lockedResults, .labelLab, .scoreboard: .push
         #endif
         case .paywall, .onboarding: .fullScreen
         case .notFound: .sheet(.medium)
@@ -163,7 +165,7 @@ nonisolated enum Route: Hashable, Sendable {
     /// Routes that exist only in DEBUG builds (developer tools).
     static var developerRoutes: [Route] {
         #if DEBUG
-        return [.libraryCensus, .indexInspector, .lockedResults, .labelLab]
+        return [.libraryCensus, .indexInspector, .lockedResults, .labelLab, .scoreboard]
         #else
         return []
         #endif
@@ -189,6 +191,7 @@ nonisolated enum Route: Hashable, Sendable {
         case .indexInspector: "index-inspector"
         case .lockedResults: "locked-results"
         case .labelLab: "label-lab"
+        case .scoreboard: "scoreboard"
         #endif
         case .paywall: "paywall"
         case .onboarding: "onboarding"
