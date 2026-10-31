@@ -88,6 +88,16 @@ public struct SearchSnapshot: Sendable {
     /// Indices of the assets without an effective position.
     public let unlocated: [Int32]
     public let grid: LocatedGrid
+    /// The index has a Vision pass (content search is on); the columns below are empty without one.
+    public let hasVisualPass: Bool
+    /// ``VisualStatus`` raw values; 0 (pending) for photos not reached yet.
+    public let visualStatus: [UInt8]
+    public let faces: [UInt8]
+    public let humans: [UInt8]
+    /// Vision's utility verdict (receipts, documents, screenshots).
+    public let utility: [Bool]
+    /// Asset row id → index, for reading tags.
+    public let indexByID: [Int64: Int32]
 
     // MARK: Per asset
 
@@ -107,6 +117,21 @@ public struct SearchSnapshot: Sendable {
     }
 
     public func source(_ index: Int) -> PositionSource { PositionSource(rawValue: placeSource[index]) ?? .none }
+
+    /// Tagged by the Vision pass.
+    public func isChecked(_ index: Int) -> Bool { hasVisualPass && visualStatus[index] == UInt8(VisualStatus.done.rawValue) }
+
+    public func isUtility(_ index: Int) -> Bool { hasVisualPass && utility[index] }
+
+    /// Photos tagged, and photos waiting for an image only in iCloud.
+    public var visualCounts: (checked: Int, pendingCloud: Int) {
+        guard hasVisualPass else { return (0, 0) }
+        var checked = 0, cloud = 0
+        for status in visualStatus {
+            if status == UInt8(VisualStatus.done.rawValue) { checked += 1 } else if status == UInt8(VisualStatus.pendingCloud.rawValue) { cloud += 1 }
+        }
+        return (checked, cloud)
+    }
 
     /// A screenshot or screen recording.
     public func isScreenCapture(_ index: Int) -> Bool {
@@ -173,17 +198,22 @@ extension IndexQueries {
     /// Builds the snapshot in one read; `version` is read in the same transaction, so it names exactly these rows.
     static func snapshot(_ db: Database, generation: Int) throws -> SearchSnapshot {
         let version = try Meta.int(db, .indexVersion) ?? 0
+        let hasVisualPass = try Meta.int(db, .visualVersion) != nil
         let total = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM asset") ?? 0
         var id: [Int64] = [], utc: [Int64] = [], wall: [Int64] = [], day: [Int32] = []
         var lat: [Float] = [], lon: [Float] = [], hAcc: [Float] = []
         var placeSource: [UInt8] = [], kind: [UInt8] = [], subtypes: [UInt32] = [], flags: [UInt16] = [], duration: [Float] = []
         var city: [Int32] = [], metro: [Int32] = [], locality: [Int32] = [], region: [Int32] = [], country: [Int32] = []
         var moment: [Int32] = [], trip: [Int32] = []
+        var visualStatus: [UInt8] = [], faces: [UInt8] = [], humans: [UInt8] = [], utility: [Bool] = []
         id.reserveCapacity(total); utc.reserveCapacity(total); wall.reserveCapacity(total); day.reserveCapacity(total)
         lat.reserveCapacity(total); lon.reserveCapacity(total); hAcc.reserveCapacity(total); placeSource.reserveCapacity(total)
         kind.reserveCapacity(total); subtypes.reserveCapacity(total); flags.reserveCapacity(total); duration.reserveCapacity(total)
         city.reserveCapacity(total); metro.reserveCapacity(total); locality.reserveCapacity(total); region.reserveCapacity(total)
         country.reserveCapacity(total); moment.reserveCapacity(total); trip.reserveCapacity(total)
+        if hasVisualPass {
+            visualStatus.reserveCapacity(total); faces.reserveCapacity(total); humans.reserveCapacity(total); utility.reserveCapacity(total)
+        }
 
         func small(_ value: Int64?) -> Int32 {
             guard let value, value >= 0, value <= Int64(Int32.max) else { return -1 }
@@ -191,8 +221,9 @@ extension IndexQueries {
         }
         let rows = try Row.fetchCursor(db, sql: """
             SELECT id, created_utc, wall_s, day, eff_lat, eff_lon, h_acc, place_src, kind, subtypes, flags, duration,
-                   city_place, metro_place, locality_place, region_place, country_place, moment_id, trip_id
-            FROM asset ORDER BY created_utc DESC, id DESC
+                   city_place, metro_place, locality_place, region_place, country_place, moment_id, trip_id,
+                   v.status, v.faces, v.humans, v.is_utility
+            FROM asset LEFT JOIN asset_visual v ON v.asset_id = asset.id ORDER BY created_utc DESC, id DESC
             """)
         while let row = try rows.next() {
             id.append(row[0])
@@ -220,6 +251,17 @@ extension IndexQueries {
             country.append(small(row[16]))
             moment.append(small(row[17]))
             trip.append(small(row[18]))
+            if hasVisualPass {
+                visualStatus.append(UInt8(clamping: (row[19] as Int?) ?? 0))
+                faces.append(UInt8(clamping: (row[20] as Int?) ?? 0))
+                humans.append(UInt8(clamping: (row[21] as Int?) ?? 0))
+                utility.append((row[22] as Bool?) ?? false)
+            }
+        }
+        var indexByID: [Int64: Int32] = [:]
+        if hasVisualPass {
+            indexByID.reserveCapacity(id.count)
+            for (index, value) in id.enumerated() { indexByID[value] = Int32(index) }
         }
 
         var moments: [Int32: SearchSnapshot.Moment] = [:]
@@ -256,7 +298,9 @@ extension IndexQueries {
         return SearchSnapshot(generation: generation, version: version, count: id.count, id: id, utc: utc, wall: wall, day: day, lat: lat, lon: lon,
                               hAcc: hAcc, placeSource: placeSource, kind: kind, subtypes: subtypes, flags: flags, duration: duration, city: city,
                               metro: metro, locality: locality, region: region, country: country, moment: moment, trip: trip, moments: moments,
-                              trips: trips, dayLocatedMoments: dayLocatedMoments, unlocated: unlocated, grid: LocatedGrid(lat: lat, lon: lon))
+                              trips: trips, dayLocatedMoments: dayLocatedMoments, unlocated: unlocated, grid: LocatedGrid(lat: lat, lon: lon),
+                              hasVisualPass: hasVisualPass, visualStatus: visualStatus, faces: faces, humans: humans, utility: utility,
+                              indexByID: indexByID)
     }
 }
 

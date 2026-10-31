@@ -241,6 +241,8 @@ struct SearchCopy {
     static let selfieReason = Reason(.media, "Selfie", "person.crop.square", detail: "A selfie, taken with the front camera.")
     static let favoriteReason = Reason(.media, "Favorite", "heart", detail: "One of your favorites.")
     static let screenshotReason = Reason(.media, "Screenshot (ranked lower)", "camera.viewfinder", detail: "A screenshot, so it’s ranked below your photos.")
+    static let utilityReason = Reason(.media, "Document (ranked lower)", "doc.text",
+                                      detail: "Your iPhone sees a document or a receipt here, so it’s ranked below your photos.")
 
     static func tripReason(_ trip: TripRow) -> Reason {
         Reason(.event, "\(trip.label) trip", "airplane", detail: "Part of your \(trip.label) trip.")
@@ -268,7 +270,13 @@ struct SearchCopy {
             let place = query.placeSlot.map { $0.description.isArea ? $0.description.phrase : "to \($0.description.name)" }
             return ["\(word) trip", event == .abroad && place == nil ? "abroad" : nil, place, time].compactMap { $0 }.joined(separator: " ")
         }
-        return ["\(word) time", query.showingPhrase(self)].compactMap { $0 }.joined(separator: " ")
+        // "First time camping", "First sunset in Greece": what's in the photos, then where and when.
+        var lead = "\(word) time"
+        if !query.plan.visual.isEmpty {
+            let names = list(query.plan.visual.map(\.concept.name))
+            lead = query.plan.visual.allSatisfy({ $0.concept.kind == .occasion }) ? "\(word) time \(names)" : "\(word) \(names)"
+        }
+        return [lead, query.placeSlot?.description.phrase, time].compactMap { $0 }.joined(separator: " ")
     }
 
     /// "9 later times", "1 later trip", "3 earlier times": the times "Show all" adds.
@@ -306,11 +314,14 @@ struct SearchCopy {
 
     // MARK: Sections
 
-    func sectionTitle(_ tier: Tier, place: PlaceDescription?, count: Int) -> (title: String, caption: String?) {
+    /// `tagsOnly`: the query is only words about what's in photos (its More is less sure tags, never nearby photos).
+    func sectionTitle(_ tier: Tier, place: PlaceDescription?, count: Int, tags: Bool = false, tagsOnly: Bool = false) -> (title: String, caption: String?) {
         switch tier {
         case .best:
             guard let place, place.isArea, !place.isUnion else { return ("Matches", nil) }
             return (place.isHome ? "At home" : "Inside \(place.name)", nil)
+        case .more where tagsOnly: return ("Less sure", "Related tags, or tags your iPhone is less sure of")
+        case .more where tags: return ("Nearby, close in time or less sure", "Just outside the place or dates, or a less sure tag")
         case .more: return ("Nearby or close in time", "Just outside the place or dates, or saved the same day")
         case .locationUnknown: return ("Location unknown · \(count.formatted(.number.locale(locale)))", "No location data, but everything else matches")
         case .weaker: return ("Weaker matches", nil)
@@ -350,13 +361,46 @@ struct SearchCopy {
         count == 1 ? "1 photo" : "\(count.formatted(.number.locale(locale))) photos"
     }
 
+    /// "soccer", "beach and sunset", "beach, sunset and sand dune".
+    func list(_ words: [String]) -> String {
+        guard let last = words.last else { return "" }
+        return words.count == 1 ? last : words.dropLast().joined(separator: ", ") + " and " + last
+    }
+
+    // MARK: Photo tags
+
+    /// The reason a photo matched words about what's in it, from fixed templates: "Tagged soccer" (by your iPhone),
+    /// "Maybe soccer" (only Apple's high-recall filter), "Related tag: trail" (E24); nil when it has none of the tags.
+    func visualReason(_ evidence: VisualEvidence, concept: VisualConcept, noun: String) -> Reason? {
+        switch evidence {
+        case .tagged(let label, let strength):
+            let tag = VisualVocabulary.readable(label)
+            if strength == .candidate {
+                return Reason(.caution, "Maybe \(tag)", "tag", detail: "Your iPhone may have seen \(tag) in this \(noun), but isn’t sure.")
+            }
+            return Reason(.visual, "Tagged \(tag)", "tag", detail: "Tagged \(tag) by your iPhone.")
+        case .related(let label):
+            let tag = VisualVocabulary.readable(label)
+            return Reason(.caution, "Related tag: \(tag)", "tag", detail: "Tagged \(tag) by your iPhone, a tag related to \(concept.name).")
+        case .untagged, .notChecked:
+            return nil
+        }
+    }
+
+    /// "Checked 12,400 of 31,204 photos so far" while some photos aren't tagged yet (E25); nil once all are.
+    func visualLine(checked: Int, total: Int) -> String? {
+        guard checked < total else { return nil }
+        return "Checked \(checked.formatted(.number.locale(locale))) of \(total.formatted(.number.locale(locale))) photos so far"
+    }
+
     // MARK: Unsupported
 
     /// "Lahza can't see what's in photos yet, so “soccer” was left out. Showing all your photos at Al-Nakheel Park."
     /// Dates Lahza couldn't use are quoted as typed (their chip says why). With no `showing` (nothing matched) it ends
     /// at "left out.". The first or last time shows its `occasion` instead ("Showing your first time at Al-Nakheel
     /// Park.").
-    func unsupportedNotice(_ unsupported: [ResolvedSlot], text: String, showing: String?, occasion: String? = nil) -> String? {
+    /// With `tags` (the index has a Vision pass), words about photos with no tag "have no photo tag yet".
+    func unsupportedNotice(_ unsupported: [ResolvedSlot], text: String, showing: String?, occasion: String? = nil, tags: Bool = false) -> String? {
         guard !unsupported.isEmpty else { return nil }
         let words = unsupported.map { "“\($0.slot.kind == .time ? $0.slot.span?.substring(of: text) ?? $0.chip : $0.chip)”" }
         let list = words.count == 1 ? words[0] : words.dropLast().joined(separator: ", ") + " and " + words.last!
@@ -364,7 +408,7 @@ struct SearchCopy {
         if unsupported.allSatisfy({ $0.slot.kind == .people }) {
             reason = "Lahza can’t search for people yet"
         } else if unsupported.allSatisfy({ $0.slot.kind == .visual || $0.slot.kind == .text }) {
-            reason = "Lahza can’t see what’s in photos yet"
+            reason = tags ? "Lahza has no photo tag for \(words.count == 1 ? "that" : "those") yet" : "Lahza can’t see what’s in photos yet"
         } else {
             reason = "Lahza can’t search for everything you asked yet"
         }

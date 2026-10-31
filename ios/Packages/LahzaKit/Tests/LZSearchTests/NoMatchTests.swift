@@ -170,12 +170,12 @@ import Testing
         #expect(typed.query.slots.first?.chip == "Louvre")
         #expect(search.mapsSearches == 1)
 
-        // A lone word that is neither about what's in photos nor a place Apple Maps knows ("kebab") reads the same.
-        let kebab = try await search.search("kebab")
-        #expect(kebab.noMatch?.kind == .placeNotFound(.unconfirmed))
-        #expect(kebab.noMatch?.headline == "Couldn’t find “kebab” in your photos or on the map.")
-        #expect(kebab.query.slots.map(\.chip) == ["Kebab"])
-        #expect(kebab.query.slots.map(\.slot.kind) == [.place])
+        // A lone word that is neither about what's in photos nor a place Apple Maps knows ("Narnia") reads the same.
+        let narnia = try await search.search("narnia")
+        #expect(narnia.noMatch?.kind == .placeNotFound(.unconfirmed))
+        #expect(narnia.noMatch?.headline == "Couldn’t find “narnia” in your photos or on the map.")
+        #expect(narnia.query.slots.map(\.chip) == ["Narnia"])
+        #expect(narnia.query.slots.map(\.slot.kind) == [.place])
 
         // Words about what's in photos are still that, without an Apple Maps search.
         let sunset = try await search.search("sunset")

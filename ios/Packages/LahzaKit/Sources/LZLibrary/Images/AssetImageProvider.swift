@@ -30,6 +30,17 @@ public protocol AssetImageProvider: Sendable {
     func startCaching(_ ids: [String], side: Int)
     func stopCaching(_ ids: [String], side: Int)
     func stopAll()
+    /// The image the Vision pass looks at: the whole picture with its short side about `side` pixels. When the iPhone
+    /// holds only a smaller version, that one if its short side is at least `minimumSide` (``AssetImage/reduced(_:)``),
+    /// else ``AssetImage/inCloud``.
+    func analysisImage(for localID: String, side: Int, minimumSide: Int) async -> AssetImage
+}
+
+extension AssetImageProvider {
+    /// The thumbnail, which is never cropped (aspect fill sizes it; it doesn't cut it).
+    public func analysisImage(for localID: String, side: Int, minimumSide: Int) async -> AssetImage {
+        await thumbnail(for: localID, side: side)
+    }
 }
 
 /// An ``AssetImageProvider`` that draws a gradient with the asset's date (when known), or the seed
@@ -119,6 +130,18 @@ public final class LiveAssetImageProvider: AssetImageProvider {
         guard case .inCloud = full, !Task.isCancelled else { return full }
         if case .image(let cgImage) = await request(localID, size: size, mode: .aspectFit, delivery: .fastFormat) { return .reduced(cgImage) }
         return full
+    }
+
+    /// High quality first; when that is only in iCloud, the fast local version if it is large enough.
+    public func analysisImage(for localID: String, side: Int, minimumSide: Int) async -> AssetImage {
+        let size = CGSize(width: side, height: side)
+        let full = await request(localID, size: size, mode: .aspectFill)
+        guard case .inCloud = full, !Task.isCancelled else { return full }
+        if case .image(let cgImage) = await request(localID, size: size, mode: .aspectFill, delivery: .fastFormat),
+           min(cgImage.width, cgImage.height) >= minimumSide {
+            return .reduced(cgImage)
+        }
+        return .inCloud
     }
 
     public func startCaching(_ ids: [String], side: Int) {

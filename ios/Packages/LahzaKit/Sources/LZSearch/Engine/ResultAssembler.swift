@@ -93,7 +93,9 @@ struct ResultAssembler {
             let inTier = cards.filter { $0.tier == tier }.sorted(by: chronological ? Self.oldestFirst : Self.newestFirst)
             guard !inTier.isEmpty else { continue }
             let count = hits.count(where: { $0.tier == tier })
-            let (tierTitle, caption) = copy.sectionTitle(tier, place: query.placeSlot?.description, count: count)
+            let tags = !query.plan.visual.isEmpty
+            let tagsOnly = tags && query.plan.place == nil && query.plan.time == nil && query.plan.event == nil
+            let (tierTitle, caption) = copy.sectionTitle(tier, place: query.placeSlot?.description, count: count, tags: tags, tagsOnly: tagsOnly)
             // The occasion's title heads its first section (its matches' tier).
             let title = sections.isEmpty ? occasion?.title ?? tierTitle : tierTitle
             sections.append(ResultSection(tier: tier, title: title, caption: caption, groups: group(inTier, trips: groupTrips ? trips : [:])))
@@ -167,6 +169,7 @@ struct ResultAssembler {
         if let place = hit.place { scores[.place] = place.value }
         if let time = hit.time { scores[.time] = time.value }
         if let event = hit.event { scores[.event] = event.value }
+        if let weakest = hit.visual.map(\.value).min() { scores[.visual] = weakest }
         return AssetHit(id: snapshot.id[i], localID: localID, kind: snapshot.isVideo(i) ? .video : .photo, duration: Double(snapshot.duration[i]),
                         utc: snapshot.isDated(i) ? snapshot.utc[i] : nil, wall: snapshot.isDated(i) ? snapshot.wall[i] : nil, tier: hit.tier,
                         score: hit.score, slotScores: scores, reasons: reasons(hit, trips: trips, sources: sources),
@@ -202,11 +205,14 @@ struct ResultAssembler {
         return located.min { abs($0.utc - utc) < abs($1.utc - utc) }
     }
 
-    /// The hit's reasons: place, borrowed location, time, trip, photo type.
+    /// The hit's reasons: photo tags, place, borrowed location, time, trip, photo type.
     func reasons(_ hit: ScoredAsset, trips: [Int64: TripRow], sources: [Int32: [BorrowSource]] = [:]) -> [Reason] {
         let i = Int(hit.index)
         let noun = snapshot.isVideo(i) ? "video" : "photo"
         var reasons: [Reason] = []
+        for (target, evidence) in zip(query.plan.visual, hit.visualEvidence) {
+            if let reason = copy.visualReason(evidence, concept: target.concept, noun: noun) { reasons.append(reason) }
+        }
         if let evidence = hit.placeEvidence, let place = query.placeSlot?.description,
            let reason = copy.placeReason(evidence, place: place, trips: trips, noun: noun) {
             reasons.append(reason)
@@ -223,7 +229,7 @@ struct ResultAssembler {
             if media.flags.contains(.selfie) { reasons.append(SearchCopy.selfieReason) }
             if media.flags.contains(.favorite) { reasons.append(SearchCopy.favoriteReason) }
         }
-        if hit.junk < 1 { reasons.append(SearchCopy.screenshotReason) }
+        if hit.junk < 1 { reasons.append(snapshot.isScreenCapture(i) ? SearchCopy.screenshotReason : SearchCopy.utilityReason) }
         return reasons
     }
 
@@ -274,8 +280,10 @@ struct ResultAssembler {
         var header: String?
         if index.isPartial, let since = index.coveredSince { header = copy.partialHeader(since: since, zone: context.zone) }
         let caption = copy.coverageCaption(searched: searched, index: index, since: since, now: context.time.now)
+        // Photos not tagged yet are left out of a search for what's in them, never counted as "no" (E25).
+        let visualLine = query.plan.visual.isEmpty ? nil : copy.visualLine(checked: snapshot.visualCounts.checked, total: snapshot.count)
         return Coverage(searched: searched, libraryTotal: index.libraryTotal, isPartial: index.isPartial, coveredSince: index.coveredSince,
                         isLimited: index.isLimited, unlocatedShare: share, undatedExcluded: query.plan.time == nil ? 0 : unreliable,
-                        borrowedShown: borrowed, caption: caption, header: header, notes: notes)
+                        borrowedShown: borrowed, caption: caption, header: header, notes: notes, visualLine: visualLine)
     }
 }
