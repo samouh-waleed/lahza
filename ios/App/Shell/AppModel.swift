@@ -1,6 +1,7 @@
 import LZBilling
 import LZCore
 import LZDesign
+import LZEmbedding
 import Foundation
 import LZGeo
 import LZIndex
@@ -67,6 +68,29 @@ nonisolated enum RootScreen: Hashable, Sendable {
     @ObservationIgnored private var memoryWarnings: Task<Void, Never>?
     @ObservationIgnored private let log = Log("shell")
 
+    /// The model whose vectors search reads: the image model on this iPhone (DEBUG: or the seed's stand-in).
+    private static func embeddingModel(_ dependencies: AppDependencies) -> EmbeddingModel? {
+        #if DEBUG
+        if dependencies.seedVectors { return SeedVectors.model }
+        #endif
+        return dependencies.embedders?.model
+    }
+
+    /// The image model's side of search: the vector file once the model is on the iPhone (opened here when the Vision
+    /// pass hasn't yet), the concept table and the text model.
+    private static func embedding(index: IndexStore, model: EmbeddingModel?, text: (any TextEncoder)?) async -> EmbeddingContext {
+        guard let vectors = index.vectors, let model else { return .off }
+        var store = await vectors.current
+        if store == nil { store = try? await vectors.store(modelID: model.id, dimension: model.dimension) }
+        guard let store else { return .off }
+        #if DEBUG
+        if model == SeedVectors.model, await store.count == 0, let reader = index.reader, let table = ConceptTable.bundled {
+            _ = try? await SeedVectors.fill(store, reader: reader, table: table)
+        }
+        #endif
+        return EmbeddingContext(store: store, model: model, table: .bundled, encoder: text)
+    }
+
     init(dependencies: AppDependencies) {
         self.dependencies = dependencies
         preferences = AppPreferences(kv: dependencies.kv)
@@ -84,9 +108,11 @@ nonisolated enum RootScreen: Hashable, Sendable {
         }
         // A free search covers the last 12 months, read at every search (decision 34); Moments stays whole.
         let entitlement = entitlement, clock = dependencies.clock
+        let index = index, embeddingModel = Self.embeddingModel(dependencies), textEncoder = dependencies.textEncoder
         search = SearchStore(engine: engine, index: index, kv: dependencies.kv, clock: clock,
                              scope: { entitlement.searchStart(now: clock.now).map(SearchScope.since) ?? .wholeLibrary },
-                             initialLayout: dependencies.resultsLayout)
+                             initialLayout: dependencies.resultsLayout,
+                             embedding: { await Self.embedding(index: index, model: embeddingModel, text: textEncoder) })
         // A saved name is searchable at once: the parse vocabulary is dropped after every saved-place write.
         let search = search
         savedPlaces = SavedPlacesStore(index: index, changed: { search.savedPlacesChanged() })

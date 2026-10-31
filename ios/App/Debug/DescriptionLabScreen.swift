@@ -166,7 +166,14 @@ struct DescriptionLabScreen: View {
         }
         probes = results
         result = results.last?.result
-        print(DescriptionLabCopy.report(check: check, probes: probes))
+        // The same descriptions through search itself: chips, tiers, time.
+        var searches: [String] = []
+        for words in DescriptionLabCopy.fixed {
+            let started = ContinuousClock.now
+            guard let found = try? await model.search.scoreboardSearch(SearchRequest(text: words, scope: .wholeLibrary)) else { continue }
+            searches.append(DescriptionLabCopy.searchLine(words, found, milliseconds: DescriptionLabCopy.milliseconds(ContinuousClock.now - started)))
+        }
+        print(DescriptionLabCopy.report(check: check, probes: probes) + "\n" + searches.joined(separator: "\n"))
     }
 }
 
@@ -214,6 +221,13 @@ nonisolated enum DescriptionLabCopy {
         func z(_ value: Float?) -> String { value.map { String(format: "%.1f", $0) } ?? "–" }
         return "\(probe.fromTable ? "table" : "model") · \(String(format: "%.0f", probe.encodeMs)) ms · z≥3 \(probe.result.confident) · "
             + "top z \(z(probe.topZ)) · 10th \(z(probe.tenthZ))"
+    }
+
+    /// "search “sunset”: [sunset · photo tag] best 83 · more 12 · weaker 4 · 61 ms".
+    static func searchLine(_ words: String, _ result: SearchResult, milliseconds: Double) -> String {
+        let tiers = Dictionary(grouping: result.hits, by: \.tier).mapValues(\.count)
+        return "search “\(words)”: [\(result.query.slots.map(\.chip).joined(separator: "] ["))] best \(tiers[.best] ?? 0) · more \(tiers[.more] ?? 0) · "
+            + "weaker \(result.weakerCount)\(result.noMatch.map { " · \($0.headline)" } ?? "") · \(String(format: "%.0f", milliseconds)) ms"
     }
 
     /// Numbers and the fixed descriptions only: no photos, no identifiers.

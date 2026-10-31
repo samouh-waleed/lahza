@@ -314,12 +314,15 @@ struct SearchCopy {
 
     // MARK: Sections
 
-    /// `tagsOnly`: the query is only words about what's in photos (its More is less sure tags, never nearby photos).
-    func sectionTitle(_ tier: Tier, place: PlaceDescription?, count: Int, tags: Bool = false, tagsOnly: Bool = false) -> (title: String, caption: String?) {
+    /// `tagsOnly`: the query is only words about what's in photos (its More is less sure tags, never nearby photos);
+    /// `model`: the image model searched them too.
+    func sectionTitle(_ tier: Tier, place: PlaceDescription?, count: Int, tags: Bool = false, tagsOnly: Bool = false,
+                      model: Bool = false) -> (title: String, caption: String?) {
         switch tier {
         case .best:
             guard let place, place.isArea, !place.isUnion else { return ("Matches", nil) }
             return (place.isHome ? "At home" : "Inside \(place.name)", nil)
+        case .more where tagsOnly && model: return ("Less sure", "Photos Lahza is less sure of")
         case .more where tagsOnly: return ("Less sure", "Related tags, or tags your iPhone is less sure of")
         case .more where tags: return ("Nearby, close in time or less sure", "Just outside the place or dates, or a less sure tag")
         case .more: return ("Nearby or close in time", "Just outside the place or dates, or saved the same day")
@@ -382,10 +385,29 @@ struct SearchCopy {
         case .related(let label):
             let tag = VisualVocabulary.readable(label)
             return Reason(.caution, "Related tag: \(tag)", "tag", detail: "Tagged \(tag) by your iPhone, a tag related to \(concept.name).")
+        case .looks(let sure):
+            // A weak likeness is a caution: it reaches More at most.
+            return Reason(sure ? .visual : .caution, sure ? "Looks like \(concept.name)" : "Might be \(concept.name)", "sparkles",
+                          detail: "Lahza’s image model finds this \(noun) \(sure ? "close" : "somewhat close") to “\(concept.name)”, on your iPhone.")
+        case .sameOuting(let anchors):
+            let photos = anchors == 1 ? "1 \(concept.name) photo" : "\(anchors.formatted(.number.locale(locale))) \(concept.name) photos"
+            return Reason(.caution, "Same outing as \(photos)", Self.outingSymbol,
+                          detail: "Taken during the same outing as \(photos), so it likely belongs with them.")
         case .untagged, .notChecked:
             return nil
         }
     }
+
+    static let outingSymbol = "figure.walk"
+
+    /// "+5 from the same outing": the rest of an activity's outing on a card of its Best photos.
+    static func outingCardReason(_ count: Int) -> Reason {
+        Reason(.caution, "+\(count.formatted()) from the same outing", outingSymbol,
+               detail: "\(count == 1 ? "1 more photo" : "\(count.formatted()) more photos") from the same outing, which likely belong with them.")
+    }
+
+    /// "No confident match for “red car parked by the sea”."
+    func notConfident(_ description: String) -> String { "No confident match for “\(description)”." }
 
     /// "Checked 12,400 of 31,204 photos so far" while the pass is still going (E25); once only photos kept in iCloud
     /// are left, "Checked 31,000 of 31,204 photos · 204 only in iCloud"; nil once all are checked.

@@ -71,6 +71,13 @@ struct AskScreen: View {
             .task(id: model.index.version) {
                 if model.search.examples.isEmpty { model.search.refreshExamples(after: .zero) }
             }
+            // The text model for descriptions the concept table lacks, loaded before the first one is typed (never next
+            // to the image model on a phone with less than 6 GB, where it loads only when a search needs it).
+            .task {
+                guard let encoder = model.dependencies.textEncoder, (model.index.status.visual?.embedded ?? 0) > 0,
+                      ProcessInfo.processInfo.physicalMemory >= 6 << 30 else { return }
+                await encoder.prewarm()
+            }
         }
         .accessibilityIdentifier("ask")
     }
@@ -85,7 +92,7 @@ struct AskScreen: View {
             if submitted != nil, !access.canRead {
                 Notice(.info, message: AskCopy.needsAccess)
             } else if !query.isEmpty, let parsed = model.search.parsed, !parsed.slots.isEmpty {
-                UnderstoodAsRow(chips: QueryChipModel.chips(parsed, capabilities: SearchCapabilities(status)))
+                UnderstoodAsRow(chips: QueryChipModel.chips(parsed, capabilities: SearchCapabilities(status, textModel: model.dependencies.textEncoder != nil)))
             }
             if case .ready = state, !model.search.examples.isEmpty {
                 ExampleSearchesRow(examples: model.search.examples) { search($0, proxy: proxy) }
@@ -294,8 +301,12 @@ nonisolated enum AskCopy {
     /// "Dubai, any time, 57 results".
     static func spokenOffer(_ offer: WideningOffer) -> String { "\(offer.label), \(MomentCopy.count(offer.count, "result"))" }
 
+    /// "people dancing · AI search": words searched by the image model.
+    static func described(_ words: String) -> String { "\(words) · AI search" }
+
     static func noMatchSymbol(_ kind: NoMatch.Kind) -> String {
         switch kind {
+        case .notConfident: "sparkles"
         case .onlyUnsupported: "eye.slash"
         case .notTagged: "tag.slash"
         case .future: "calendar.badge.exclamationmark"

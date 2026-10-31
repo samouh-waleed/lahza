@@ -371,14 +371,16 @@ private struct VisualEditor: View {
 
     var body: some View {
         EditorExplanation(text: ChipEditorCopy.explanation(match))
-        EditorSection(ChipEditorCopy.photoTags) {
-            LZRowGroup {
-                ForEach(match.tags, id: \.self) { tag in
-                    ListRow(tag, systemImage: "tag")
+        if !match.tags.isEmpty {
+            EditorSection(match.described ? ChipEditorCopy.alsoTagged : ChipEditorCopy.photoTags) {
+                LZRowGroup {
+                    ForEach(match.tags, id: \.self) { tag in
+                        ListRow(tag, systemImage: "tag")
+                    }
                 }
             }
+            .accessibilityIdentifier("chip-editor-tags")
         }
-        .accessibilityIdentifier("chip-editor-tags")
         if !match.related.isEmpty {
             EditorSection(ChipEditorCopy.relatedTags) {
                 LZRowGroup {
@@ -468,11 +470,21 @@ nonisolated enum ChipEditorCopy {
     static let occasionLabel = "Which time"
     static let orderLabel = "Order"
     static let photoTags = "PHOTO TAGS"
+
+    /// "car", "car and sea", "car, park and sea".
+    static func list(_ items: [String]) -> String {
+        items.count <= 2 ? items.joined(separator: " and ") : items.dropLast().joined(separator: ", ") + " and " + items.last!
+    }
+    static let alsoTagged = "ALSO TAGGED"
     static let relatedTags = "RELATED TAGS"
     static let includeRelated = "Include related tags"
 
     /// What a photo-tag chip keeps.
     static func explanation(_ match: VisualMatch) -> String {
+        if match.described {
+            let tags = match.tags.isEmpty ? "" : " Photos your iPhone also tagged \(ChipEditorCopy.list(match.tags)) rank higher."
+            return "Lahza’s image model looks for photos like “\(match.concept)”, on the iPhone. Nothing leaves it.\(tags)"
+        }
         let related = match.related.isEmpty ? "" : " Photos with only a related tag show under Less sure."
         return "Photos your iPhone tagged \(match.tags.first ?? match.concept), on the iPhone. Nothing leaves it.\(related)"
     }

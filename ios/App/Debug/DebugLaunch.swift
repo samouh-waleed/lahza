@@ -224,13 +224,16 @@ struct DebugLaunch {
             dependencies.queryAtLaunch = query
             labels.append("query")
         }
-        // The image model goes with Vision only (the seed's and the fakes' pictures are drawn).
-        if dependencies.visual == .vision, model != false, let folder = ModelLocator.folder(override: modelDirectory) {
-            dependencies.embedders = ModelFolderEmbedderSource(folder: folder)
+        // The image model goes with Vision only (the seed's and the fakes' pictures are drawn: the seed has stand-in
+        // vectors, and reads descriptions with the text model when one is given).
+        if model != false, let folder = ModelLocator.folder(override: modelDirectory) {
+            if dependencies.visual == .vision { dependencies.embedders = ModelFolderEmbedderSource(folder: folder) }
             let text = ModelFolderTextEncoder(folder: folder)
-            if text.model != nil { dependencies.textEncoder = text }
+            if text.model != nil, dependencies.visual != .off { dependencies.textEncoder = text }
             labels.append("model")
         }
+        // The seed's stand-in vectors come with it (no label: the seed's says so).
+        if dependencies.visual == .seed, model != false { dependencies.seedVectors = true }
         if dependencies.visual != .vision { dependencies.albums = FakeAlbumSource() }
         if labAuto {
             dependencies.labelLabAuto = true

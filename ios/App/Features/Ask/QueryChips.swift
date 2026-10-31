@@ -31,13 +31,23 @@ nonisolated struct QueryChipModel: Identifiable, Hashable {
             let supported = capabilities.supports(slot.value)
             let words = slot.value.phrase()
             var title = supported ? AskCopy.capitalized(words) : AskCopy.notYet(words, kind: slot.kind)
-            if supported, case .visual(let typed) = slot.value, let concept = VisualVocabulary.english.concept(for: typed) { title = concept.chip }
+            var described = false
+            if supported, case .visual(let typed) = slot.value {
+                if let concept = VisualVocabulary.english.concept(for: typed) {
+                    title = concept.chip
+                } else {
+                    // Words with no photo tag, searched by the image model.
+                    title = AskCopy.described(typed)
+                    described = true
+                }
+            }
             let symbol: String = switch slot.value {
             case .place: "mappin"
             case .time: "calendar"
             case .media(let media): media.kinds == [.video] ? "film" : "photo"
             case .event: "airplane"
             case .order(let order): AskCopy.orderSymbol(order)
+            case .visual where described: "sparkles"
             case .visual where supported: "tag"
             case .people, .visual, .text: "info.circle"
             }

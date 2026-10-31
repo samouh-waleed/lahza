@@ -17,6 +17,17 @@ public struct MediaFilter: Sendable, Hashable, Codable {
 
     public var isEmpty: Bool { kinds.isEmpty && flags.isEmpty }
 
+    /// Only "selfies" (photos, front camera): with the image model the word describes the photo instead.
+    var isSelfiesOnly: Bool { flags == [.selfie] && kinds.subtracting([.photo]).isEmpty }
+
+    /// The filter without the selfie flag; nil when nothing is left.
+    var withoutSelfies: MediaFilter? {
+        var filter = self
+        filter.flags.remove(.selfie)
+        if filter.flags.isEmpty, filter.kinds.subtracting([.photo]).isEmpty, flags.contains(.selfie) { return nil }
+        return filter.isEmpty ? nil : filter
+    }
+
     /// A screenshot or screen-recording filter lifts the ranking penalty those get otherwise.
     public var asksForScreenCaptures: Bool { !flags.isDisjoint(with: [.screenshot, .screenRecording]) }
 }

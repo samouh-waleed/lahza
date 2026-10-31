@@ -57,6 +57,8 @@ import Observation
     public var isAvailable: Bool { engine != nil }
 
     @ObservationIgnored private let engine: SearchEngine?
+    /// The image model's side of search, read at every search (the vector file opens once the model is on the iPhone).
+    @ObservationIgnored private let embedding: @MainActor @Sendable () async -> EmbeddingContext
     @ObservationIgnored private let index: IndexStore
     @ObservationIgnored private let kv: any KeyValueStore
     @ObservationIgnored private let clock: any AppClock
@@ -84,9 +86,11 @@ import Observation
     /// `-LZResultsLayout`).
     public init(engine: SearchEngine?, index: IndexStore, kv: any KeyValueStore, clock: any AppClock,
                 scope: @escaping @MainActor () -> SearchScope = { .wholeLibrary }, initialLayout: ResultsLayout? = nil,
+                embedding: @escaping @MainActor @Sendable () async -> EmbeddingContext = { .off },
                 rerunDelay: Duration = .seconds(2), examplesDelay: Duration = .seconds(3), previewDelay: Duration = .milliseconds(150)) {
         self.engine = engine
         self.index = index
+        self.embedding = embedding
         self.kv = kv
         self.clock = clock
         self.scope = scope
@@ -280,7 +284,7 @@ import Observation
     public func scoreboardSearch(_ request: SearchRequest) async throws -> SearchResult? {
         guard let engine, let reader = index.reader else { return nil }
         let context = SearchIndexContext(index.status, appleMapsEnabled: index.appleMapsNames)
-        return try await engine.search(request, reader: reader, writer: index.writer, index: context)
+        return try await engine.search(request, reader: reader, writer: index.writer, index: context, embedding: await embedding())
     }
     #endif
 
@@ -320,9 +324,11 @@ import Observation
         let progress: @Sendable (SearchProgress) -> Void = { [weak self] progress in
             Task { @MainActor in self?.progressed(progress, run: run, quiet: keepsResult) }
         }
+        let embedding = embedding
         searchTask = Task { [weak self] in
             do {
-                let result = try await engine.search(request, reader: reader, writer: writer, index: context, isRerun: isRerun, progress: progress)
+                let result = try await engine.search(request, reader: reader, writer: writer, index: context, embedding: await embedding(),
+                                                     isRerun: isRerun, progress: progress)
                 self?.finished(result, run: run)
             } catch is CancellationError {
                 return

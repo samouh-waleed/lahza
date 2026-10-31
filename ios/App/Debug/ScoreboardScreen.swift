@@ -14,7 +14,7 @@ struct ScoreboardScreen: View {
     @Environment(AppModel.self) private var model
     @State private var board = ScoreboardModel()
     @State private var editing: EditedEntry?
-    @State private var mode = ScoreboardModel.Mode.tags
+    @State private var mode = ScoreboardModel.Mode.full
     @State private var showsHeldOut = false
 
     struct EditedEntry: Identifiable {
@@ -183,20 +183,29 @@ private struct ScoreboardEntryEditor: View {
 
 /// The scoreboard's state: the book (its own file), the albums read, and the latest run.
 @MainActor @Observable final class ScoreboardModel {
+    /// The ablation ladder (E30): each layer must raise the dev split and lose nothing on the held-out third.
     enum Mode: String, CaseIterable, Hashable {
-        case tags, v0, apple
+        case full, calibrated, fused, model, tags, v0, apple
 
         var title: String {
             switch self {
-            case .tags: "Lahza, tags only (Milestone A)"
-            case .v0: "Lahza, no content (search v0)"
+            case .full: "Lahza, everything (with whole outings)"
+            case .calibrated: "Tags + model, calibrated"
+            case .fused: "Tags + model, uncalibrated"
+            case .model: "Model only"
+            case .tags: "Tags only (Milestone A)"
+            case .v0: "No content (search v0)"
             case .apple: "Apple Photos (AP albums)"
             }
         }
 
         var signals: ContentSignals {
             switch self {
-            case .tags, .apple: .all
+            case .full, .apple: .all
+            case .calibrated: [.tags, .model, .calibration]
+            case .fused: [.tags, .model]
+            case .model: [.model, .calibration]
+            case .tags: [.tags]
             case .v0: .none
             }
         }

@@ -96,12 +96,19 @@ public struct VisualMatch: Sendable, Hashable {
     public var related: [String]
     /// The related tags were removed in the editor (they are listed, not searched).
     public var relatedRemoved: Bool
+    /// A description the image model searches ("red car parked by the sea"); `tags` are the photo tags of the concepts
+    /// it names, which add to it.
+    public var described: Bool
+    /// How many people it asks for, checked with Vision's counts ("without people", "two people").
+    public var people: String?
 
-    public init(concept: String, tags: [String], related: [String], relatedRemoved: Bool = false) {
+    public init(concept: String, tags: [String], related: [String], relatedRemoved: Bool = false, described: Bool = false, people: String? = nil) {
         self.concept = concept
         self.tags = tags
         self.related = related
         self.relatedRemoved = relatedRemoved
+        self.described = described
+        self.people = people
     }
 }
 
@@ -360,6 +367,9 @@ public struct NoMatch: Sendable, Hashable {
         /// No checked photo has the tags of words about what's in photos ("No photos tagged scuba diving among 1,204
         /// checked").
         case notTagged
+        /// A description no photo matches confidently: no likely or precise tag, and the image model is sure of none.
+        /// What it found waits behind "Show weaker".
+        case notConfident
         case nothing
     }
 
@@ -426,8 +436,9 @@ public struct SearchIndexContext: Sendable, Hashable {
 }
 
 extension SearchCapabilities {
-    /// What an index can search: words about what's in photos once it has a Vision pass.
-    public init(_ status: IndexStatus) {
-        self.init(visual: status.visual != nil)
+    /// What an index can search: words about what's in photos once it has a Vision pass, and any description once
+    /// photos have vectors and the text model is on the iPhone (`textModel`).
+    public init(_ status: IndexStatus, textModel: Bool = false) {
+        self.init(visual: status.visual != nil, freeText: textModel && (status.visual?.embedded ?? 0) > 0)
     }
 }
